@@ -1,0 +1,62 @@
+/* MinCore © 2025 — MIT */
+package dev.mincore.api.storage;
+
+import java.sql.Connection;
+import java.sql.SQLException;
+
+/**
+ * Shared database helpers available to add-ons.
+ *
+ * <p>Lets add-ons borrow connections, use advisory locks, or run actions with retry.
+ */
+public interface ExtensionDatabase {
+  /**
+   * Borrows a JDBC {@link Connection} from the pool.
+   *
+   * @return connection (caller must {@link Connection#close() close} it)
+   * @throws SQLException on pool/database error
+   */
+  Connection borrowConnection() throws SQLException;
+
+  /**
+   * Attempts to acquire a named advisory lock immediately.
+   *
+   * @param name lock name (quoted and escaped)
+   * @return {@code true} if lock acquired
+   */
+  boolean tryAdvisoryLock(String name);
+
+  /**
+   * Releases a previously acquired advisory lock.
+   *
+   * @param name lock name
+   */
+  void releaseAdvisoryLock(String name);
+
+  /**
+   * Runs {@code action} with simple retries; throws the last {@link SQLException} if all attempts
+   * fail.
+   *
+   * @param <T> result type
+   * @param action work to perform
+   * @return result
+   * @throws SQLException last error if all retries fail
+   */
+  <T> T withRetry(SQLSupplier<T> action) throws SQLException;
+
+  /**
+   * Functional supplier that can throw {@link SQLException}.
+   *
+   * @param <T> result type
+   */
+  @FunctionalInterface
+  interface SQLSupplier<T> {
+    /**
+     * Supplies a value, possibly performing JDBC work.
+     *
+     * @return supplied value
+     * @throws java.sql.SQLException if the supplier fails
+     */
+    T get() throws java.sql.SQLException;
+  }
+}

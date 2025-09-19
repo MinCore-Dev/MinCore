@@ -1,0 +1,11 @@
+pluginManagement {
+  repositories {
+    // Fabric publishes Loom snapshots here:
+    maven { url = "https://maven.fabricmc.net/" }
+    // Also keep the usual ones so other plugins (like Spotless) resolve:
+    gradlePluginPortal()
+    mavenCentral()
+  }
+}
+
+rootProject.name = "MinCore"

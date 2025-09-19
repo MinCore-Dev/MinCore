@@ -1,0 +1,66 @@
+plugins {
+  id 'fabric-loom' version "${loom_version}"
+  id 'java'
+  id 'maven-publish'
+  id 'com.diffplug.spotless' version '6.25.0'
+}
+
+group = 'dev.mincore'
+version = '0.1.0'
+
+java {
+  toolchain { languageVersion = JavaLanguageVersion.of(21) }
+  withJavadocJar()
+  withSourcesJar()
+}
+
+repositories {
+  mavenCentral()
+  maven { url = "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+  minecraft "com.mojang:minecraft:${minecraft_version}"
+  mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+  modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+  modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+
+  // Driver is provided externally on disk; compileOnly is fine for IDEs.
+  compileOnly "org.mariadb.jdbc:mariadb-java-client:3.4.1"
+
+  // Bundle Hikari inside the mod jar.
+  include(implementation("com.zaxxer:HikariCP:5.1.0"))
+
+}
+
+// Only the main sourceset (the JDBC loader now lives in main)
+sourceSets {
+  main {
+    java.srcDirs = ["src/main/java"]
+    resources.srcDirs = ["src/main/resources"]
+  }
+}
+
+tasks.withType(JavaCompile).configureEach {
+  options.encoding = 'UTF-8'
+  options.release = 21
+}
+
+spotless {
+  java {
+    googleJavaFormat()
+    target "src/**/*.java"
+    removeUnusedImports()
+    indentWithSpaces()
+    endWithNewline()
+    licenseHeader '/* MinCore © 2025 — MIT */\n'
+  }
+}
+
+publishing {
+  publications {
+    mavenJava(MavenPublication) {
+      from components.java
+    }
+  }
+}

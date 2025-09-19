@@ -1,0 +1,27 @@
+// MinCore — example production config (JSON5 allowed: comments, trailing commas)
+{
+  core: {
+    db: {
+      host: "127.0.0.1",
+      port: 3306,
+      database: "mincore",
+      user: "mincore",
+      password: "change-me",
+      tls: { enabled: false },
+      pool: {
+        maxPoolSize: 10,
+        minimumIdle: 2,
+        connectionTimeoutMs: 10000,
+        idleTimeoutMs: 600000,
+        maxLifetimeMs: 1700000
+      }
+    },
+    session: { forceUtc: true },
+    runtime: { reconnectEveryS: 10 },
+    jobs: {
+      backup: { enabled: false, schedule: "0 0 5 * * *", outDir: "./backups/mincore", onMissed: "skip", gzip: true },
+      cleanup: { idempotencySweep: { enabled: true, schedule: "0 30 4 * * *", retentionDays: 30, batchLimit: 5000 } }
+    },
+    log: { json: false }
+  }
+}

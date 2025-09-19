@@ -1,0 +1,17 @@
+# Gradle build output
+/build/
+
+# Gradle cache
+.gradle/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Logs and misc
+*.log
+[Dd]esktop.ini
+
+# Ignore all jars by default, but keep the Gradle wrapper jar
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
