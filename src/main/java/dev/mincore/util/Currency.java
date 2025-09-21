@@ -27,10 +27,17 @@ public final class Currency {
    *
    * @param s input string
    * @return parsed amount in smallest units
-   * @throws NumberFormatException if not a valid number
+   * @throws IllegalArgumentException if not a valid non-negative number
    */
   public static long parse(String s) {
-    String t = s.replace("_", "").trim().toLowerCase(Locale.ROOT);
+    if (s == null) {
+      throw new IllegalArgumentException("Input may not be null");
+    }
+    String t =
+        s.replace("_", "")
+            .replace(",", "")
+            .trim()
+            .toLowerCase(Locale.ROOT);
     double base;
     long mul = 1L;
     if (t.endsWith("k")) {
