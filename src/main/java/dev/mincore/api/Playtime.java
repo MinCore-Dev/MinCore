@@ -39,8 +39,8 @@ public interface Playtime extends AutoCloseable {
   long seconds(UUID player);
 
   /**
-   * Reset the accumulated seconds for a player. The current live session (if any) is preserved and
-   * will still count in {@link #seconds(UUID)}.
+   * Reset the accumulated seconds for a player. Any active session is restarted at "now" so future
+   * queries treat the reset as an immediate fresh start.
    *
    * @param player player UUID
    */

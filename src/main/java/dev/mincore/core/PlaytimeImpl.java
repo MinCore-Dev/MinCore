@@ -59,6 +59,7 @@ public final class PlaytimeImpl implements Playtime {
   public void reset(UUID player) {
     if (player == null) return;
     totalSeconds.remove(player);
+    liveSessionStartS.computeIfPresent(player, (id, start) -> nowS());
   }
 
   @Override
