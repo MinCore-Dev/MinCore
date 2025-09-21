@@ -10,6 +10,7 @@ import dev.mincore.api.Wallets;
 import dev.mincore.api.events.CoreEvents;
 import dev.mincore.api.storage.ExtensionDatabase;
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -73,12 +74,25 @@ public final class CoreServices implements Services, java.io.Closeable {
 
     HikariDataSource ds = null;
     RuntimeException last = null;
+    boolean bootstrapped = false;
     for (int attempt = 1; attempt <= Math.max(1, cfg.db().pool().startupAttempts()); attempt++) {
       try {
         ds = new HikariDataSource(hc);
         break;
       } catch (RuntimeException ex) {
         last = ex;
+        SQLException sql = findSqlException(ex);
+        if (!bootstrapped && DbBootstrap.isUnknownDatabase(sql)) {
+          LOG.warn("(mincore) database missing; attempting bootstrap");
+          try {
+            DbBootstrap.ensureDatabaseExists(
+                cfg.db().jdbcUrl(), cfg.db().user(), cfg.db().password());
+            bootstrapped = true;
+            continue;
+          } catch (SQLException bootstrapEx) {
+            LOG.warn("(mincore) database bootstrap failed: {}", bootstrapEx.getMessage());
+          }
+        }
         LOG.warn(
             "(mincore) failed to start Hikari (attempt {}/{}): {}",
             attempt,
@@ -170,5 +184,16 @@ public final class CoreServices implements Services, java.io.Closeable {
   // === Package-private accessor needed by LedgerImpl.install(...) ===
   HikariDataSource pool() {
     return pool;
+  }
+
+  private static SQLException findSqlException(Throwable error) {
+    Throwable cursor = error;
+    while (cursor != null) {
+      if (cursor instanceof SQLException sql) {
+        return sql;
+      }
+      cursor = cursor.getCause();
+    }
+    return null;
   }
 }

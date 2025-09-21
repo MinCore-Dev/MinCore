@@ -47,4 +47,13 @@ class CurrencyTest {
   void formatAddsSeparators() {
     assertEquals("1,234", Currency.format(1_234L));
   }
+
+  @Test
+  @DisplayName("formatCompact uses suffixes")
+  void formatCompactUsesSuffixes() {
+    assertEquals("950", Currency.formatCompact(950));
+    assertEquals("1.50k", Currency.formatCompact(1_500));
+    assertEquals("2.00M", Currency.formatCompact(2_000_000));
+    assertEquals("3.00B", Currency.formatCompact(3_000_000_000L));
+  }
 }

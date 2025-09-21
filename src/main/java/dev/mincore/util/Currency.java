@@ -13,13 +13,40 @@ public final class Currency {
   private Currency() {}
 
   /**
-   * Format smallest currency units (long) into a human-readable string.
+   * Format smallest currency units (long) into a human-readable string with grouping separators.
    *
    * @param units amount in smallest units
    * @return formatted amount like "1,234"
    */
   public static String format(long units) {
     return GROUP.format(units);
+  }
+
+  /**
+   * Format using compact suffixes ({@code k}, {@code M}, {@code B}) for large values.
+   *
+   * <p>Examples:
+   *
+   * <ul>
+   *   <li>{@code formatCompact(950)} ⇒ {@code "950"}
+   *   <li>{@code formatCompact(12_000)} ⇒ {@code "12.00k"}
+   *   <li>{@code formatCompact(3_500_000)} ⇒ {@code "3.50M"}
+   * </ul>
+   *
+   * @param units amount in smallest units
+   * @return compact formatted string
+   */
+  public static String formatCompact(long units) {
+    if (Math.abs(units) >= 1_000_000_000L) {
+      return String.format(Locale.ROOT, "%.2fB", units / 1_000_000_000.0);
+    }
+    if (Math.abs(units) >= 1_000_000L) {
+      return String.format(Locale.ROOT, "%.2fM", units / 1_000_000.0);
+    }
+    if (Math.abs(units) >= 1_000L) {
+      return String.format(Locale.ROOT, "%.2fk", units / 1_000.0);
+    }
+    return Long.toString(units);
   }
 
   /**

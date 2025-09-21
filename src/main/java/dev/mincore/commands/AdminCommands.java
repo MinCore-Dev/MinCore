@@ -9,14 +9,19 @@ import dev.mincore.MinCoreMod;
 import dev.mincore.api.Players;
 import dev.mincore.api.Players.PlayerRef;
 import dev.mincore.core.BackupExporter;
+import dev.mincore.core.BackupImporter;
 import dev.mincore.core.Config;
+import dev.mincore.core.Migrations;
 import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.util.Timezones;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -62,6 +67,55 @@ public final class AdminCommands {
 
           root.then(
               CommandManager.literal("diag").executes(ctx -> cmdDiag(ctx.getSource(), services)));
+
+          LiteralArgumentBuilder<ServerCommandSource> migrate = CommandManager.literal("migrate");
+          migrate.then(
+              CommandManager.literal("--check")
+                  .executes(ctx -> cmdMigrateCheck(ctx.getSource(), services)));
+          migrate.then(
+              CommandManager.literal("--apply")
+                  .executes(ctx -> cmdMigrateApply(ctx.getSource(), services)));
+          root.then(migrate);
+
+          LiteralArgumentBuilder<ServerCommandSource> export = CommandManager.literal("export");
+          export.then(
+              CommandManager.literal("--all")
+                  .then(
+                      CommandManager.argument("options", StringArgumentType.greedyString())
+                          .executes(
+                              ctx ->
+                                  cmdExportAll(
+                                      ctx.getSource(),
+                                      services,
+                                      StringArgumentType.getString(ctx, "options"))))
+                  .executes(ctx -> cmdExportAll(ctx.getSource(), services, "")));
+          root.then(export);
+
+          LiteralArgumentBuilder<ServerCommandSource> restore = CommandManager.literal("restore");
+          restore
+              .then(
+                  CommandManager.argument("options", StringArgumentType.greedyString())
+                      .executes(
+                          ctx ->
+                              cmdRestore(
+                                  ctx.getSource(),
+                                  services,
+                                  StringArgumentType.getString(ctx, "options"))))
+              .executes(ctx -> cmdRestore(ctx.getSource(), services, ""));
+          root.then(restore);
+
+          LiteralArgumentBuilder<ServerCommandSource> doctor = CommandManager.literal("doctor");
+          doctor
+              .then(
+                  CommandManager.argument("options", StringArgumentType.greedyString())
+                      .executes(
+                          ctx ->
+                              cmdDoctor(
+                                  ctx.getSource(),
+                                  services,
+                                  StringArgumentType.getString(ctx, "options"))))
+              .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
+          root.then(doctor);
 
           LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
           ledger.then(
@@ -236,6 +290,170 @@ public final class AdminCommands {
     return ok ? 1 : 0;
   }
 
+  private static int cmdMigrateCheck(final ServerCommandSource src, final Services services) {
+    try (Connection c = services.database().borrowConnection();
+        PreparedStatement ps = c.prepareStatement("SELECT MAX(version) FROM core_schema_version");
+        ResultSet rs = ps.executeQuery()) {
+      long version = 0;
+      if (rs.next()) {
+        version = rs.getLong(1);
+      }
+      int expected = Migrations.currentVersion();
+      final long current = version;
+      final int target = expected;
+      if (current >= target) {
+        src.sendFeedback(
+            () -> Text.translatable("mincore.cmd.migrate.check.ok", current, target), false);
+        return 1;
+      }
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.migrate.check.pending", current, target), false);
+      return 0;
+    } catch (SQLException e) {
+      LOG.warn("(mincore) /mincore migrate --check failed", e);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.migrate.check.fail", e.getClass().getSimpleName()),
+          false);
+      return 0;
+    }
+  }
+
+  private static int cmdMigrateApply(final ServerCommandSource src, final Services services) {
+    if (!services.database().tryAdvisoryLock("mincore_migrate")) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.migrate.locked"), false);
+      return 0;
+    }
+    try {
+      Migrations.apply(services);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.migrate.apply.ok", Migrations.currentVersion()),
+          false);
+      return 1;
+    } catch (RuntimeException e) {
+      LOG.warn("(mincore) /mincore migrate --apply failed", e);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.migrate.apply.fail", e.getMessage()), false);
+      return 0;
+    } finally {
+      services.database().releaseAdvisoryLock("mincore_migrate");
+    }
+  }
+
+  private static int cmdExportAll(
+      final ServerCommandSource src, final Services services, final String rawOptions) {
+    Config cfg = MinCoreMod.config();
+    if (cfg == null) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.export.fail", "config"), false);
+      return 0;
+    }
+    try {
+      ExportOptions opts = ExportOptions.parse(rawOptions);
+      Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.export.started", outDir.toString()), false);
+      BackupExporter.Result result =
+          BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
+      src.sendFeedback(
+          () ->
+              Text.translatable(
+                  "mincore.cmd.export.ok",
+                  result.file().toString(),
+                  result.players(),
+                  result.attributes(),
+                  result.ledger()),
+          false);
+      return 1;
+    } catch (IllegalArgumentException e) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.export.usage", e.getMessage()), false);
+      return 0;
+    } catch (Exception e) {
+      LOG.warn("(mincore) /mincore export failed", e);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.export.fail", e.getClass().getSimpleName()), false);
+      return 0;
+    }
+  }
+
+  private static int cmdRestore(
+      final ServerCommandSource src, final Services services, final String rawOptions) {
+    try {
+      RestoreOptions opts = RestoreOptions.parse(rawOptions);
+      if (opts.from == null) {
+        throw new IllegalArgumentException("--from <dir> required");
+      }
+      if (opts.mode == BackupImporter.Mode.MERGE && !opts.overwrite) {
+        throw new IllegalArgumentException("merge mode requires --overwrite");
+      }
+      src.sendFeedback(
+          () ->
+              Text.translatable(
+                  "mincore.cmd.restore.started",
+                  opts.mode.name().toLowerCase(Locale.ROOT),
+                  opts.from.toString()),
+          false);
+      BackupImporter.Result result =
+          BackupImporter.restore(services, opts.from, opts.mode, opts.strategy, opts.overwrite);
+      src.sendFeedback(
+          () ->
+              Text.translatable(
+                  "mincore.cmd.restore.ok",
+                  result.source().toString(),
+                  result.players(),
+                  result.attributes(),
+                  result.ledger()),
+          false);
+      return 1;
+    } catch (IllegalArgumentException e) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.restore.usage", e.getMessage()), false);
+      return 0;
+    } catch (IOException | SQLException e) {
+      LOG.warn("(mincore) /mincore restore failed", e);
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.restore.fail", e.getMessage()), false);
+      return 0;
+    }
+  }
+
+  private static int cmdDoctor(
+      final ServerCommandSource src, final Services services, final String rawOptions) {
+    DoctorOptions opts;
+    try {
+      opts = DoctorOptions.parse(rawOptions);
+    } catch (IllegalArgumentException e) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.usage", e.getMessage()), false);
+      return 0;
+    }
+    if (!opts.hasAny()) {
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.doctor.usage", "specify at least one flag"), false);
+      return 0;
+    }
+
+    boolean ok = true;
+    try (Connection c = services.database().borrowConnection()) {
+      if (opts.counts) {
+        ok &= doctorCounts(src, c);
+      }
+      if (opts.fk) {
+        ok &= doctorForeignKeys(src, c);
+      }
+      if (opts.orphans) {
+        ok &= doctorOrphans(src, c);
+      }
+      if (opts.analyze) {
+        ok &= doctorAnalyze(src, c);
+      }
+      if (opts.locks) {
+        ok &= doctorLocks(src, services);
+      }
+    } catch (SQLException e) {
+      LOG.warn("(mincore) /mincore doctor failed", e);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.doctor.fail", e.getClass().getSimpleName()), false);
+      return 0;
+    }
+    return ok ? 1 : 0;
+  }
+
   private static boolean reportSchemaVersion(ServerCommandSource src, Connection c) {
     try (PreparedStatement ps = c.prepareStatement("SELECT MAX(version) FROM core_schema_version");
         ResultSet rs = ps.executeQuery()) {
@@ -248,6 +466,289 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.diag.schemaMissing"), false);
     }
     return false;
+  }
+
+  private static boolean doctorCounts(ServerCommandSource src, Connection c) throws SQLException {
+    String sql =
+        "SELECT (SELECT COUNT(*) FROM players) AS players,"
+            + " (SELECT COUNT(*) FROM player_attributes) AS attrs,"
+            + " (SELECT COUNT(*) FROM core_ledger) AS ledger,"
+            + " (SELECT COUNT(*) FROM core_requests) AS requests";
+    try (PreparedStatement ps = c.prepareStatement(sql);
+        ResultSet rs = ps.executeQuery()) {
+      if (rs.next()) {
+        final long players = rs.getLong("players");
+        final long attrs = rs.getLong("attrs");
+        final long ledger = rs.getLong("ledger");
+        final long requests = rs.getLong("requests");
+        src.sendFeedback(
+            () -> Text.translatable("mincore.cmd.doctor.counts", players, attrs, ledger, requests),
+            false);
+      }
+    }
+    return true;
+  }
+
+  private static boolean doctorForeignKeys(ServerCommandSource src, Connection c)
+      throws SQLException {
+    String sql =
+        "SELECT COUNT(*) FROM player_attributes pa"
+            + " LEFT JOIN players p ON pa.owner_uuid = p.uuid"
+            + " WHERE p.uuid IS NULL";
+    try (PreparedStatement ps = c.prepareStatement(sql);
+        ResultSet rs = ps.executeQuery()) {
+      long count = rs.next() ? rs.getLong(1) : 0L;
+      if (count == 0) {
+        src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.fk.ok"), false);
+        return true;
+      }
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.fk.fail", count), false);
+      return false;
+    }
+  }
+
+  private static boolean doctorOrphans(ServerCommandSource src, Connection c) throws SQLException {
+    long missingFrom;
+    try (PreparedStatement ps =
+            c.prepareStatement(
+                "SELECT COUNT(*) FROM core_ledger l"
+                    + " LEFT JOIN players p ON l.from_uuid = p.uuid"
+                    + " WHERE l.from_uuid IS NOT NULL AND p.uuid IS NULL");
+        ResultSet rs = ps.executeQuery()) {
+      missingFrom = rs.next() ? rs.getLong(1) : 0L;
+    }
+    long missingTo;
+    try (PreparedStatement ps =
+            c.prepareStatement(
+                "SELECT COUNT(*) FROM core_ledger l"
+                    + " LEFT JOIN players p ON l.to_uuid = p.uuid"
+                    + " WHERE l.to_uuid IS NOT NULL AND p.uuid IS NULL");
+        ResultSet rs = ps.executeQuery()) {
+      missingTo = rs.next() ? rs.getLong(1) : 0L;
+    }
+    long total = missingFrom + missingTo;
+    if (total == 0) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.orphans.ok"), false);
+      return true;
+    }
+    src.sendFeedback(
+        () -> Text.translatable("mincore.cmd.doctor.orphans.fail", missingFrom, missingTo, total),
+        false);
+    return false;
+  }
+
+  private static boolean doctorAnalyze(ServerCommandSource src, Connection c) throws SQLException {
+    try (Statement st = c.createStatement()) {
+      st.execute("ANALYZE TABLE players");
+      st.execute("ANALYZE TABLE player_attributes");
+      st.execute("ANALYZE TABLE core_ledger");
+    }
+    src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.analyze.ok"), false);
+    return true;
+  }
+
+  private static boolean doctorLocks(ServerCommandSource src, Services services) {
+    if (services.database().tryAdvisoryLock("mincore_doctor_lock")) {
+      src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.locks.ok"), false);
+      services.database().releaseAdvisoryLock("mincore_doctor_lock");
+      return true;
+    }
+    src.sendFeedback(() -> Text.translatable("mincore.cmd.doctor.locks.fail"), false);
+    return false;
+  }
+
+  private static List<String> tokenize(String raw) {
+    List<String> tokens = new ArrayList<>();
+    if (raw == null) {
+      return tokens;
+    }
+    String s = raw.trim();
+    if (s.isEmpty()) {
+      return tokens;
+    }
+    StringBuilder current = new StringBuilder();
+    boolean inQuote = false;
+    char quoteChar = 0;
+    for (int i = 0; i < s.length(); i++) {
+      char ch = s.charAt(i);
+      if (inQuote) {
+        if (ch == quoteChar) {
+          inQuote = false;
+        } else {
+          current.append(ch);
+        }
+        continue;
+      }
+      if (ch == '\'' || ch == '"') {
+        inQuote = true;
+        quoteChar = ch;
+        continue;
+      }
+      if (Character.isWhitespace(ch)) {
+        if (current.length() > 0) {
+          tokens.add(current.toString());
+          current.setLength(0);
+        }
+        continue;
+      }
+      current.append(ch);
+    }
+    if (inQuote) {
+      throw new IllegalArgumentException("unterminated quote in arguments");
+    }
+    if (current.length() > 0) {
+      tokens.add(current.toString());
+    }
+    return tokens;
+  }
+
+  private static final class ExportOptions {
+    final Path outDir;
+    final Boolean gzipOverride;
+
+    private ExportOptions(Path outDir, Boolean gzipOverride) {
+      this.outDir = outDir;
+      this.gzipOverride = gzipOverride;
+    }
+
+    static ExportOptions parse(String raw) {
+      Path out = null;
+      Boolean gzip = null;
+      List<String> tokens = tokenize(raw);
+      for (int i = 0; i < tokens.size(); i++) {
+        String token = tokens.get(i);
+        switch (token) {
+          case "--out" -> {
+            if (i + 1 >= tokens.size()) {
+              throw new IllegalArgumentException("--out requires a path");
+            }
+            out = Path.of(tokens.get(++i));
+          }
+          case "--gzip" -> {
+            if (i + 1 >= tokens.size()) {
+              throw new IllegalArgumentException("--gzip requires true|false");
+            }
+            String val = tokens.get(++i).toLowerCase(Locale.ROOT);
+            if (!"true".equals(val) && !"false".equals(val)) {
+              throw new IllegalArgumentException("--gzip must be true or false");
+            }
+            gzip = Boolean.valueOf(val);
+          }
+          case "" -> {
+            // ignore empty
+          }
+          default -> throw new IllegalArgumentException("unknown option: " + token);
+        }
+      }
+      return new ExportOptions(out, gzip);
+    }
+  }
+
+  private static final class RestoreOptions {
+    final BackupImporter.Mode mode;
+    final BackupImporter.FreshStrategy strategy;
+    final Path from;
+    final boolean overwrite;
+
+    private RestoreOptions(
+        BackupImporter.Mode mode,
+        BackupImporter.FreshStrategy strategy,
+        Path from,
+        boolean overwrite) {
+      this.mode = mode;
+      this.strategy = strategy;
+      this.from = from;
+      this.overwrite = overwrite;
+    }
+
+    static RestoreOptions parse(String raw) {
+      BackupImporter.Mode mode = null;
+      BackupImporter.FreshStrategy strategy = BackupImporter.FreshStrategy.ATOMIC;
+      Path from = null;
+      boolean overwrite = false;
+      List<String> tokens = tokenize(raw);
+      for (int i = 0; i < tokens.size(); i++) {
+        String token = tokens.get(i);
+        switch (token) {
+          case "--mode" -> {
+            if (i + 1 >= tokens.size()) {
+              throw new IllegalArgumentException("--mode requires fresh|merge");
+            }
+            String val = tokens.get(++i).toLowerCase(Locale.ROOT);
+            mode =
+                switch (val) {
+                  case "fresh" -> BackupImporter.Mode.FRESH;
+                  case "merge" -> BackupImporter.Mode.MERGE;
+                  default -> throw new IllegalArgumentException("unknown mode: " + val);
+                };
+          }
+          case "--atomic" -> strategy = BackupImporter.FreshStrategy.ATOMIC;
+          case "--staging" -> strategy = BackupImporter.FreshStrategy.STAGING;
+          case "--from" -> {
+            if (i + 1 >= tokens.size()) {
+              throw new IllegalArgumentException("--from requires a path");
+            }
+            from = Path.of(tokens.get(++i));
+          }
+          case "--overwrite" -> overwrite = true;
+          case "" -> {
+            // ignore
+          }
+          default -> throw new IllegalArgumentException("unknown option: " + token);
+        }
+      }
+      if (mode == null) {
+        throw new IllegalArgumentException("--mode required");
+      }
+      if (mode == BackupImporter.Mode.MERGE) {
+        strategy = null;
+      }
+      return new RestoreOptions(mode, strategy, from, overwrite);
+    }
+  }
+
+  private static final class DoctorOptions {
+    final boolean fk;
+    final boolean orphans;
+    final boolean counts;
+    final boolean analyze;
+    final boolean locks;
+
+    private DoctorOptions(
+        boolean fk, boolean orphans, boolean counts, boolean analyze, boolean locks) {
+      this.fk = fk;
+      this.orphans = orphans;
+      this.counts = counts;
+      this.analyze = analyze;
+      this.locks = locks;
+    }
+
+    static DoctorOptions parse(String raw) {
+      boolean fk = false;
+      boolean orphans = false;
+      boolean counts = false;
+      boolean analyze = false;
+      boolean locks = false;
+      List<String> tokens = tokenize(raw);
+      for (String token : tokens) {
+        switch (token) {
+          case "--fk" -> fk = true;
+          case "--orphans" -> orphans = true;
+          case "--counts" -> counts = true;
+          case "--analyze" -> analyze = true;
+          case "--locks" -> locks = true;
+          case "" -> {
+            // ignore
+          }
+          default -> throw new IllegalArgumentException("unknown option: " + token);
+        }
+      }
+      return new DoctorOptions(fk, orphans, counts, analyze, locks);
+    }
+
+    boolean hasAny() {
+      return fk || orphans || counts || analyze || locks;
+    }
   }
 
   private static int cmdLedgerRecent(

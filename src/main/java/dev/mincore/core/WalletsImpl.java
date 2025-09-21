@@ -1,7 +1,9 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Wallets;
+import dev.mincore.api.Wallets.OperationResult;
 import dev.mincore.api.events.CoreEvents;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -56,22 +58,27 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public boolean deposit(UUID player, long amount, String reason) {
-    return deposit(player, amount, reason, autoKey());
+    return depositResult(player, amount, reason, autoKey()).ok();
   }
 
   @Override
   public boolean withdraw(UUID player, long amount, String reason) {
-    return withdraw(player, amount, reason, autoKey());
+    return withdrawResult(player, amount, reason, autoKey()).ok();
   }
 
   @Override
   public boolean transfer(UUID from, UUID to, long amount, String reason) {
-    return transfer(from, to, amount, reason, autoKey());
+    return transferResult(from, to, amount, reason, autoKey()).ok();
   }
 
   @Override
-  public boolean deposit(UUID player, long amount, String reason, String idemKey) {
-    if (player == null || amount < 0) return false;
+  public OperationResult depositResult(UUID player, long amount, String reason, String idemKey) {
+    if (player == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
+    }
+    if (amount < 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:deposit", null, player, amount, canonicalReason(reason));
     return applyIdempotent(
@@ -79,8 +86,13 @@ public final class WalletsImpl implements Wallets {
   }
 
   @Override
-  public boolean withdraw(UUID player, long amount, String reason, String idemKey) {
-    if (player == null || amount < 0) return false;
+  public OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey) {
+    if (player == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
+    }
+    if (amount < 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:withdraw", player, null, amount, canonicalReason(reason));
     return applyIdempotent(
@@ -88,23 +100,29 @@ public final class WalletsImpl implements Wallets {
   }
 
   @Override
-  public boolean transfer(UUID from, UUID to, long amount, String reason, String idemKey) {
-    if (from == null || to == null || amount < 0) return false;
+  public OperationResult transferResult(
+      UUID from, UUID to, long amount, String reason, String idemKey) {
+    if (from == null || to == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participants required");
+    }
+    if (amount < 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:transfer", from, to, amount, canonicalReason(reason));
     return applyIdempotent(
         "core:transfer", idemKey, payload, c -> applyTransfer(c, from, to, amount, cleanReason));
   }
 
-  private boolean applyDelta(Connection c, UUID player, long delta, String reason)
+  private OperationResult applyDelta(Connection c, UUID player, long delta, String reason)
       throws SQLException {
     PlayerBalance before = lockBalance(c, player);
     if (before == null) {
-      return false;
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player missing");
     }
     long newUnits = before.units + delta;
     if (newUnits < 0) {
-      return false;
+      return OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "balance would go negative");
     }
 
     long now = Instant.now().getEpochSecond();
@@ -113,13 +131,13 @@ public final class WalletsImpl implements Wallets {
     events.fireBalanceChanged(
         new CoreEvents.BalanceChangedEvent(
             player, seq, before.units, newUnits, reason, EVENT_VERSION));
-    return true;
+    return OperationResult.success();
   }
 
-  private boolean applyTransfer(Connection c, UUID from, UUID to, long amount, String reason)
-      throws SQLException {
+  private OperationResult applyTransfer(
+      Connection c, UUID from, UUID to, long amount, String reason) throws SQLException {
     if (from.equals(to)) {
-      return true; // no-op self transfer
+      return OperationResult.success(); // no-op self transfer
     }
     UUID first = compare(from, to) <= 0 ? from : to;
     UUID second = first.equals(from) ? to : from;
@@ -130,10 +148,10 @@ public final class WalletsImpl implements Wallets {
     PlayerBalance toBal = first.equals(from) ? secondBal : firstBal;
 
     if (fromBal == null || toBal == null) {
-      return false;
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participant missing");
     }
     if (fromBal.units < amount) {
-      return false;
+      return OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "insufficient funds");
     }
 
     long now = Instant.now().getEpochSecond();
@@ -151,7 +169,7 @@ public final class WalletsImpl implements Wallets {
             from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION));
     events.fireBalanceChanged(
         new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION));
-    return true;
+    return OperationResult.success();
   }
 
   private PlayerBalance lockBalance(Connection c, UUID uuid) throws SQLException {
@@ -195,7 +213,8 @@ public final class WalletsImpl implements Wallets {
     return 0L;
   }
 
-  private boolean applyIdempotent(String scope, String idemKey, String payload, TxWork work) {
+  private OperationResult applyIdempotent(
+      String scope, String idemKey, String payload, OpWork work) {
     String insert =
         "INSERT INTO core_requests(key_hash,scope,payload_hash,ok,created_at_s,expires_at_s) "
             + "VALUES(?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE key_hash=VALUES(key_hash)";
@@ -227,28 +246,31 @@ public final class WalletsImpl implements Wallets {
             int ok = rs.getInt(2);
             if (!java.util.Arrays.equals(ph, payloadHash)) {
               c.rollback();
-              LOG.info("(mincore) IDEMPOTENCY_MISMATCH scope={} key={}", scope, idemKey);
-              return false;
+              LOG.info("(mincore) {} idem mismatch key={}", scope, idemKey);
+              return OperationResult.failure(
+                  ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
             }
             if (ok == 1) {
               c.commit();
-              LOG.info("(mincore) IDEMPOTENCY_REPLAY scope={} key={}", scope, idemKey);
-              return true;
+              LOG.info("(mincore) {} replay key={}", scope, idemKey);
+              return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
             }
           }
         }
       }
 
-      boolean result;
+      OperationResult result;
       try {
         result = work.run(c);
       } catch (SQLException e) {
         c.rollback();
-        throw e;
+        ErrorCode code = mapSqlException(e);
+        LOG.warn("(mincore) {} sql failure", scope, e);
+        return OperationResult.failure(code, "database error");
       }
-      if (!result) {
+      if (!result.ok()) {
         c.rollback();
-        return false;
+        return result;
       }
 
       try (PreparedStatement done = c.prepareStatement(markOk)) {
@@ -257,11 +279,21 @@ public final class WalletsImpl implements Wallets {
         done.executeUpdate();
       }
       c.commit();
-      return true;
+      return result;
     } catch (SQLException e) {
-      LOG.warn("(mincore) idempotent op failed", e);
-      return false;
+      ErrorCode code = mapSqlException(e);
+      LOG.warn("(mincore) {} failed", scope, e);
+      return OperationResult.failure(code, "database error");
     }
+  }
+
+  private static ErrorCode mapSqlException(SQLException e) {
+    String state = e.getSQLState();
+    int vendor = e.getErrorCode();
+    if ("40001".equals(state) || vendor == 1213 || vendor == 1205) {
+      return ErrorCode.DEADLOCK_RETRY_EXHAUSTED;
+    }
+    return ErrorCode.CONNECTION_LOST;
   }
 
   private static String canonical(
@@ -325,8 +357,8 @@ public final class WalletsImpl implements Wallets {
   }
 
   @FunctionalInterface
-  private interface TxWork {
-    boolean run(Connection c) throws SQLException;
+  private interface OpWork {
+    OperationResult run(Connection c) throws SQLException;
   }
 
   private record PlayerBalance(UUID uuid, long units) {}
