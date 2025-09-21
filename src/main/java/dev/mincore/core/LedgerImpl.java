@@ -150,7 +150,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                       e.reason(),
                       true,
                       null,
-                      0L,
+                      e.seq(),
                       null,
                       null,
                       e.oldUnits(),

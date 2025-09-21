@@ -72,7 +72,8 @@ public final class MinCoreMod implements ModInitializer {
           var p = handler.player;
           UUID uuid = p.getUuid();
           String name = p.getGameProfile().getName();
-          services.players().ensureAccount(uuid, name);
+          long now = java.time.Instant.now().getEpochSecond();
+          services.players().upsertSeen(uuid, name, now);
         });
 
     // 7) Admin commands (db diag + ledger peek)

@@ -212,9 +212,8 @@ public final class AdminCommands {
   private static int cmdLedgerRecent(
       final ServerCommandSource src, final Services services, final int limit) {
     final String sql =
-        "SELECT id, ts_s, addon_id, kind, debit_units, credit_units, "
-            + "reason, actor_uuid, actor_name, target_uuid, target_name, idem_key "
-            + "FROM mincore_ledger "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
             + "ORDER BY id DESC "
             + "LIMIT ?";
     return printLedger(src, services.database(), sql, ps -> ps.setInt(1, Math.max(1, limit)));
@@ -227,7 +226,7 @@ public final class AdminCommands {
       final int limit) {
     UUID uuid = tryParseUuid(target);
     if (uuid == null) {
-      Players.PlayerView pv = services.players().getPlayerByName(target).orElse(null);
+      Players.PlayerRef pv = services.players().byName(target).orElse(null);
       if (pv == null) {
         src.sendFeedback(() -> Text.literal("No player matched: " + target), false);
         return 0;
@@ -237,11 +236,9 @@ public final class AdminCommands {
     final UUID u = uuid;
 
     final String sql =
-        "SELECT id, ts_s, addon_id, kind, debit_units, credit_units, "
-            + "reason, actor_uuid, actor_name, target_uuid, target_name, idem_key "
-            + "FROM mincore_ledger "
-            + "WHERE actor_uuid = UNHEX(REPLACE(?, '-', '')) "
-            + "   OR target_uuid = UNHEX(REPLACE(?, '-', '')) "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
+            + "WHERE from_uuid = ? OR to_uuid = ? "
             + "ORDER BY id DESC "
             + "LIMIT ?";
     return printLedger(
@@ -249,8 +246,8 @@ public final class AdminCommands {
         services.database(),
         sql,
         ps -> {
-          ps.setString(1, u.toString());
-          ps.setString(2, u.toString());
+          ps.setBytes(1, uuidToBytes(u));
+          ps.setBytes(2, uuidToBytes(u));
           ps.setInt(3, Math.max(1, limit));
         });
   }
@@ -262,9 +259,8 @@ public final class AdminCommands {
       final int limit) {
     final String like = "%" + needle + "%";
     final String sql =
-        "SELECT id, ts_s, addon_id, kind, debit_units, credit_units, "
-            + "reason, actor_uuid, actor_name, target_uuid, target_name, idem_key "
-            + "FROM mincore_ledger "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
             + "WHERE reason LIKE ? "
             + "ORDER BY id DESC "
             + "LIMIT ?";
@@ -284,9 +280,8 @@ public final class AdminCommands {
       final String addonId,
       final int limit) {
     final String sql =
-        "SELECT id, ts_s, addon_id, kind, debit_units, credit_units, "
-            + "reason, actor_uuid, actor_name, target_uuid, target_name, idem_key "
-            + "FROM mincore_ledger "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
             + "WHERE addon_id = ? "
             + "ORDER BY id DESC "
             + "LIMIT ?";
@@ -324,34 +319,45 @@ public final class AdminCommands {
           long id = rs.getLong("id");
           long ts = rs.getLong("ts_s");
           String addon = safe(rs.getString("addon_id"));
-          String kind = safe(rs.getString("kind"));
-          long debit = rs.getLong("debit_units");
-          long credit = rs.getLong("credit_units");
+          String op = safe(rs.getString("op"));
+          long amount = rs.getLong("amount");
+          boolean ok = rs.getBoolean("ok");
+          String code = safe(rs.getString("code"));
+          long seq = rs.getLong("seq");
+          String scope = safe(rs.getString("idem_scope"));
+          String fromStr = formatUuid(rs.getBytes("from_uuid"));
+          String toStr = formatUuid(rs.getBytes("to_uuid"));
           String reason = safe(rs.getString("reason"));
-          String actorName = safe(rs.getString("actor_name"));
-          String targetName = safe(rs.getString("target_name"));
 
-          String amount = (debit != 0L) ? ("- " + debit) : (credit != 0L ? ("+ " + credit) : "± 0");
+          StringBuilder line =
+              new StringBuilder()
+                  .append('#')
+                  .append(id)
+                  .append(" ts=")
+                  .append(ts)
+                  .append(" [")
+                  .append(addon)
+                  .append(':')
+                  .append(op)
+                  .append("] amt=")
+                  .append(amount)
+                  .append(" ok=")
+                  .append(ok ? "ok" : "fail")
+                  .append(" seq=")
+                  .append(seq)
+                  .append(" scope=")
+                  .append(scope.isEmpty() ? "-" : scope)
+                  .append(" from=")
+                  .append(fromStr)
+                  .append(" to=")
+                  .append(toStr)
+                  .append(" reason=")
+                  .append(reason.isEmpty() ? "-" : reason);
+          if (!code.isEmpty()) {
+            line.append(" code=").append(code);
+          }
 
-          String line =
-              "#"
-                  + id
-                  + " t="
-                  + ts
-                  + " ["
-                  + addon
-                  + ":"
-                  + kind
-                  + "] "
-                  + amount
-                  + " | "
-                  + actorName
-                  + " -> "
-                  + targetName
-                  + " | "
-                  + reason;
-
-          final String fline = line;
+          final String fline = line.toString();
           src.sendFeedback(() -> Text.literal(fline), false);
           count++;
         }
@@ -370,6 +376,34 @@ public final class AdminCommands {
 
   private static String safe(String s) {
     return (s == null) ? "" : s;
+  }
+
+  private static String formatUuid(byte[] raw) {
+    if (raw == null || raw.length != 16) {
+      return "-";
+    }
+    long msb = 0;
+    long lsb = 0;
+    for (int i = 0; i < 8; i++) {
+      msb = (msb << 8) | (raw[i] & 0xffL);
+    }
+    for (int i = 8; i < 16; i++) {
+      lsb = (lsb << 8) | (raw[i] & 0xffL);
+    }
+    return new UUID(msb, lsb).toString();
+  }
+
+  private static byte[] uuidToBytes(UUID uuid) {
+    long msb = uuid.getMostSignificantBits();
+    long lsb = uuid.getLeastSignificantBits();
+    byte[] out = new byte[16];
+    for (int i = 0; i < 8; i++) {
+      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
+    }
+    for (int i = 0; i < 8; i++) {
+      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
+    }
+    return out;
   }
 
   private static UUID tryParseUuid(String s) {
