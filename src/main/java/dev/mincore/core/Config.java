@@ -117,42 +117,74 @@ public final class Config {
     this.log = log;
   }
 
-  /** Database connection block. */
+  /**
+   * Database connection block.
+   *
+   * @return database settings
+   */
   public Db db() {
     return db;
   }
 
-  /** Runtime behavior (reconnect cadence, etc.). */
+  /**
+   * Runtime behavior (reconnect cadence, etc.).
+   *
+   * @return runtime configuration values
+   */
   public Runtime runtime() {
     return runtime;
   }
 
-  /** Timezone display configuration. */
+  /**
+   * Timezone display configuration.
+   *
+   * @return timezone display preferences
+   */
   public Time time() {
     return time;
   }
 
-  /** Localization configuration. */
+  /**
+   * Localization configuration.
+   *
+   * @return i18n settings
+   */
   public I18n i18n() {
     return i18n;
   }
 
-  /** Ledger configuration. */
+  /**
+   * Ledger configuration.
+   *
+   * @return ledger configuration block
+   */
   public Ledger ledger() {
     return ledger;
   }
 
-  /** Scheduled job configuration. */
+  /**
+   * Scheduled job configuration.
+   *
+   * @return job scheduling block
+   */
   public Jobs jobs() {
     return jobs;
   }
 
-  /** Logging configuration. */
+  /**
+   * Logging configuration.
+   *
+   * @return logging configuration block
+   */
   public Log log() {
     return log;
   }
 
-  /** Convenience accessor: whether the ledger is enabled. */
+  /**
+   * Convenience accessor: whether the ledger is enabled.
+   *
+   * @return {@code true} if the ledger subsystem should initialize
+   */
   public boolean ledgerEnabled() {
     return ledger.enabled();
   }
@@ -372,7 +404,18 @@ public final class Config {
     return Locale.forLanguageTag(code.replace('_', '-'));
   }
 
-  /** Database settings. */
+  /**
+   * Database settings parsed from {@code core.db}.
+   *
+   * @param host hostname or IP for the MariaDB/MySQL server
+   * @param port TCP port for the database service
+   * @param database schema name to use when connecting
+   * @param user database user with least-privilege grants
+   * @param password password for the configured {@code user}
+   * @param tlsEnabled whether to request TLS/SSL when connecting
+   * @param forceUtc whether to issue {@code SET time_zone='+00:00'} per connection
+   * @param pool pool tuning overrides applied to HikariCP
+   */
   public record Db(
       String host,
       int port,
@@ -383,7 +426,11 @@ public final class Config {
       boolean forceUtc,
       Pool pool) {
 
-    /** Fully formed JDBC URL (MariaDB tuned for UTF-8 + UTC). */
+    /**
+     * Fully formed JDBC URL (MariaDB tuned for UTF-8 + UTC).
+     *
+     * @return JDBC URL string for MariaDB connections
+     */
     public String jdbcUrl() {
       StringBuilder url =
           new StringBuilder("jdbc:mariadb://")
@@ -400,7 +447,16 @@ public final class Config {
     }
   }
 
-  /** Connection pool tuning. */
+  /**
+   * Connection pool tuning.
+   *
+   * @param maxPoolSize maximum number of pooled connections
+   * @param minimumIdle minimum number of idle connections to retain
+   * @param connectionTimeoutMs wait time when borrowing a connection
+   * @param idleTimeoutMs idle connection eviction threshold
+   * @param maxLifetimeMs maximum lifetime of each connection
+   * @param startupAttempts retry count when initializing the pool
+   */
   public record Pool(
       int maxPoolSize,
       int minimumIdle,
@@ -409,28 +465,73 @@ public final class Config {
       long maxLifetimeMs,
       int startupAttempts) {}
 
-  /** Runtime reconnect cadence. */
+  /**
+   * Runtime reconnect cadence.
+   *
+   * @param reconnectEveryS number of seconds between degraded-mode reconnect attempts
+   */
   public record Runtime(int reconnectEveryS) {}
 
-  /** Display timezone handling. */
+  /**
+   * Display timezone handling.
+   *
+   * @param display nested block describing defaults and overrides
+   */
   public record Time(Display display) {}
 
-  /** Player-visible timezone preferences. */
+  /**
+   * Player-visible timezone preferences.
+   *
+   * @param defaultZone server-wide default display zone
+   * @param allowPlayerOverride whether players may store their own timezone
+   * @param autoDetect whether the server attempts owner-only auto-detection
+   */
   public record Display(ZoneId defaultZone, boolean allowPlayerOverride, boolean autoDetect) {}
 
-  /** Localization configuration. */
+  /**
+   * Localization configuration.
+   *
+   * @param defaultLocale locale used when none is specified by players
+   * @param enabledLocales locales bundled with the mod
+   * @param fallbackLocale locale used when a translation key is missing
+   */
   public record I18n(Locale defaultLocale, List<String> enabledLocales, Locale fallbackLocale) {}
 
-  /** Ledger options. */
+  /**
+   * Ledger options.
+   *
+   * @param enabled whether the ledger subsystem should persist entries
+   * @param retentionDays optional retention policy for TTL cleanup
+   * @param jsonlMirror configuration for the JSONL mirror writer
+   */
   public record Ledger(boolean enabled, int retentionDays, JsonlMirror jsonlMirror) {}
 
-  /** JSONL mirror options. */
+  /**
+   * JSONL mirror options.
+   *
+   * @param enabled whether the JSONL mirror is active
+   * @param path destination file path for the mirror
+   */
   public record JsonlMirror(boolean enabled, String path) {}
 
-  /** Job blocks. */
+  /**
+   * Job blocks.
+   *
+   * @param backup configuration for the scheduled backup job
+   * @param cleanup configuration for maintenance sweeps
+   */
   public record Jobs(Backup backup, Cleanup cleanup) {}
 
-  /** Backup job configuration. */
+  /**
+   * Backup job configuration.
+   *
+   * @param enabled whether the scheduled backup should run
+   * @param schedule cron expression describing the run schedule
+   * @param outDir destination directory for export artifacts
+   * @param onMissed how to react when a scheduled execution was missed
+   * @param gzip whether to gzip the export output
+   * @param prune retention rules for older backups
+   */
   public record Backup(
       boolean enabled,
       String schedule,
@@ -439,22 +540,46 @@ public final class Config {
       boolean gzip,
       Prune prune) {}
 
-  /** Prune policy for backups. */
+  /**
+   * Prune policy for backups.
+   *
+   * @param keepDays maximum age in days to retain
+   * @param keepMax maximum number of backup files to keep
+   */
   public record Prune(int keepDays, int keepMax) {}
 
-  /** Cleanup job configuration wrapper. */
+  /**
+   * Cleanup job configuration wrapper.
+   *
+   * @param idempotencySweep job that trims expired idempotency entries
+   */
   public record Cleanup(IdempotencySweep idempotencySweep) {}
 
-  /** Idempotency sweep config. */
+  /**
+   * Idempotency sweep config.
+   *
+   * @param enabled whether the job should be scheduled
+   * @param schedule cron expression for execution times
+   * @param retentionDays how many days to keep completed entries
+   * @param batchLimit maximum rows deleted per batch iteration
+   */
   public record IdempotencySweep(
       boolean enabled, String schedule, int retentionDays, int batchLimit) {}
 
-  /** Logging block. */
+  /**
+   * Logging block.
+   *
+   * @param json whether to emit structured JSON logs
+   * @param slowQueryMs threshold for slow-query warnings
+   * @param level textual log level for the console logger
+   */
   public record Log(boolean json, long slowQueryMs, String level) {}
 
   /** On-missed schedule policy for backups. */
   public enum OnMissed {
+    /** Do nothing; missed executions are ignored. */
     SKIP,
+    /** Execute the missed job immediately when the server next starts. */
     RUN_AT_NEXT_STARTUP;
 
     static OnMissed from(String raw) {

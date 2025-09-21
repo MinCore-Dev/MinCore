@@ -29,7 +29,12 @@ public final class Scheduler {
 
   private Scheduler() {}
 
-  /** Installs jobs described in config. */
+  /**
+   * Installs jobs described in config.
+   *
+   * @param s service container exposing the scheduler + database helpers
+   * @param cfg runtime configuration that describes enabled jobs
+   */
   public static synchronized void install(Services s, Config cfg) {
     services = s;
     JOBS.clear();
@@ -57,12 +62,21 @@ public final class Scheduler {
     }
   }
 
-  /** Snapshot view for commands. */
+  /**
+   * Snapshot view for commands.
+   *
+   * @return immutable list of job status snapshots
+   */
   public static List<JobStatus> jobs() {
     return JOBS.values().stream().map(JobHandle::snapshot).sorted().collect(Collectors.toList());
   }
 
-  /** Runs the named job immediately. */
+  /**
+   * Runs the named job immediately.
+   *
+   * @param name job identifier, e.g., {@code "backup"}
+   * @return {@code true} if the job was found and scheduled
+   */
   public static boolean runNow(String name) {
     JobHandle job = JOBS.get(name);
     if (job == null) {
@@ -162,14 +176,31 @@ public final class Scheduler {
 
   /** Immutable job status snapshot. */
   public static final class JobStatus implements Comparable<JobStatus> {
+    /** Unique job identifier. */
     public final String name;
+
+    /** Cron expression configured for the job. */
     public final String schedule;
+
+    /** Short human-readable description. */
     public final String description;
+
+    /** Next scheduled execution time in UTC. */
     public volatile Instant nextRun;
+
+    /** Timestamp of the most recent execution. */
     public volatile Instant lastRun;
+
+    /** Whether the job is currently executing. */
     public volatile boolean running;
+
+    /** Last error message if execution failed. */
     public volatile String lastError;
+
+    /** Successful run counter. */
     public volatile long successCount;
+
+    /** Failed run counter. */
     public volatile long failureCount;
 
     private JobStatus(String name, String schedule, String description) {

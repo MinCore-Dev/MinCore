@@ -37,7 +37,11 @@ public final class AdminCommands {
 
   private AdminCommands() {}
 
-  /** Registers all admin commands. */
+  /**
+   * Registers all admin commands.
+   *
+   * @param services service container used to back command handlers
+   */
   public static void register(final Services services) {
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,

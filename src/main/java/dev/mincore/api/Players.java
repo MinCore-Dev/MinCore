@@ -50,22 +50,46 @@ public interface Players {
 
   /** Immutable projection of a player row. */
   interface PlayerRef {
-    /** Player UUID. */
+    /**
+     * Player UUID.
+     *
+     * @return player UUID
+     */
     UUID uuid();
 
-    /** Last known username. */
+    /**
+     * Last known username.
+     *
+     * @return username string
+     */
     String name();
 
-    /** Creation time (epoch seconds, UTC). */
+    /**
+     * Creation time (epoch seconds, UTC).
+     *
+     * @return creation timestamp
+     */
     long createdAtS();
 
-    /** Last update time (epoch seconds, UTC). */
+    /**
+     * Last update time (epoch seconds, UTC).
+     *
+     * @return update timestamp
+     */
     long updatedAtS();
 
-    /** Last seen time (epoch seconds, UTC) or {@code null}. */
+    /**
+     * Last seen time (epoch seconds, UTC) or {@code null}.
+     *
+     * @return seen timestamp or {@code null}
+     */
     Long seenAtS();
 
-    /** Wallet balance in smallest currency units. */
+    /**
+     * Wallet balance in smallest currency units.
+     *
+     * @return balance in minor units
+     */
     long balanceUnits();
   }
 }

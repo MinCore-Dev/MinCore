@@ -338,6 +338,14 @@ public final class BackupExporter {
   }
 
   /** Result metadata for a backup run. */
+  /**
+   * Summary of an export run.
+   *
+   * @param file final archive path that was written
+   * @param players number of player records exported
+   * @param attributes number of attribute rows exported
+   * @param ledger number of ledger entries exported
+   */
   public record Result(Path file, long players, long attributes, long ledger) {}
 
   /** Simple OutputStream wrapper that updates a MessageDigest. */

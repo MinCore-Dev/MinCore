@@ -20,6 +20,11 @@ import net.minecraft.text.Text;
 public final class PlaytimeCommand {
   private PlaytimeCommand() {}
 
+  /**
+   * Registers the `/playtime` command hierarchy.
+   *
+   * @param services service container providing playtime + players access
+   */
   public static void register(Services services) {
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,

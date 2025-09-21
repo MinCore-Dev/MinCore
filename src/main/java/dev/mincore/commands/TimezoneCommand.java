@@ -19,6 +19,11 @@ public final class TimezoneCommand {
   private TimezoneCommand() {}
 
   /** Registers the command tree. */
+  /**
+   * Registers the `/timezone` command hierarchy.
+   *
+   * @param services service container used for player + attribute access
+   */
   public static void register(Services services) {
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
