@@ -97,6 +97,14 @@ public interface Wallets {
     return transferResult(from, to, amount, reason, idemKey).ok();
   }
 
+  /**
+   * Deposits into a player's balance and returns a structured result.
+   *
+   * @param player player UUID
+   * @param amount amount (must be &gt; 0)
+   * @param reason short reason
+   * @return structured outcome describing success/failure
+   */
   default OperationResult depositResult(UUID player, long amount, String reason) {
     return depositResult(player, amount, reason, autoKey());
   }
@@ -112,6 +120,14 @@ public interface Wallets {
    */
   OperationResult depositResult(UUID player, long amount, String reason, String idemKey);
 
+  /**
+   * Withdraws from a player's balance and returns a structured result.
+   *
+   * @param player player UUID
+   * @param amount amount (must be &gt; 0)
+   * @param reason short reason
+   * @return structured outcome describing success/failure
+   */
   default OperationResult withdrawResult(UUID player, long amount, String reason) {
     return withdrawResult(player, amount, reason, autoKey());
   }
@@ -127,6 +143,15 @@ public interface Wallets {
    */
   OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey);
 
+  /**
+   * Transfers between players and returns a structured result.
+   *
+   * @param from sender UUID
+   * @param to recipient UUID
+   * @param amount amount (must be &gt; 0)
+   * @param reason short reason
+   * @return structured outcome describing success/failure
+   */
   default OperationResult transferResult(UUID from, UUID to, long amount, String reason) {
     return transferResult(from, to, amount, reason, autoKey());
   }
@@ -143,9 +168,19 @@ public interface Wallets {
    */
   OperationResult transferResult(UUID from, UUID to, long amount, String reason, String idemKey);
 
-  /** Rich result describing a wallet mutation outcome. */
+  /**
+   * Rich result describing a wallet mutation outcome.
+   *
+   * @param ok whether the operation succeeded
+   * @param code canonical or semantic error code (may be {@code null} on success)
+   * @param message optional human-readable message
+   */
   record OperationResult(boolean ok, ErrorCode code, String message) {
-    /** Success without additional context. */
+    /**
+     * Creates a success result without additional context.
+     *
+     * @return success outcome with {@link #ok()} {@code true}
+     */
     public static OperationResult success() {
       return new OperationResult(true, null, null);
     }
@@ -153,16 +188,33 @@ public interface Wallets {
     /**
      * Success with an additional semantic {@link ErrorCode}, e.g. {@link
      * ErrorCode#IDEMPOTENCY_REPLAY}.
+     *
+     * @param code semantic code describing the success
+     * @param message optional human-readable message (may be {@code null})
+     * @return success outcome with additional context
      */
     public static OperationResult success(ErrorCode code, String message) {
       return new OperationResult(true, Objects.requireNonNull(code, "code"), message);
     }
 
-    /** Failure with a canonical {@link ErrorCode}. */
+    /**
+     * Failure with a canonical {@link ErrorCode}.
+     *
+     * @param code canonical error code
+     * @param message optional human-readable message (may be {@code null})
+     * @return failure outcome with {@link #ok()} {@code false}
+     */
     public static OperationResult failure(ErrorCode code, String message) {
       return new OperationResult(false, Objects.requireNonNull(code, "code"), message);
     }
 
+    /**
+     * Canonical constructor enforcing invariant checks.
+     *
+     * @param ok whether the operation succeeded
+     * @param code canonical error code (required on failure)
+     * @param message optional human-readable message
+     */
     public OperationResult {
       if (!ok && code == null) {
         throw new IllegalArgumentException("failure results require an error code");

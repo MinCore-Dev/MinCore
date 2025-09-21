@@ -86,14 +86,14 @@ final class DbHealth {
     }
     try (Connection c = ds.getConnection();
         PreparedStatement read = c.prepareStatement("SELECT 1");
-        PreparedStatement write = c.prepareStatement("SET @mincore_probe = ?")) {
+        PreparedStatement write =
+            c.prepareStatement("UPDATE core_requests SET expires_at_s = expires_at_s WHERE 1=0")) {
       try (ResultSet rs = read.executeQuery()) {
         while (rs.next()) {
           // drain result set to ensure the read completes
         }
       }
-      write.setInt(1, 1);
-      write.execute();
+      write.executeUpdate();
       markSuccess();
     } catch (Exception e) {
       maybeBootstrap(e);

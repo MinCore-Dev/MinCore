@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Ledger;
 import dev.mincore.api.events.CoreEvents.BalanceChangedEvent;
+import dev.mincore.util.Uuids;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +38,6 @@ import org.slf4j.LoggerFactory;
  *   <li>Expose a {@link Ledger} implementation for add-ons to record operations with optional
  *       idempotency.
  *   <li>Perform periodic TTL cleanup when {@link Config.Ledger#retentionDays()} is positive.
- *   <li>Perform periodic TTL cleanup when {@link Config#ledgerRetentionDays()} is positive.
  * </ul>
  *
  * <p><strong>Thread-safety</strong> — Stateless aside from shared {@link DataSource}; uses a new
@@ -366,9 +366,9 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         ps.setString(i++, addonId);
         ps.setString(i++, op);
         if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
-        else ps.setBytes(i++, uuidToBytes(from));
+        else ps.setBytes(i++, Uuids.toBytes(from));
         if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
-        else ps.setBytes(i++, uuidToBytes(to));
+        else ps.setBytes(i++, Uuids.toBytes(to));
         ps.setLong(i++, amount);
         ps.setString(i++, reason);
         ps.setBoolean(i++, ok);
@@ -488,7 +488,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         ORDER BY id DESC LIMIT ?
         """,
         ps -> {
-          byte[] b = uuidToBytes(player);
+          byte[] b = Uuids.toBytes(player);
           ps.setBytes(1, b);
           ps.setBytes(2, b);
           ps.setInt(3, Math.max(1, Math.min(200, limit)));
@@ -669,16 +669,6 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     } catch (Exception e) {
       return null;
     }
-  }
-
-  private static byte[] uuidToBytes(UUID u) {
-    if (u == null) return null;
-    long msb = u.getMostSignificantBits();
-    long lsb = u.getLeastSignificantBits();
-    byte[] b = new byte[16];
-    for (int i = 0; i < 8; i++) b[i] = (byte) (msb >>> (8 * (7 - i)));
-    for (int i = 0; i < 8; i++) b[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
-    return b;
   }
 
   private static UUID bytesToUuid(byte[] b) {

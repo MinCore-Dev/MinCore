@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import dev.mincore.util.Uuids;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,7 +25,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.UUID;
 import java.util.zip.GZIPInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,8 +51,16 @@ public final class BackupImporter {
     STAGING
   }
 
-  /** Summary of an import run. */
-  public record Result(Path source, long players, long attributes, long ledger) {}
+  /**
+   * Summary of an import run.
+   *
+   * @param source snapshot file processed
+   * @param players number of player rows imported
+   * @param attributes number of attribute rows imported
+   * @param eventSeq number of event sequence rows imported
+   * @param ledger number of ledger rows imported
+   */
+  public record Result(Path source, long players, long attributes, long eventSeq, long ledger) {}
 
   /**
    * Restores a snapshot created by {@link BackupExporter}.
@@ -90,7 +98,8 @@ public final class BackupImporter {
         clearTables(c);
         Counters counters = importSnapshot(file, new FreshHandler(c));
         c.commit();
-        return new Result(file, counters.players, counters.attributes, counters.ledger);
+        return new Result(
+            file, counters.players, counters.attributes, counters.eventSeq, counters.ledger);
       } catch (Exception e) {
         try {
           c.rollback();
@@ -119,7 +128,8 @@ public final class BackupImporter {
       try {
         Counters counters = importSnapshot(file, handler);
         c.commit();
-        return new Result(file, counters.players, counters.attributes, counters.ledger);
+        return new Result(
+            file, counters.players, counters.attributes, counters.eventSeq, counters.ledger);
       } catch (Exception e) {
         try {
           c.rollback();
@@ -145,8 +155,8 @@ public final class BackupImporter {
     try (Statement st = c.createStatement()) {
       st.executeUpdate("DELETE FROM core_ledger");
       st.executeUpdate("DELETE FROM player_attributes");
-      st.executeUpdate("DELETE FROM players");
       st.executeUpdate("DELETE FROM player_event_seq");
+      st.executeUpdate("DELETE FROM players");
     }
   }
 
@@ -179,6 +189,10 @@ public final class BackupImporter {
           case "player_attributes" -> {
             handler.handleAttribute(obj);
             counters.attributes++;
+          }
+          case "player_event_seq" -> {
+            handler.handleEventSeq(obj);
+            counters.eventSeq++;
           }
           case "core_ledger" -> {
             handler.handleLedger(obj);
@@ -254,20 +268,7 @@ public final class BackupImporter {
   }
 
   private static byte[] uuidToBytes(String value) {
-    if (value == null || value.isBlank()) {
-      return null;
-    }
-    UUID uuid = UUID.fromString(value);
-    byte[] out = new byte[16];
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) (msb >>> (8 * (7 - i)));
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
-    }
-    return out;
+    return Uuids.fromString(value);
   }
 
   private static byte[] hexToBytes(String value) {
@@ -310,12 +311,15 @@ public final class BackupImporter {
 
     void handleLedger(JsonObject obj) throws SQLException;
 
+    default void handleEventSeq(JsonObject obj) throws SQLException {}
+
     default void closeQuietly() {}
   }
 
   private static final class Counters {
     long players;
     long attributes;
+    long eventSeq;
     long ledger;
   }
 
@@ -323,6 +327,7 @@ public final class BackupImporter {
     private final PreparedStatement insertPlayer;
     private final PreparedStatement insertAttr;
     private final PreparedStatement insertLedger;
+    private final PreparedStatement insertSeq;
 
     FreshHandler(Connection c) throws SQLException {
       this.insertPlayer =
@@ -339,6 +344,7 @@ public final class BackupImporter {
                   + "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
                   + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      this.insertSeq = c.prepareStatement("INSERT INTO player_event_seq(uuid,seq) VALUES(?,?)");
     }
 
     @Override
@@ -444,10 +450,22 @@ public final class BackupImporter {
     }
 
     @Override
+    public void handleEventSeq(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player_event_seq uuid in snapshot");
+      }
+      insertSeq.setBytes(1, uuid);
+      insertSeq.setLong(2, longOrZero(obj, "seq"));
+      insertSeq.executeUpdate();
+    }
+
+    @Override
     public void closeQuietly() {
       close(insertLedger);
       close(insertAttr);
       close(insertPlayer);
+      close(insertSeq);
     }
   }
 
@@ -457,6 +475,7 @@ public final class BackupImporter {
     private final PreparedStatement insertLedger;
     private final PreparedStatement existsLedger;
     private final PreparedStatement deleteLedger;
+    private final PreparedStatement upsertSeq;
     private final boolean overwrite;
 
     MergeHandler(Connection c, boolean overwrite) throws SQLException {
@@ -485,6 +504,10 @@ public final class BackupImporter {
       this.deleteLedger =
           c.prepareStatement(
               "DELETE FROM core_ledger WHERE ts_s=? AND addon_id=? AND op=? AND seq=? AND reason=?");
+      this.upsertSeq =
+          c.prepareStatement(
+              "INSERT INTO player_event_seq(uuid,seq) VALUES(?,?) "
+                  + "ON DUPLICATE KEY UPDATE seq=GREATEST(seq, VALUES(seq))");
     }
 
     @Override
@@ -616,12 +639,24 @@ public final class BackupImporter {
     }
 
     @Override
+    public void handleEventSeq(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player_event_seq uuid in snapshot");
+      }
+      upsertSeq.setBytes(1, uuid);
+      upsertSeq.setLong(2, longOrZero(obj, "seq"));
+      upsertSeq.executeUpdate();
+    }
+
+    @Override
     public void closeQuietly() {
       close(deleteLedger);
       close(existsLedger);
       close(insertLedger);
       close(upsertAttr);
       close(upsertPlayer);
+      close(upsertSeq);
     }
   }
 
