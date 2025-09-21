@@ -48,7 +48,6 @@ public final class MinCoreMod implements ModInitializer {
   @Override
   public void onInitialize() {
     LOG.info("(mincore) booting MinCore 0.2.0");
-
     // 1) Ensure MariaDB driver is present before the pool tries to connect.
     dev.mincore.jdbc.DriverLoader.tryLoadMariaDbDriver();
 
@@ -89,7 +88,8 @@ public final class MinCoreMod implements ModInitializer {
 
     // 8) Scheduler hooks (backups, sweeps, etc.)
     Scheduler.install(services, cfg);
-
+    // 8) Scheduler hooks (backups, sweeps, etc.)
+    Scheduler.install(services);
     // 9) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
         server -> {

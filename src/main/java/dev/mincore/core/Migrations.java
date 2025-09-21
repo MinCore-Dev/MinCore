@@ -16,8 +16,10 @@ public final class Migrations {
   /**
    * Applies idempotent DDL. Each statement is executed independently; failures are logged and the
    * migrator proceeds with remaining statements.
+
    *
    * @param services service container supplying the database connection
+
    */
   public static void apply(Services services) {
     final String[] ddl = {

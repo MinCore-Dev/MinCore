@@ -20,6 +20,12 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import dev.mincore.api.Players;
+import dev.mincore.api.storage.ExtensionDatabase;
+import dev.mincore.core.Services;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.UUID;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
@@ -41,12 +47,23 @@ public final class AdminCommands {
    * Registers all admin commands.
    *
    * @param services service container used to back command handlers
+
+  private AdminCommands() {}
+
+  /** Hook once during mod init. Call from MinCoreMod.onInitialize() after bootstrap(). */
+  /**
+   * Registers all /mincore admin commands with Brigadier.
+   *
+   * @param services core service container used by command handlers
    */
   public static void register(final Services services) {
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
             CommandRegistryAccess registryAccess,
             CommandManager.RegistrationEnvironment environment) -> buildTree(dispatcher, services));
+            CommandManager.RegistrationEnvironment environment) -> {
+          buildTree(dispatcher, services);
+        });
   }
 
   private static void buildTree(
@@ -54,6 +71,12 @@ public final class AdminCommands {
     LiteralArgumentBuilder<ServerCommandSource> root =
         CommandManager.literal("mincore").requires(src -> src.hasPermissionLevel(4));
 
+
+    // /mincore
+    LiteralArgumentBuilder<ServerCommandSource> root =
+        CommandManager.literal("mincore").requires(src -> src.hasPermissionLevel(4));
+
+    // /mincore db
     LiteralArgumentBuilder<ServerCommandSource> db = CommandManager.literal("db");
     db.then(CommandManager.literal("ping").executes(ctx -> cmdDbPing(ctx.getSource(), services)));
     db.then(CommandManager.literal("info").executes(ctx -> cmdDbInfo(ctx.getSource(), services)));
@@ -62,6 +85,14 @@ public final class AdminCommands {
         CommandManager.literal("diag").executes(ctx -> cmdDiag(ctx.getSource(), services));
 
     LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
+    // /mincore diag
+    LiteralArgumentBuilder<ServerCommandSource> diag =
+        CommandManager.literal("diag").executes(ctx -> cmdDiag(ctx.getSource(), services));
+
+    // /mincore ledger
+    LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
+
+    // /mincore ledger recent [limit]
     ledger.then(
         CommandManager.literal("recent")
             .then(
@@ -73,6 +104,8 @@ public final class AdminCommands {
                                 services,
                                 IntegerArgumentType.getInteger(ctx, "limit"))))
             .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
+
+    // /mincore ledger player <name|uuid> [limit]
     ledger.then(
         CommandManager.literal("player")
             .then(
@@ -93,6 +126,9 @@ public final class AdminCommands {
                                 services,
                                 StringArgumentType.getString(ctx, "target"),
                                 10))));
+
+
+    // /mincore ledger reason <substring> [limit]
     ledger.then(
         CommandManager.literal("reason")
             .then(
@@ -113,6 +149,9 @@ public final class AdminCommands {
                                 services,
                                 StringArgumentType.getString(ctx, "substring"),
                                 10))));
+
+
+    // /mincore ledger addon <addonId> [limit]
     ledger.then(
         CommandManager.literal("addon")
             .then(
@@ -156,9 +195,16 @@ public final class AdminCommands {
     root.then(ledger);
     root.then(jobs);
     root.then(backup);
+    root.then(db);
+    root.then(diag);
+    root.then(ledger);
 
     dispatcher.register(root);
   }
+
+  // ----------------------------------------------------------------------
+  // Handlers
+  // ----------------------------------------------------------------------
 
   private static int cmdDbPing(final ServerCommandSource src, final Services services) {
     long pingMs;
@@ -166,6 +212,8 @@ public final class AdminCommands {
       long t0 = System.nanoTime();
       try (PreparedStatement ps = c.prepareStatement("SELECT 1")) {
         try (ResultSet rs = ps.executeQuery()) {
+      try (java.sql.Statement st = c.createStatement()) {
+        try (ResultSet rs = st.executeQuery("SELECT 1")) {
           while (rs.next()) {
             // drain
           }
@@ -178,6 +226,13 @@ public final class AdminCommands {
       LOG.warn("(mincore) /mincore db ping failed", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.db.ping.fail", e.getClass().getSimpleName()), false);
+      final String msg = "DB OK: connect=pooled, ping=" + pingMs + "ms";
+      src.sendFeedback(() -> Text.literal(msg), false);
+      return 1;
+    } catch (Exception e) {
+      LOG.warn("(mincore) /mincore db ping failed", e);
+      final String msg = "DB ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+      src.sendFeedback(() -> Text.literal(msg), false);
       return 0;
     }
   }
@@ -209,6 +264,16 @@ public final class AdminCommands {
       LOG.warn("(mincore) /mincore db info failed", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.db.ping.fail", e.getClass().getSimpleName()), false);
+      java.sql.DatabaseMetaData md = c.getMetaData();
+      final String url = safe(md.getURL());
+      final String product =
+          safe(md.getDatabaseProductName()) + " " + safe(md.getDatabaseProductVersion());
+      src.sendFeedback(() -> Text.literal("DB: " + url + " (" + product + ")"), false);
+      return 1;
+    } catch (Exception e) {
+      LOG.warn("(mincore) /mincore db info failed", e);
+      final String msg = "DB ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+      src.sendFeedback(() -> Text.literal(msg), false);
       return 0;
     }
   }
@@ -248,6 +313,23 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.diag.schemaMissing"), false);
     }
     return false;
+    int ok = 1;
+    try (Connection c = services.database().borrowConnection()) {
+      src.sendFeedback(() -> Text.literal("Database   : OK (borrowed from pool)"), false);
+      try (java.sql.Statement st = c.createStatement()) {
+        try (ResultSet rs = st.executeQuery("SELECT @@session.time_zone")) {
+          if (rs.next()) {
+            final String tz = rs.getString(1);
+            src.sendFeedback(() -> Text.literal("SessionTZ  : " + tz), false);
+          }
+        }
+      }
+    } catch (Exception e) {
+      ok = 0;
+      src.sendFeedback(
+          () -> Text.literal("Database   : ERROR " + e.getClass().getSimpleName()), false);
+    }
+    return ok;
   }
 
   private static int cmdLedgerRecent(
@@ -256,6 +338,11 @@ public final class AdminCommands {
         "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger ORDER BY id DESC LIMIT ?";
     return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, limit)));
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
+            + "ORDER BY id DESC "
+            + "LIMIT ?";
+    return printLedger(src, services.database(), sql, ps -> ps.setInt(1, Math.max(1, limit)));
   }
 
   private static int cmdLedgerByPlayer(
@@ -268,6 +355,7 @@ public final class AdminCommands {
       Players.PlayerRef pv = services.players().byName(target).orElse(null);
       if (pv == null) {
         src.sendFeedback(() -> Text.translatable("mincore.err.player.unknown"), false);
+        src.sendFeedback(() -> Text.literal("No player matched: " + target), false);
         return 0;
       }
       uuid = pv.uuid();
@@ -280,6 +368,15 @@ public final class AdminCommands {
     return printLedger(
         src,
         services,
+
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
+            + "WHERE from_uuid = ? OR to_uuid = ? "
+            + "ORDER BY id DESC "
+            + "LIMIT ?";
+    return printLedger(
+        src,
+        services.database(),
         sql,
         ps -> {
           ps.setBytes(1, uuidToBytes(u));
@@ -300,6 +397,15 @@ public final class AdminCommands {
     return printLedger(
         src,
         services,
+
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
+            + "WHERE reason LIKE ? "
+            + "ORDER BY id DESC "
+            + "LIMIT ?";
+    return printLedger(
+        src,
+        services.database(),
         sql,
         ps -> {
           ps.setString(1, like);
@@ -318,6 +424,14 @@ public final class AdminCommands {
     return printLedger(
         src,
         services,
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, idem_scope "
+            + "FROM core_ledger "
+            + "WHERE addon_id = ? "
+            + "ORDER BY id DESC "
+            + "LIMIT ?";
+    return printLedger(
+        src,
+        services.database(),
         sql,
         ps -> {
           ps.setString(1, addonId);
@@ -396,6 +510,12 @@ public final class AdminCommands {
   }
 
   private interface Binder {
+  // ----------------------------------------------------------------------
+  // Helpers
+  // ----------------------------------------------------------------------
+
+  @FunctionalInterface
+  private interface PStmt {
     void bind(PreparedStatement ps) throws Exception;
   }
 
@@ -405,12 +525,17 @@ public final class AdminCommands {
       final String sql,
       final Binder binder) {
     try (Connection c = services.database().borrowConnection();
+      final ExtensionDatabase db,
+      final String sql,
+      final PStmt binder) {
+    try (Connection c = db.borrowConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
       binder.bind(ps);
       try (ResultSet rs = ps.executeQuery()) {
         int count = 0;
         src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.header"), false);
         ZoneId zone = Timezones.resolve(src, services);
+        src.sendFeedback(() -> Text.literal("— recent ledger entries —"), false);
         while (rs.next()) {
           long id = rs.getLong("id");
           long ts = rs.getLong("ts_s");
@@ -453,6 +578,41 @@ public final class AdminCommands {
         }
         if (count == 0) {
           src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.none"), false);
+
+          StringBuilder line =
+              new StringBuilder()
+                  .append('#')
+                  .append(id)
+                  .append(" ts=")
+                  .append(ts)
+                  .append(" [")
+                  .append(addon)
+                  .append(':')
+                  .append(op)
+                  .append("] amt=")
+                  .append(amount)
+                  .append(" ok=")
+                  .append(ok ? "ok" : "fail")
+                  .append(" seq=")
+                  .append(seq)
+                  .append(" scope=")
+                  .append(scope.isEmpty() ? "-" : scope)
+                  .append(" from=")
+                  .append(fromStr)
+                  .append(" to=")
+                  .append(toStr)
+                  .append(" reason=")
+                  .append(reason.isEmpty() ? "-" : reason);
+          if (!code.isEmpty()) {
+            line.append(" code=").append(code);
+          }
+
+          final String fline = line.toString();
+          src.sendFeedback(() -> Text.literal(fline), false);
+          count++;
+        }
+        if (count == 0) {
+          src.sendFeedback(() -> Text.literal("(no rows)"), false);
         }
       }
       return 1;
@@ -460,6 +620,8 @@ public final class AdminCommands {
       LOG.warn("(mincore) ledger query failed", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.ledger.error", e.getClass().getSimpleName()), false);
+      final String msg = "Ledger ERROR: " + e.getClass().getSimpleName() + ": " + e.getMessage();
+      src.sendFeedback(() -> Text.literal(msg), false);
       return 0;
     }
   }
@@ -477,6 +639,7 @@ public final class AdminCommands {
       case Connection.TRANSACTION_SERIALIZABLE -> "SERIALIZABLE";
       default -> String.valueOf(iso);
     };
+    return (s == null) ? "" : s;
   }
 
   private static String formatUuid(byte[] raw) {

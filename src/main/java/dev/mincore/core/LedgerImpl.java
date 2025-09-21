@@ -36,6 +36,7 @@ import org.slf4j.LoggerFactory;
  *   <li>Expose a {@link Ledger} implementation for add-ons to record operations with optional
  *       idempotency.
  *   <li>Perform periodic TTL cleanup when {@link Config.Ledger#retentionDays()} is positive.
+ *   <li>Perform periodic TTL cleanup when {@link Config#ledgerRetentionDays()} is positive.
  * </ul>
  *
  * <p><strong>Thread-safety</strong> — Stateless aside from shared {@link DataSource}; uses a new
@@ -92,6 +93,12 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
             ledgerCfg.retentionDays());
 
     if (!ledgerCfg.enabled()) {
+            cfg.ledgerEnabled(),
+            cfg.ledgerFileEnabled(),
+            Path.of(cfg.ledgerFilePath()),
+            cfg.ledgerRetentionDays());
+
+    if (!cfg.ledgerEnabled()) {
       LOG.info("(mincore) ledger: disabled by config");
       return inst;
     }
@@ -164,6 +171,9 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     if (ledgerCfg.retentionDays() > 0) {
       ScheduledExecutorService sch = services.scheduler();
       long days = ledgerCfg.retentionDays();
+    if (cfg.ledgerRetentionDays() > 0) {
+      ScheduledExecutorService sch = services.scheduler();
+      long days = cfg.ledgerRetentionDays();
       sch.scheduleAtFixedRate(
           () -> {
             try (var c = inst.ds.getConnection();
@@ -185,6 +195,8 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         "(mincore) ledger: enabled (retention={} days, file={})",
         ledgerCfg.retentionDays(),
         ledgerCfg.jsonlMirror().enabled());
+        cfg.ledgerRetentionDays(),
+        cfg.ledgerFileEnabled());
     return inst;
   }
 
