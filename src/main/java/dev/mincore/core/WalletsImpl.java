@@ -5,6 +5,7 @@ import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Wallets;
 import dev.mincore.api.Wallets.OperationResult;
 import dev.mincore.api.events.CoreEvents;
+import dev.mincore.util.TokenBucketRateLimiter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -13,7 +14,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
@@ -23,9 +26,11 @@ import org.slf4j.LoggerFactory;
 public final class WalletsImpl implements Wallets {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
   private static final int EVENT_VERSION = 1;
+  private static final TokenBucketRateLimiter IDEM_LOG_LIMITER = new TokenBucketRateLimiter(4, 0.5);
 
   private final DataSource ds;
   private final EventBus events;
+  private final DbHealth dbHealth;
 
   /**
    * Creates a wallet service backed by the given datasource and event bus.
@@ -33,9 +38,10 @@ public final class WalletsImpl implements Wallets {
    * @param ds pooled datasource connected to the MinCore schema
    * @param events core event bus used to emit balance change notifications
    */
-  public WalletsImpl(DataSource ds, EventBus events) {
+  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
     this.ds = ds;
     this.events = events;
+    this.dbHealth = dbHealth;
   }
 
   @Override
@@ -47,11 +53,22 @@ public final class WalletsImpl implements Wallets {
       ps.setBytes(1, uuidToBytes(player));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
+          dbHealth.markSuccess();
           return rs.getLong(1);
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
-      LOG.warn("(mincore) getBalance failed", e);
+      dbHealth.markFailure(e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "wallets.getBalance",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return 0L;
   }
@@ -73,11 +90,14 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public OperationResult depositResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.deposit")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (player == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
     }
-    if (amount < 0) {
-      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:deposit", null, player, amount, canonicalReason(reason));
@@ -87,11 +107,14 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.withdraw")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (player == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
     }
-    if (amount < 0) {
-      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:withdraw", player, null, amount, canonicalReason(reason));
@@ -102,11 +125,14 @@ public final class WalletsImpl implements Wallets {
   @Override
   public OperationResult transferResult(
       UUID from, UUID to, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.transfer")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (from == null || to == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participants required");
     }
-    if (amount < 0) {
-      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be >= 0");
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:transfer", from, to, amount, canonicalReason(reason));
@@ -114,30 +140,31 @@ public final class WalletsImpl implements Wallets {
         "core:transfer", idemKey, payload, c -> applyTransfer(c, from, to, amount, cleanReason));
   }
 
-  private OperationResult applyDelta(Connection c, UUID player, long delta, String reason)
+  private Mutation applyDelta(Connection c, UUID player, long delta, String reason)
       throws SQLException {
     PlayerBalance before = lockBalance(c, player);
     if (before == null) {
-      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player missing");
+      return Mutation.failure(OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player missing"));
     }
     long newUnits = before.units + delta;
     if (newUnits < 0) {
-      return OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "balance would go negative");
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "balance would go negative"));
     }
 
     long now = Instant.now().getEpochSecond();
     updateBalance(c, player, newUnits, now);
     long seq = nextSeq(c, player);
-    events.fireBalanceChanged(
+    CoreEvents.BalanceChangedEvent event =
         new CoreEvents.BalanceChangedEvent(
-            player, seq, before.units, newUnits, reason, EVENT_VERSION));
-    return OperationResult.success();
+            player, seq, before.units, newUnits, reason, EVENT_VERSION);
+    return Mutation.success(OperationResult.success(), List.of(event));
   }
 
-  private OperationResult applyTransfer(
-      Connection c, UUID from, UUID to, long amount, String reason) throws SQLException {
+  private Mutation applyTransfer(Connection c, UUID from, UUID to, long amount, String reason)
+      throws SQLException {
     if (from.equals(to)) {
-      return OperationResult.success(); // no-op self transfer
+      return Mutation.success(OperationResult.success(), List.of());
     }
     UUID first = compare(from, to) <= 0 ? from : to;
     UUID second = first.equals(from) ? to : from;
@@ -148,10 +175,12 @@ public final class WalletsImpl implements Wallets {
     PlayerBalance toBal = first.equals(from) ? secondBal : firstBal;
 
     if (fromBal == null || toBal == null) {
-      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participant missing");
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participant missing"));
     }
     if (fromBal.units < amount) {
-      return OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "insufficient funds");
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "insufficient funds"));
     }
 
     long now = Instant.now().getEpochSecond();
@@ -164,12 +193,12 @@ public final class WalletsImpl implements Wallets {
     long fromSeq = nextSeq(c, from);
     long toSeq = nextSeq(c, to);
 
-    events.fireBalanceChanged(
+    CoreEvents.BalanceChangedEvent debit =
         new CoreEvents.BalanceChangedEvent(
-            from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION));
-    events.fireBalanceChanged(
-        new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION));
-    return OperationResult.success();
+            from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION);
+    CoreEvents.BalanceChangedEvent credit =
+        new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION);
+    return Mutation.success(OperationResult.success(), List.of(debit, credit));
   }
 
   private PlayerBalance lockBalance(Connection c, UUID uuid) throws SQLException {
@@ -246,31 +275,53 @@ public final class WalletsImpl implements Wallets {
             int ok = rs.getInt(2);
             if (!java.util.Arrays.equals(ph, payloadHash)) {
               c.rollback();
-              LOG.info("(mincore) {} idem mismatch key={}", scope, idemKey);
+              logIdem(
+                  scope + ":mismatch",
+                  now,
+                  "(mincore) code={} op={} message={} key={}",
+                  ErrorCode.IDEMPOTENCY_MISMATCH,
+                  scope,
+                  "idempotency payload mismatch",
+                  idemKey);
+              dbHealth.markSuccess();
               return OperationResult.failure(
                   ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
             }
             if (ok == 1) {
               c.commit();
-              LOG.info("(mincore) {} replay key={}", scope, idemKey);
+              logIdem(
+                  scope + ":replay",
+                  now,
+                  "(mincore) code={} op={} message={} key={}",
+                  ErrorCode.IDEMPOTENCY_REPLAY,
+                  scope,
+                  "idempotent replay",
+                  idemKey);
+              dbHealth.markSuccess();
               return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
             }
           }
         }
       }
 
-      OperationResult result;
+      Mutation mutation;
       try {
-        result = work.run(c);
+        mutation = work.run(c);
       } catch (SQLException e) {
         c.rollback();
-        ErrorCode code = mapSqlException(e);
-        LOG.warn("(mincore) {} sql failure", scope, e);
+        ErrorCode code = SqlErrorCodes.classify(e);
+        LOG.warn("(mincore) code={} op={} message={}", code, scope, e.getMessage(), e);
+        if (code == ErrorCode.CONNECTION_LOST) {
+          dbHealth.markFailure(e);
+        } else {
+          dbHealth.markSuccess();
+        }
         return OperationResult.failure(code, "database error");
       }
-      if (!result.ok()) {
+      if (!mutation.result().ok()) {
         c.rollback();
-        return result;
+        dbHealth.markSuccess();
+        return mutation.result();
       }
 
       try (PreparedStatement done = c.prepareStatement(markOk)) {
@@ -279,21 +330,34 @@ public final class WalletsImpl implements Wallets {
         done.executeUpdate();
       }
       c.commit();
-      return result;
+      dbHealth.markSuccess();
+      dispatchEvents(mutation.events());
+      return mutation.result();
     } catch (SQLException e) {
-      ErrorCode code = mapSqlException(e);
-      LOG.warn("(mincore) {} failed", scope, e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.warn("(mincore) code={} op={} message={}", code, scope, e.getMessage(), e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       return OperationResult.failure(code, "database error");
     }
   }
 
-  private static ErrorCode mapSqlException(SQLException e) {
-    String state = e.getSQLState();
-    int vendor = e.getErrorCode();
-    if ("40001".equals(state) || vendor == 1213 || vendor == 1205) {
-      return ErrorCode.DEADLOCK_RETRY_EXHAUSTED;
+  private void dispatchEvents(List<CoreEvents.BalanceChangedEvent> eventsToPublish) {
+    if (eventsToPublish == null || eventsToPublish.isEmpty()) {
+      return;
     }
-    return ErrorCode.CONNECTION_LOST;
+    for (CoreEvents.BalanceChangedEvent event : eventsToPublish) {
+      events.fireBalanceChanged(event);
+    }
+  }
+
+  private static void logIdem(String key, long now, String fmt, Object... args) {
+    if (IDEM_LOG_LIMITER.tryAcquire(key, now)) {
+      LOG.info(fmt, args);
+    }
   }
 
   private static String canonical(
@@ -356,9 +420,24 @@ public final class WalletsImpl implements Wallets {
     return "core:auto:" + System.nanoTime();
   }
 
+  private record Mutation(OperationResult result, List<CoreEvents.BalanceChangedEvent> events) {
+    Mutation {
+      result = Objects.requireNonNull(result, "result");
+      events = events == null ? List.of() : List.copyOf(events);
+    }
+
+    static Mutation success(OperationResult result, List<CoreEvents.BalanceChangedEvent> events) {
+      return new Mutation(result, events);
+    }
+
+    static Mutation failure(OperationResult result) {
+      return new Mutation(result, List.of());
+    }
+  }
+
   @FunctionalInterface
   private interface OpWork {
-    OperationResult run(Connection c) throws SQLException;
+    Mutation run(Connection c) throws SQLException;
   }
 
   private record PlayerBalance(UUID uuid, long units) {}

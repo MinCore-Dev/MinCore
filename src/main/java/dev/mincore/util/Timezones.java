@@ -74,10 +74,21 @@ public final class Timezones {
    * @param services service container used to persist attributes
    */
   public static void set(UUID uuid, ZoneId zone, Services services) {
+    write(uuid, zone, services, "manual");
+  }
+
+  /** Stores an auto-detected timezone override for the player. */
+  public static void setAuto(UUID uuid, ZoneId zone, Services services) {
+    write(uuid, zone, services, "auto");
+  }
+
+  private static void write(UUID uuid, ZoneId zone, Services services, String source) {
+    long now = System.currentTimeMillis() / 1000L;
     JsonObject obj = new JsonObject();
     obj.addProperty("zone", zone.getId());
-    obj.addProperty("updatedAt", System.currentTimeMillis() / 1000L);
-    services.attributes().put(uuid, ATTR_KEY, obj.toString(), System.currentTimeMillis() / 1000L);
+    obj.addProperty("updatedAt", now);
+    obj.addProperty("source", source);
+    services.attributes().put(uuid, ATTR_KEY, obj.toString(), now);
   }
 
   /**

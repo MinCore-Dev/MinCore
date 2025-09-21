@@ -3,6 +3,7 @@ package dev.mincore.core;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Ledger;
 import dev.mincore.api.events.CoreEvents.BalanceChangedEvent;
 import java.io.BufferedWriter;
@@ -54,15 +55,22 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   private final boolean fileEnabled;
   private final Path filePath;
   private final int retentionDays;
+  private final DbHealth dbHealth;
   private AutoCloseable coreListener; // event unsubscription
 
   private LedgerImpl(
-      DataSource ds, boolean enabled, boolean fileEnabled, Path filePath, int retentionDays) {
+      DataSource ds,
+      boolean enabled,
+      boolean fileEnabled,
+      Path filePath,
+      int retentionDays,
+      DbHealth dbHealth) {
     this.ds = ds;
     this.enabled = enabled;
-    this.fileEnabled = fileEnabled;
-    this.filePath = filePath;
+    this.fileEnabled = enabled && fileEnabled && filePath != null;
+    this.filePath = this.fileEnabled ? filePath : null;
     this.retentionDays = retentionDays;
+    this.dbHealth = dbHealth;
   }
 
   private static DataSource requireDataSource(Services services) {
@@ -71,6 +79,26 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     }
     throw new IllegalStateException(
         "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static DbHealth requireHealth(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.dbHealth();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static Path safePath(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    try {
+      return Path.of(value);
+    } catch (Exception e) {
+      LOG.warn("(mincore) ledger: invalid mirror path {}; disabling file mirror", value, e);
+      return null;
+    }
   }
 
   /**
@@ -91,13 +119,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   public static LedgerImpl install(Services services, Config cfg) {
     Config.Ledger ledgerCfg = cfg.ledger();
     DataSource dataSource = requireDataSource(services);
+    DbHealth health = requireHealth(services);
     var inst =
         new LedgerImpl(
             dataSource,
             ledgerCfg.enabled(),
             ledgerCfg.jsonlMirror().enabled(),
-            Path.of(ledgerCfg.jsonlMirror().path()),
-            ledgerCfg.retentionDays());
+            safePath(ledgerCfg.jsonlMirror().path()),
+            ledgerCfg.retentionDays(),
+            health);
 
     if (!ledgerCfg.enabled()) {
       LOG.info("(mincore) ledger: disabled by config");
@@ -138,7 +168,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC
           """);
     } catch (SQLException e) {
-      LOG.error("(mincore) ledger: failed to ensure table", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.error(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "ledger.ensureTable",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
 
     inst.coreListener =
@@ -180,7 +218,12 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                 LOG.info("(mincore) ledger: cleanup removed {} rows", n);
               }
             } catch (Throwable t) {
-              LOG.warn("(mincore) ledger: cleanup failed", t);
+              LOG.warn(
+                  "(mincore) code={} op={} message={}",
+                  ErrorCode.CONNECTION_LOST,
+                  "ledger.cleanup",
+                  t.getMessage(),
+                  t);
             }
           },
           5,
@@ -191,7 +234,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     LOG.info(
         "(mincore) ledger: enabled (retention={} days, file={})",
         ledgerCfg.retentionDays(),
-        ledgerCfg.jsonlMirror().enabled());
+        inst.fileEnabled);
     return inst;
   }
 
@@ -308,48 +351,66 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
       Long newUnits,
       String serverNode,
       String extraJson) {
-    // DB
-    try (Connection c = ds.getConnection();
-        PreparedStatement ps =
-            c.prepareStatement(
-                """
-                INSERT INTO core_ledger
-                  (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
-                   seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """)) {
-      int i = 1;
-      ps.setLong(i++, tsS);
-      ps.setString(i++, addonId);
-      ps.setString(i++, op);
-      if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(from));
-      if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(to));
-      ps.setLong(i++, amount);
-      ps.setString(i++, reason);
-      ps.setBoolean(i++, ok);
-      if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, code);
-      ps.setLong(i++, seq);
-      if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, idemScope);
-      if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, idemKeyHash);
-      if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, oldUnits);
-      if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, newUnits);
-      ps.setString(i++, serverNode);
-      if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
-      else ps.setString(i++, extraJson);
-      ps.executeUpdate();
-    } catch (Throwable t) {
-      LOG.warn("(mincore) ledger: write failed", t);
+    if (dbHealth.allowWrite("ledger.write")) {
+      try (Connection c = ds.getConnection();
+          PreparedStatement ps =
+              c.prepareStatement(
+                  """
+                  INSERT INTO core_ledger
+                    (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
+                     seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  """)) {
+        int i = 1;
+        ps.setLong(i++, tsS);
+        ps.setString(i++, addonId);
+        ps.setString(i++, op);
+        if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, uuidToBytes(from));
+        if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, uuidToBytes(to));
+        ps.setLong(i++, amount);
+        ps.setString(i++, reason);
+        ps.setBoolean(i++, ok);
+        if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, code);
+        ps.setLong(i++, seq);
+        if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, idemScope);
+        if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, idemKeyHash);
+        if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, oldUnits);
+        if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, newUnits);
+        ps.setString(i++, serverNode);
+        if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
+        else ps.setString(i++, extraJson);
+        ps.executeUpdate();
+        dbHealth.markSuccess();
+      } catch (SQLException e) {
+        dbHealth.markFailure(e);
+        ErrorCode errorCode = SqlErrorCodes.classify(e);
+        LOG.warn(
+            "(mincore) code={} op={} message={} sqlState={} vendor={}",
+            errorCode,
+            "ledger.write",
+            e.getMessage(),
+            e.getSQLState(),
+            e.getErrorCode(),
+            e);
+      } catch (Throwable t) {
+        LOG.warn(
+            "(mincore) code={} op={} message={}",
+            ErrorCode.CONNECTION_LOST,
+            "ledger.write",
+            t.getMessage(),
+            t);
+      }
     }
 
     // Optional JSONL
-    if (fileEnabled) {
+    if (fileEnabled && filePath != null) {
       try {
         ensureParent(filePath);
         JsonObject j = new JsonObject();
@@ -383,7 +444,13 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           w.write("\n");
         }
       } catch (IOException ioe) {
-        LOG.warn("(mincore) ledger: file write failed ({})", filePath, ioe);
+        LOG.warn(
+            "(mincore) code={} op={} message={} path={}",
+            "FILE_IO",
+            "ledger.fileWrite",
+            ioe.getMessage(),
+            filePath,
+            ioe);
       }
     }
   }
