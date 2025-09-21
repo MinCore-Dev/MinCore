@@ -2,6 +2,7 @@
 package dev.mincore.core;
 
 import dev.mincore.api.storage.ExtensionDatabase;
+import dev.mincore.api.storage.SchemaHelper;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -10,6 +11,7 @@ import javax.sql.DataSource;
 /** Default implementation of {@link ExtensionDatabase} backed by the shared Hikari pool. */
 public final class ExtensionDbImpl implements ExtensionDatabase {
   private final DataSource ds;
+  private final SchemaHelper schemaHelper;
 
   /**
    * Creates a new instance.
@@ -18,6 +20,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase {
    */
   public ExtensionDbImpl(DataSource ds) {
     this.ds = ds;
+    this.schemaHelper = new SchemaHelperImpl(ds);
   }
 
   @Override
@@ -61,5 +64,10 @@ public final class ExtensionDbImpl implements ExtensionDatabase {
       }
     }
     throw last;
+  }
+
+  @Override
+  public SchemaHelper schema() {
+    return schemaHelper;
   }
 }

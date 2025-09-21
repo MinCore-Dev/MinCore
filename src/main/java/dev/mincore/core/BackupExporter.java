@@ -39,15 +39,33 @@ public final class BackupExporter {
    * @throws SQLException if database access fails
    */
   public static Result exportAll(Services services, Config cfg) throws IOException, SQLException {
+    return exportAll(services, cfg, null, null);
+  }
+
+  /**
+   * Runs a JSONL export with optional overrides for the destination directory or gzip toggle.
+   *
+   * @param services live services
+   * @param cfg runtime configuration
+   * @param overrideDir optional directory override; {@code null} to use config value
+   * @param gzipOverride optional gzip flag override; {@code null} to use config value
+   * @return metadata about the export
+   * @throws IOException if writing to disk fails
+   * @throws SQLException if database access fails
+   */
+  public static Result exportAll(
+      Services services, Config cfg, Path overrideDir, Boolean gzipOverride)
+      throws IOException, SQLException {
     Config.Backup backupCfg = cfg.jobs().backup();
     if (!backupCfg.enabled()) {
       throw new IllegalStateException("backup disabled in config");
     }
 
-    Path outDir = Path.of(backupCfg.outDir());
+    Path outDir = overrideDir != null ? overrideDir : Path.of(backupCfg.outDir());
     Files.createDirectories(outDir);
     String stamp = TS.format(Instant.now());
-    String baseName = "mincore-" + stamp + ".jsonl" + (backupCfg.gzip() ? ".gz" : "");
+    boolean gzip = gzipOverride != null ? gzipOverride.booleanValue() : backupCfg.gzip();
+    String baseName = "mincore-" + stamp + ".jsonl" + (gzip ? ".gz" : "");
     Path outFile = outDir.resolve(baseName);
 
     MessageDigest sha = sha256();
@@ -57,7 +75,7 @@ public final class BackupExporter {
       c.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
 
       try (OutputStream fos = Files.newOutputStream(outFile);
-          OutputStream wrapped = backupCfg.gzip() ? new GZIPOutputStream(fos) : fos;
+          OutputStream wrapped = gzip ? new GZIPOutputStream(fos) : fos;
           DigestOutput digestOut = new DigestOutput(wrapped, sha);
           BufferedWriter writer =
               new BufferedWriter(new OutputStreamWriter(digestOut, StandardCharsets.UTF_8))) {

@@ -2,14 +2,17 @@
 package dev.mincore.core;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Idempotent schema migrations for MinCore core tables. */
 public final class Migrations {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
+  private static final int CURRENT_VERSION = 1;
 
   private Migrations() {}
 
@@ -118,12 +121,14 @@ public final class Migrations {
       """
     };
 
+    boolean allSucceeded = true;
     try (Connection c = services.database().borrowConnection();
         Statement st = c.createStatement()) {
       for (String sql : ddl) {
         try {
           st.execute(sql);
         } catch (SQLException e) {
+          allSucceeded = false;
           LOG.warn(
               "(mincore) migration statement failed; continuing. cause={} sql=\n{}",
               e.getMessage(),
@@ -132,6 +137,35 @@ public final class Migrations {
       }
     } catch (SQLException e) {
       throw new RuntimeException("Migration failed", e);
+    }
+
+    if (!allSucceeded) {
+      LOG.warn("(mincore) migrations completed with errors; schema version unchanged");
+      return;
+    }
+
+    recordSchemaVersion(services);
+  }
+
+  /** Current schema version number. */
+  public static int currentVersion() {
+    return CURRENT_VERSION;
+  }
+
+  private static void recordSchemaVersion(Services services) {
+    try (Connection c = services.database().borrowConnection();
+        PreparedStatement ps =
+            c.prepareStatement(
+                "INSERT INTO core_schema_version(version, applied_at_s) VALUES(?, ?) "
+                    + "ON DUPLICATE KEY UPDATE applied_at_s=VALUES(applied_at_s)")) {
+      c.setAutoCommit(false);
+      ps.setInt(1, CURRENT_VERSION);
+      ps.setLong(2, Instant.now().getEpochSecond());
+      ps.executeUpdate();
+      c.commit();
+      LOG.info("(mincore) schema version recorded: {}", CURRENT_VERSION);
+    } catch (SQLException e) {
+      throw new RuntimeException("Failed to record schema version", e);
     }
   }
 }
