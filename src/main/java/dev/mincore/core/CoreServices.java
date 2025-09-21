@@ -28,9 +28,10 @@ public final class CoreServices implements Services, java.io.Closeable {
   private final Players players;
   private final Wallets wallets;
   private final Attributes attributes;
-  private final ExtensionDatabase extensionDb;
+  private final ExtensionDbImpl extensionDb;
   private final ScheduledExecutorService scheduler;
   private final Playtime playtime;
+  private final DbHealth dbHealth;
 
   private CoreServices(
       HikariDataSource pool,
@@ -38,9 +39,10 @@ public final class CoreServices implements Services, java.io.Closeable {
       Players players,
       Wallets wallets,
       Attributes attributes,
-      ExtensionDatabase extensionDb,
+      ExtensionDbImpl extensionDb,
       ScheduledExecutorService scheduler,
-      Playtime playtime) {
+      Playtime playtime,
+      DbHealth dbHealth) {
     this.pool = pool;
     this.events = events;
     this.players = players;
@@ -49,6 +51,7 @@ public final class CoreServices implements Services, java.io.Closeable {
     this.extensionDb = extensionDb;
     this.scheduler = scheduler;
     this.playtime = playtime;
+    this.dbHealth = dbHealth;
   }
 
   /**
@@ -108,19 +111,6 @@ public final class CoreServices implements Services, java.io.Closeable {
       throw new RuntimeException("Unable to start datasource", last);
     }
 
-    EventBus events = new EventBus();
-    ExtensionDbImpl ext = new ExtensionDbImpl(ds);
-    Players players = new PlayersImpl(ds, events);
-    Wallets wallets = new WalletsImpl(ds, events);
-    Attributes attrs = new AttributesImpl(ds);
-    PlaytimeImpl play = new PlaytimeImpl();
-
-    // Track playtime via Fabric connection events
-    ServerPlayConnectionEvents.JOIN.register(
-        (handler, sender, server) -> play.onJoin(handler.player.getUuid()));
-    ServerPlayConnectionEvents.DISCONNECT.register(
-        (handler, server) -> play.onQuit(handler.player.getUuid()));
-
     ScheduledExecutorService scheduler =
         Executors.newScheduledThreadPool(
             2,
@@ -130,7 +120,22 @@ public final class CoreServices implements Services, java.io.Closeable {
               return t;
             });
 
-    return new CoreServices(ds, events, players, wallets, attrs, ext, scheduler, play);
+    DbHealth dbHealth = new DbHealth(ds, scheduler, cfg.runtime().reconnectEveryS());
+
+    EventBus events = new EventBus();
+    ExtensionDbImpl ext = new ExtensionDbImpl(ds, dbHealth);
+    Players players = new PlayersImpl(ds, events, dbHealth);
+    Wallets wallets = new WalletsImpl(ds, events, dbHealth);
+    Attributes attrs = new AttributesImpl(ds, dbHealth);
+    PlaytimeImpl play = new PlaytimeImpl();
+
+    // Track playtime via Fabric connection events
+    ServerPlayConnectionEvents.JOIN.register(
+        (handler, sender, server) -> play.onJoin(handler.player.getUuid()));
+    ServerPlayConnectionEvents.DISCONNECT.register(
+        (handler, server) -> play.onQuit(handler.player.getUuid()));
+
+    return new CoreServices(ds, events, players, wallets, attrs, ext, scheduler, play, dbHealth);
   }
 
   @Override
@@ -171,6 +176,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   /** Closes background resources and the connection pool. */
   @Override
   public void shutdown() throws IOException {
+    extensionDb.close();
     scheduler.shutdownNow();
     pool.close();
   }
@@ -184,6 +190,10 @@ public final class CoreServices implements Services, java.io.Closeable {
   // === Package-private accessor needed by LedgerImpl.install(...) ===
   HikariDataSource pool() {
     return pool;
+  }
+
+  DbHealth dbHealth() {
+    return dbHealth;
   }
 
   private static SQLException findSqlException(Throwable error) {

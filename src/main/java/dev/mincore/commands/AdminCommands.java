@@ -15,6 +15,7 @@ import dev.mincore.core.Migrations;
 import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.util.Timezones;
+import dev.mincore.util.TokenBucketRateLimiter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -42,6 +43,8 @@ public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
   private static final DateTimeFormatter LEDGER_TIME =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z").withLocale(Locale.ENGLISH);
+  private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
+      new TokenBucketRateLimiter(4, 0.3);
 
   private AdminCommands() {}
 
@@ -216,6 +219,9 @@ public final class AdminCommands {
   }
 
   private static int cmdDbPing(final ServerCommandSource src, final Services services) {
+    if (!allowAdminRateLimit(src, "db.ping")) {
+      return 0;
+    }
     try (Connection c = services.database().borrowConnection();
         PreparedStatement ps = c.prepareStatement("SELECT 1")) {
       long start = System.nanoTime();
@@ -236,6 +242,9 @@ public final class AdminCommands {
   }
 
   private static int cmdDbInfo(final ServerCommandSource src, final Services services) {
+    if (!allowAdminRateLimit(src, "db.info")) {
+      return 0;
+    }
     try (Connection c = services.database().borrowConnection()) {
       var md = c.getMetaData();
       String url = md.getURL();
@@ -268,6 +277,9 @@ public final class AdminCommands {
   }
 
   private static int cmdDiag(final ServerCommandSource src, final Services services) {
+    if (!allowAdminRateLimit(src, "diag")) {
+      return 0;
+    }
     boolean ok = true;
     try (Connection c = services.database().borrowConnection()) {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.diag.db.ok"), false);
@@ -751,12 +763,25 @@ public final class AdminCommands {
     }
   }
 
+  private static boolean ensureLedgerEnabled(final ServerCommandSource src) {
+    Config cfg = MinCoreMod.config();
+    if (cfg != null && cfg.ledgerEnabled()) {
+      return true;
+    }
+    src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.disabled"), false);
+    return false;
+  }
+
   private static int cmdLedgerRecent(
       final ServerCommandSource src, final Services services, final int limit) {
+    if (!ensureLedgerEnabled(src)) {
+      return 0;
+    }
     final String sql =
-        "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+            + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger ORDER BY id DESC LIMIT ?";
-    return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, limit)));
+    return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, Math.min(200, limit))));
   }
 
   private static int cmdLedgerByPlayer(
@@ -764,6 +789,9 @@ public final class AdminCommands {
       final Services services,
       final String target,
       final int limit) {
+    if (!ensureLedgerEnabled(src)) {
+      return 0;
+    }
     UUID uuid = tryParseUuid(target);
     if (uuid == null) {
       Players players = services.players();
@@ -777,7 +805,8 @@ public final class AdminCommands {
 
     final UUID u = uuid;
     final String sql =
-        "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+            + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger WHERE from_uuid = ? OR to_uuid = ? ORDER BY id DESC LIMIT ?";
     return printLedger(
         src,
@@ -787,7 +816,7 @@ public final class AdminCommands {
           byte[] b = uuidToBytes(u);
           ps.setBytes(1, b);
           ps.setBytes(2, b);
-          ps.setInt(3, Math.max(1, limit));
+          ps.setInt(3, Math.max(1, Math.min(200, limit)));
         });
   }
 
@@ -796,8 +825,12 @@ public final class AdminCommands {
       final Services services,
       final String addonId,
       final int limit) {
+    if (!ensureLedgerEnabled(src)) {
+      return 0;
+    }
     final String sql =
-        "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+            + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger WHERE addon_id = ? ORDER BY id DESC LIMIT ?";
     return printLedger(
         src,
@@ -805,7 +838,7 @@ public final class AdminCommands {
         sql,
         ps -> {
           ps.setString(1, addonId);
-          ps.setInt(2, Math.max(1, limit));
+          ps.setInt(2, Math.max(1, Math.min(200, limit)));
         });
   }
 
@@ -814,8 +847,12 @@ public final class AdminCommands {
       final Services services,
       final String needle,
       final int limit) {
+    if (!ensureLedgerEnabled(src)) {
+      return 0;
+    }
     final String sql =
-        "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code "
+        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+            + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger WHERE reason LIKE ? ORDER BY id DESC LIMIT ?";
     return printLedger(
         src,
@@ -823,7 +860,7 @@ public final class AdminCommands {
         sql,
         ps -> {
           ps.setString(1, "%" + needle + "%");
-          ps.setInt(2, Math.max(1, limit));
+          ps.setInt(2, Math.max(1, Math.min(200, limit)));
         });
   }
 
@@ -841,19 +878,27 @@ public final class AdminCommands {
           rows.add(
               new LedgerRow(
                   rs.getLong(1),
-                  rs.getString(2),
+                  rs.getLong(2),
                   rs.getString(3),
-                  readUuid(rs, 4),
+                  rs.getString(4),
                   readUuid(rs, 5),
-                  rs.getLong(6),
-                  rs.getString(7),
-                  rs.getBoolean(8),
-                  rs.getString(9)));
+                  readUuid(rs, 6),
+                  rs.getLong(7),
+                  rs.getString(8),
+                  rs.getBoolean(9),
+                  rs.getString(10),
+                  rs.getLong(11),
+                  rs.getString(12),
+                  readNullableLong(rs, 13),
+                  readNullableLong(rs, 14),
+                  rs.getString(15),
+                  rs.getString(16)));
         }
       }
     } catch (Exception e) {
       LOG.warn("(mincore) ledger query failed", e);
-      src.sendFeedback(() -> Text.translatable("mincore.err.db.unavailable"), false);
+      src.sendFeedback(
+          () -> Text.translatable("mincore.cmd.ledger.error", e.getClass().getSimpleName()), false);
       return 0;
     }
 
@@ -875,15 +920,22 @@ public final class AdminCommands {
           () ->
               Text.translatable(
                   "mincore.cmd.ledger.line",
+                  row.id(),
                   when,
                   row.addon(),
                   row.op(),
                   row.amount(),
+                  row.ok(),
+                  formatOptional(row.code()),
+                  formatSeq(row.seq()),
+                  formatOptional(row.scope()),
                   from,
                   to,
                   row.reason(),
-                  row.ok(),
-                  row.code() == null ? "" : row.code()),
+                  formatOptional(row.oldUnits()),
+                  formatOptional(row.newUnits()),
+                  formatOptional(row.serverNode()),
+                  formatExtra(row.extraJson())),
           false);
     }
     return 1;
@@ -967,6 +1019,17 @@ public final class AdminCommands {
     };
   }
 
+  private static boolean allowAdminRateLimit(ServerCommandSource src, String op) {
+    String key = src.getEntity() != null ? src.getEntity().getUuid().toString() : src.getName();
+    long now = Instant.now().getEpochSecond();
+    if (ADMIN_RATE_LIMITER.tryAcquire(key, now)) {
+      return true;
+    }
+    LOG.debug("(mincore) admin {} rate-limited for {}", op, key);
+    src.sendFeedback(() -> Text.translatable("mincore.err.cmd.rateLimited"), false);
+    return false;
+  }
+
   private static UUID tryParseUuid(String raw) {
     try {
       return UUID.fromString(raw);
@@ -983,6 +1046,35 @@ public final class AdminCommands {
     return ref != null ? ref.name() : uuid.toString();
   }
 
+  private static String formatOptional(String value) {
+    if (value == null || value.isBlank()) {
+      return "-";
+    }
+    return value;
+  }
+
+  private static String formatOptional(Long value) {
+    if (value == null) {
+      return "-";
+    }
+    return Long.toString(value);
+  }
+
+  private static String formatSeq(long seq) {
+    return seq > 0 ? Long.toString(seq) : "-";
+  }
+
+  private static String formatExtra(String extra) {
+    if (extra == null || extra.isBlank()) {
+      return "-";
+    }
+    String trimmed = extra.trim();
+    if (trimmed.length() > 80) {
+      return trimmed.substring(0, 80) + "…";
+    }
+    return trimmed;
+  }
+
   private static byte[] uuidToBytes(UUID u) {
     if (u == null) {
       return null;
@@ -997,6 +1089,11 @@ public final class AdminCommands {
       out[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
     }
     return out;
+  }
+
+  private static Long readNullableLong(ResultSet rs, int index) throws SQLException {
+    long value = rs.getLong(index);
+    return rs.wasNull() ? null : value;
   }
 
   private static UUID readUuid(ResultSet rs, int index) throws SQLException {
@@ -1016,6 +1113,7 @@ public final class AdminCommands {
   }
 
   private record LedgerRow(
+      long id,
       long ts,
       String addon,
       String op,
@@ -1024,7 +1122,13 @@ public final class AdminCommands {
       long amount,
       String reason,
       boolean ok,
-      String code) {}
+      String code,
+      long seq,
+      String scope,
+      Long oldUnits,
+      Long newUnits,
+      String serverNode,
+      String extraJson) {}
 
   @FunctionalInterface
   private interface Binder {

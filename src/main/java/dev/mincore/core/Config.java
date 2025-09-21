@@ -198,13 +198,16 @@ public final class Config {
    */
   public static Config loadOrWriteDefault(Path path) {
     try {
+      Path configDir = path.getParent();
+      Path exampleDir = configDir != null ? configDir : Path.of(".");
+      ConfigTemplateWriter.writeExample(exampleDir.resolve("mincore.json5.example"), TEMPLATE);
+
       if (!Files.exists(path)) {
-        Files.createDirectories(path.getParent());
+        if (configDir != null) {
+          Files.createDirectories(configDir);
+        }
         Files.writeString(path, TEMPLATE, StandardCharsets.UTF_8);
       }
-
-      ConfigTemplateWriter.writeExample(
-          path.getParent().resolve("mincore.json5.example"), TEMPLATE);
 
       String raw = Files.readString(path, StandardCharsets.UTF_8);
       String json = stripJson5(raw);

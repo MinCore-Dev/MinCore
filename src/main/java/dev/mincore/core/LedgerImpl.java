@@ -54,15 +54,22 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   private final boolean fileEnabled;
   private final Path filePath;
   private final int retentionDays;
+  private final DbHealth dbHealth;
   private AutoCloseable coreListener; // event unsubscription
 
   private LedgerImpl(
-      DataSource ds, boolean enabled, boolean fileEnabled, Path filePath, int retentionDays) {
+      DataSource ds,
+      boolean enabled,
+      boolean fileEnabled,
+      Path filePath,
+      int retentionDays,
+      DbHealth dbHealth) {
     this.ds = ds;
     this.enabled = enabled;
-    this.fileEnabled = fileEnabled;
-    this.filePath = filePath;
+    this.fileEnabled = enabled && fileEnabled && filePath != null;
+    this.filePath = this.fileEnabled ? filePath : null;
     this.retentionDays = retentionDays;
+    this.dbHealth = dbHealth;
   }
 
   private static DataSource requireDataSource(Services services) {
@@ -71,6 +78,26 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     }
     throw new IllegalStateException(
         "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static DbHealth requireHealth(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.dbHealth();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static Path safePath(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    try {
+      return Path.of(value);
+    } catch (Exception e) {
+      LOG.warn("(mincore) ledger: invalid mirror path {}; disabling file mirror", value, e);
+      return null;
+    }
   }
 
   /**
@@ -91,13 +118,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   public static LedgerImpl install(Services services, Config cfg) {
     Config.Ledger ledgerCfg = cfg.ledger();
     DataSource dataSource = requireDataSource(services);
+    DbHealth health = requireHealth(services);
     var inst =
         new LedgerImpl(
             dataSource,
             ledgerCfg.enabled(),
             ledgerCfg.jsonlMirror().enabled(),
-            Path.of(ledgerCfg.jsonlMirror().path()),
-            ledgerCfg.retentionDays());
+            safePath(ledgerCfg.jsonlMirror().path()),
+            ledgerCfg.retentionDays(),
+            health);
 
     if (!ledgerCfg.enabled()) {
       LOG.info("(mincore) ledger: disabled by config");
@@ -191,7 +220,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     LOG.info(
         "(mincore) ledger: enabled (retention={} days, file={})",
         ledgerCfg.retentionDays(),
-        ledgerCfg.jsonlMirror().enabled());
+        inst.fileEnabled);
     return inst;
   }
 
@@ -308,48 +337,53 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
       Long newUnits,
       String serverNode,
       String extraJson) {
-    // DB
-    try (Connection c = ds.getConnection();
-        PreparedStatement ps =
-            c.prepareStatement(
-                """
-                INSERT INTO core_ledger
-                  (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
-                   seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """)) {
-      int i = 1;
-      ps.setLong(i++, tsS);
-      ps.setString(i++, addonId);
-      ps.setString(i++, op);
-      if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(from));
-      if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(to));
-      ps.setLong(i++, amount);
-      ps.setString(i++, reason);
-      ps.setBoolean(i++, ok);
-      if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, code);
-      ps.setLong(i++, seq);
-      if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, idemScope);
-      if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, idemKeyHash);
-      if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, oldUnits);
-      if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, newUnits);
-      ps.setString(i++, serverNode);
-      if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
-      else ps.setString(i++, extraJson);
-      ps.executeUpdate();
-    } catch (Throwable t) {
-      LOG.warn("(mincore) ledger: write failed", t);
+    if (dbHealth.allowWrite("ledger.write")) {
+      try (Connection c = ds.getConnection();
+          PreparedStatement ps =
+              c.prepareStatement(
+                  """
+                  INSERT INTO core_ledger
+                    (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
+                     seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  """)) {
+        int i = 1;
+        ps.setLong(i++, tsS);
+        ps.setString(i++, addonId);
+        ps.setString(i++, op);
+        if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, uuidToBytes(from));
+        if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, uuidToBytes(to));
+        ps.setLong(i++, amount);
+        ps.setString(i++, reason);
+        ps.setBoolean(i++, ok);
+        if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, code);
+        ps.setLong(i++, seq);
+        if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, idemScope);
+        if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, idemKeyHash);
+        if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, oldUnits);
+        if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, newUnits);
+        ps.setString(i++, serverNode);
+        if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
+        else ps.setString(i++, extraJson);
+        ps.executeUpdate();
+        dbHealth.markSuccess();
+      } catch (SQLException e) {
+        dbHealth.markFailure(e);
+        LOG.warn("(mincore) ledger: write failed", e);
+      } catch (Throwable t) {
+        LOG.warn("(mincore) ledger: write failed", t);
+      }
     }
 
     // Optional JSONL
-    if (fileEnabled) {
+    if (fileEnabled && filePath != null) {
       try {
         ensureParent(filePath);
         JsonObject j = new JsonObject();

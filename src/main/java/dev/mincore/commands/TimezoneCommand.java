@@ -5,6 +5,8 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.mincore.core.Services;
 import dev.mincore.util.Timezones;
+import dev.mincore.util.TokenBucketRateLimiter;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.Locale;
@@ -16,6 +18,9 @@ import net.minecraft.text.Text;
 
 /** Implements the /timezone command surface. */
 public final class TimezoneCommand {
+  private static final TokenBucketRateLimiter PLAYER_RATE_LIMITER =
+      new TokenBucketRateLimiter(1, 0.33);
+
   private TimezoneCommand() {}
 
   /** Registers the command tree. */
@@ -54,6 +59,9 @@ public final class TimezoneCommand {
   }
 
   private static int showHelp(ServerCommandSource src, Services services) {
+    if (!allowPlayerRateLimit(src)) {
+      return 0;
+    }
     ZoneId zone = Timezones.resolve(src, services);
     Text header = Text.translatable("mincore.cmd.tz.help", zone.getId());
     src.sendFeedback(() -> header, false);
@@ -61,6 +69,9 @@ public final class TimezoneCommand {
   }
 
   private static int setZone(ServerCommandSource src, Services services, String id) {
+    if (!allowPlayerRateLimit(src)) {
+      return 0;
+    }
     if (!Timezones.overridesAllowed()) {
       src.sendFeedback(() -> Text.translatable("mincore.err.tz.overridesDisabled"), false);
       return 0;
@@ -83,6 +94,23 @@ public final class TimezoneCommand {
     } catch (Exception e) {
       src.sendFeedback(() -> Text.translatable("mincore.err.tz.invalid"), false);
       return 0;
+    }
+  }
+
+  private static boolean allowPlayerRateLimit(ServerCommandSource src) {
+    try {
+      var player = src.getPlayer();
+      if (player == null) {
+        return true;
+      }
+      long now = Instant.now().getEpochSecond();
+      if (PLAYER_RATE_LIMITER.tryAcquire(player.getUuid().toString(), now)) {
+        return true;
+      }
+      src.sendFeedback(() -> Text.translatable("mincore.err.cmd.rateLimited"), false);
+      return false;
+    } catch (Exception e) {
+      return true;
     }
   }
 }

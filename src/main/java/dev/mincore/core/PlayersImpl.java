@@ -27,6 +27,7 @@ public final class PlayersImpl implements Players {
 
   private final DataSource ds;
   private final EventBus events;
+  private final DbHealth dbHealth;
 
   /**
    * Creates a new instance.
@@ -34,9 +35,10 @@ public final class PlayersImpl implements Players {
    * @param ds shared datasource
    * @param events event bus for player lifecycle notifications
    */
-  public PlayersImpl(DataSource ds, EventBus events) {
+  public PlayersImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
     this.ds = ds;
     this.events = events;
+    this.dbHealth = dbHealth;
   }
 
   @Override
@@ -44,18 +46,21 @@ public final class PlayersImpl implements Players {
     if (uuid == null) return Optional.empty();
     String sql =
         "SELECT uuid,name,created_at_s,updated_at_s,seen_at_s,balance_units FROM players WHERE uuid=?";
+    Optional<PlayerRef> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
       ps.setBytes(1, uuidToBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
-          return Optional.of(mapPlayer(rs));
+          result = Optional.of(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) players.byUuid failed", e);
     }
-    return Optional.empty();
+    return result;
   }
 
   @Override
@@ -63,18 +68,21 @@ public final class PlayersImpl implements Players {
     if (name == null || name.isBlank()) return Optional.empty();
     String sql =
         "SELECT uuid,name,created_at_s,updated_at_s,seen_at_s,balance_units FROM players WHERE name_lower=?";
+    Optional<PlayerRef> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
       ps.setString(1, normalizeNameKey(name));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
-          return Optional.of(mapPlayer(rs));
+          result = Optional.of(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) players.byName failed", e);
     }
-    return Optional.empty();
+    return result;
   }
 
   @Override
@@ -93,7 +101,9 @@ public final class PlayersImpl implements Players {
           out.add(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) players.byNameAll failed", e);
     }
     return List.copyOf(out);
@@ -102,6 +112,9 @@ public final class PlayersImpl implements Players {
   @Override
   public void upsertSeen(UUID uuid, String name, long seenAtS) {
     if (uuid == null) return;
+    if (!dbHealth.allowWrite("players.upsertSeen")) {
+      return;
+    }
     String cleanName = sanitizeName(name);
     Long seen = seenAtS > 0 ? seenAtS : null;
     long now = Instant.now().getEpochSecond();
@@ -114,6 +127,7 @@ public final class PlayersImpl implements Players {
           insertPlayer(c, uuid, cleanName, seen, now);
           long seq = nextSeq(c, uuid);
           c.commit();
+          dbHealth.markSuccess();
           events.firePlayerRegistered(
               new CoreEvents.PlayerRegisteredEvent(uuid, seq, cleanName, EVENT_VERSION));
           return;
@@ -123,12 +137,14 @@ public final class PlayersImpl implements Players {
         boolean seenChanged = !equalsNullable(before.seenAt(), seen);
         if (!nameChanged && !seenChanged) {
           c.commit();
+          dbHealth.markSuccess();
           return;
         }
 
         updatePlayer(c, uuid, cleanName, seen, now);
         long seq = nextSeq(c, uuid);
         c.commit();
+        dbHealth.markSuccess();
         events.firePlayerSeenUpdated(
             new CoreEvents.PlayerSeenUpdatedEvent(
                 uuid,
@@ -142,9 +158,11 @@ public final class PlayersImpl implements Players {
           c.rollback();
         } catch (SQLException ignore) {
         }
+        dbHealth.markFailure(e);
         throw e;
       }
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) players.upsertSeen failed", e);
     }
   }
@@ -160,7 +178,9 @@ public final class PlayersImpl implements Players {
       while (rs.next()) {
         consumer.accept(mapPlayer(rs));
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) players.iteratePlayers failed", e);
     }
   }
