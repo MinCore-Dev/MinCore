@@ -3,6 +3,8 @@ package dev.mincore;
 
 import dev.mincore.api.MinCoreApi;
 import dev.mincore.commands.AdminCommands;
+import dev.mincore.commands.PlaytimeCommand;
+import dev.mincore.commands.TimezoneCommand;
 import dev.mincore.core.Config;
 import dev.mincore.core.CoreServices;
 import dev.mincore.core.LedgerImpl;
@@ -37,6 +39,7 @@ public final class MinCoreMod implements ModInitializer {
   public static final String MOD_ID = "mincore";
 
   private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
+  private static Config CONFIG;
 
   /** Public no-arg constructor for Fabric. */
   public MinCoreMod() {}
@@ -44,14 +47,14 @@ public final class MinCoreMod implements ModInitializer {
   /** Initializes MinCore when Fabric loads the mod. */
   @Override
   public void onInitialize() {
-    LOG.info("(mincore) booting MinCore 0.1.0");
-
+    LOG.info("(mincore) booting MinCore 0.2.0");
     // 1) Ensure MariaDB driver is present before the pool tries to connect.
     dev.mincore.jdbc.DriverLoader.tryLoadMariaDbDriver();
 
     // 2) Config + services
     Path cfgPath = Path.of("config", "mincore.json5");
     Config cfg = Config.loadOrWriteDefault(cfgPath);
+    CONFIG = cfg;
     Services services = CoreServices.start(cfg);
 
     // 3) DDL (idempotent; safe to run every boot)
@@ -79,9 +82,14 @@ public final class MinCoreMod implements ModInitializer {
     // 7) Admin commands (db diag + ledger peek)
     AdminCommands.register(services);
 
+    // Player-facing commands
+    TimezoneCommand.register(services);
+    PlaytimeCommand.register(services);
+
+    // 8) Scheduler hooks (backups, sweeps, etc.)
+    Scheduler.install(services, cfg);
     // 8) Scheduler hooks (backups, sweeps, etc.)
     Scheduler.install(services);
-
     // 9) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
         server -> {
@@ -93,5 +101,14 @@ public final class MinCoreMod implements ModInitializer {
         });
 
     LOG.info("(mincore) initialized");
+  }
+
+  /**
+   * Returns the currently loaded runtime configuration.
+   *
+   * @return active configuration instance
+   */
+  public static Config config() {
+    return CONFIG;
   }
 }

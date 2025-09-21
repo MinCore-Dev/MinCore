@@ -31,6 +31,8 @@ dependencies {
   // Bundle Hikari inside the mod jar.
   include(implementation("com.zaxxer:HikariCP:5.1.0"))
 
+  testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+  testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
 }
 
 // Only the main sourceset (the JDBC loader now lives in main)
@@ -55,6 +57,10 @@ spotless {
     endWithNewline()
     licenseHeader '/* MinCore © 2025 — MIT */\n'
   }
+}
+
+tasks.named('test') {
+  useJUnitPlatform()
 }
 
 publishing {

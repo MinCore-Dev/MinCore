@@ -25,6 +25,13 @@ public final class WalletsImpl implements Wallets {
   private final DataSource ds;
   private final EventBus events;
 
+
+  /**
+   * Creates a wallet service backed by the given datasource and event bus.
+   *
+   * @param ds pooled datasource connected to the MinCore schema
+   * @param events core event bus used to emit balance change notifications
+   */
   public WalletsImpl(DataSource ds, EventBus events) {
     this.ds = ds;
     this.events = events;

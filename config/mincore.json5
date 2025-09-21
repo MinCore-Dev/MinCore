@@ -1,4 +1,4 @@
-// MinCore — example production config (JSON5 allowed: comments, trailing commas)
+// MinCore v0.2.0 configuration
 {
   core: {
     db: {
@@ -8,20 +8,59 @@
       user: "mincore",
       password: "change-me",
       tls: { enabled: false },
+      session: { forceUtc: true },
       pool: {
         maxPoolSize: 10,
         minimumIdle: 2,
         connectionTimeoutMs: 10000,
         idleTimeoutMs: 600000,
-        maxLifetimeMs: 1700000
+        maxLifetimeMs: 1700000,
+        startupAttempts: 3
       }
     },
-    session: { forceUtc: true },
     runtime: { reconnectEveryS: 10 },
-    jobs: {
-      backup: { enabled: false, schedule: "0 0 5 * * *", outDir: "./backups/mincore", onMissed: "skip", gzip: true },
-      cleanup: { idempotencySweep: { enabled: true, schedule: "0 30 4 * * *", retentionDays: 30, batchLimit: 5000 } }
+    time: {
+      display: {
+        defaultZone: "UTC",
+        allowPlayerOverride: false,
+        autoDetect: false
+      }
     },
-    log: { json: false }
+    i18n: {
+      defaultLocale: "en_US",
+      enabledLocales: [ "en_US" ],
+      fallbackLocale: "en_US"
+    },
+    ledger: {
+      enabled: true,
+      retentionDays: 0,
+      file: {
+        enabled: false,
+        path: "./logs/mincore-ledger.jsonl"
+      }
+    },
+    jobs: {
+      backup: {
+        enabled: true,
+        schedule: "0 45 4 * * *",
+        outDir: "./backups/mincore",
+        onMissed: "runAtNextStartup",
+        gzip: true,
+        prune: { keepDays: 14, keepMax: 60 }
+      },
+      cleanup: {
+        idempotencySweep: {
+          enabled: true,
+          schedule: "0 30 4 * * *",
+          retentionDays: 30,
+          batchLimit: 5000
+        }
+      }
+    },
+    log: {
+      json: false,
+      slowQueryMs: 250,
+      level: "INFO"
+    }
   }
 }

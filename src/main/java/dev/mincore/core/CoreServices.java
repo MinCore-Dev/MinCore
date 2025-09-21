@@ -58,20 +58,41 @@ public final class CoreServices implements Services, java.io.Closeable {
    */
   public static Services start(Config cfg) {
     HikariConfig hc = new HikariConfig();
-    hc.setJdbcUrl(cfg.jdbcUrl());
-    hc.setUsername(cfg.user());
-    hc.setPassword(cfg.password());
-    hc.setMaximumPoolSize(cfg.poolMax());
-    hc.setMinimumIdle(Math.min(cfg.poolMinIdle(), cfg.poolMax()));
-    hc.setConnectionTimeout(cfg.poolConnTimeoutMs());
-    hc.setIdleTimeout(cfg.poolIdleTimeoutMs());
-    hc.setMaxLifetime(cfg.poolMaxLifetimeMs());
+    hc.setJdbcUrl(cfg.db().jdbcUrl());
+    hc.setUsername(cfg.db().user());
+    hc.setPassword(cfg.db().password());
+    hc.setMaximumPoolSize(cfg.db().pool().maxPoolSize());
+    hc.setMinimumIdle(Math.min(cfg.db().pool().minimumIdle(), cfg.db().pool().maxPoolSize()));
+    hc.setConnectionTimeout(cfg.db().pool().connectionTimeoutMs());
+    hc.setIdleTimeout(cfg.db().pool().idleTimeoutMs());
+    hc.setMaxLifetime(cfg.db().pool().maxLifetimeMs());
     hc.setAutoCommit(false);
     hc.setPoolName("mincore-hikari");
     hc.setInitializationFailTimeout(-1);
-    hc.setConnectionInitSql(cfg.forceUtc() ? "SET time_zone = '+00:00'" : null);
+    hc.setConnectionInitSql(cfg.db().forceUtc() ? "SET time_zone = '+00:00'" : null);
 
-    HikariDataSource ds = new HikariDataSource(hc);
+    HikariDataSource ds = null;
+    RuntimeException last = null;
+    for (int attempt = 1; attempt <= Math.max(1, cfg.db().pool().startupAttempts()); attempt++) {
+      try {
+        ds = new HikariDataSource(hc);
+        break;
+      } catch (RuntimeException ex) {
+        last = ex;
+        LOG.warn(
+            "(mincore) failed to start Hikari (attempt {}/{}): {}",
+            attempt,
+            cfg.db().pool().startupAttempts(),
+            ex.getMessage());
+        try {
+          Thread.sleep(250L * attempt);
+        } catch (InterruptedException ignored) {
+        }
+      }
+    }
+    if (ds == null) {
+      throw new RuntimeException("Unable to start datasource", last);
+    }
 
     EventBus events = new EventBus();
     ExtensionDbImpl ext = new ExtensionDbImpl(ds);
