@@ -33,11 +33,7 @@ public final class Currency {
     if (s == null) {
       throw new IllegalArgumentException("Input may not be null");
     }
-    String t =
-        s.replace("_", "")
-            .replace(",", "")
-            .trim()
-            .toLowerCase(Locale.ROOT);
+    String t = s.replace("_", "").replace(",", "").trim().toLowerCase(Locale.ROOT);
     double base;
     long mul = 1L;
     if (t.endsWith("k")) {
