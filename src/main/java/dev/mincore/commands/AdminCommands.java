@@ -16,6 +16,7 @@ import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
+import dev.mincore.util.Uuids;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -359,14 +360,31 @@ public final class AdminCommands {
           false);
       return 1;
     } catch (RuntimeException e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore migrate --apply",
-          e.getMessage(),
-          e);
-      src.sendFeedback(
-          () -> Text.translatable("mincore.cmd.migrate.apply.fail", e.getMessage()), false);
+      Throwable cause = e.getCause();
+      if (cause instanceof SQLException sql) {
+        LOG.warn(
+            "(mincore) code={} op={} message={} sqlState={} vendor={}",
+            "ADMIN_CMD_FAILURE",
+            "/mincore migrate --apply",
+            sql.getMessage(),
+            sql.getSQLState(),
+            sql.getErrorCode(),
+            sql);
+        String detail =
+            String.format(
+                "%s (SQLState=%s vendor=%s)",
+                sql.getMessage(), sql.getSQLState(), sql.getErrorCode());
+        src.sendFeedback(() -> Text.translatable("mincore.cmd.migrate.apply.fail", detail), false);
+      } else {
+        LOG.warn(
+            "(mincore) code={} op={} message={}",
+            "ADMIN_CMD_FAILURE",
+            "/mincore migrate --apply",
+            e.getMessage(),
+            e);
+        src.sendFeedback(
+            () -> Text.translatable("mincore.cmd.migrate.apply.fail", e.getMessage()), false);
+      }
       return 0;
     } finally {
       services.database().releaseAdvisoryLock("mincore_migrate");
@@ -394,6 +412,7 @@ public final class AdminCommands {
                   result.file().toString(),
                   result.players(),
                   result.attributes(),
+                  result.eventSeq(),
                   result.ledger()),
           false);
       return 1;
@@ -431,7 +450,8 @@ public final class AdminCommands {
                   opts.from.toString()),
           false);
       BackupImporter.Result result =
-          BackupImporter.restore(services, opts.from, opts.mode, opts.strategy, opts.overwrite);
+          BackupImporter.restore(
+              services, opts.from, opts.mode, opts.strategy, opts.overwrite, opts.skipFkChecks);
       src.sendFeedback(
           () ->
               Text.translatable(
@@ -439,6 +459,7 @@ public final class AdminCommands {
                   result.source().toString(),
                   result.players(),
                   result.attributes(),
+                  result.eventSeq(),
                   result.ledger()),
           false);
       return 1;
@@ -525,6 +546,7 @@ public final class AdminCommands {
     String sql =
         "SELECT (SELECT COUNT(*) FROM players) AS players,"
             + " (SELECT COUNT(*) FROM player_attributes) AS attrs,"
+            + " (SELECT COUNT(*) FROM player_event_seq) AS seq,"
             + " (SELECT COUNT(*) FROM core_ledger) AS ledger,"
             + " (SELECT COUNT(*) FROM core_requests) AS requests";
     try (PreparedStatement ps = c.prepareStatement(sql);
@@ -532,10 +554,13 @@ public final class AdminCommands {
       if (rs.next()) {
         final long players = rs.getLong("players");
         final long attrs = rs.getLong("attrs");
+        final long seq = rs.getLong("seq");
         final long ledger = rs.getLong("ledger");
         final long requests = rs.getLong("requests");
         src.sendFeedback(
-            () -> Text.translatable("mincore.cmd.doctor.counts", players, attrs, ledger, requests),
+            () ->
+                Text.translatable(
+                    "mincore.cmd.doctor.counts", players, attrs, seq, ledger, requests),
             false);
       }
     }
@@ -702,16 +727,19 @@ public final class AdminCommands {
     final BackupImporter.FreshStrategy strategy;
     final Path from;
     final boolean overwrite;
+    final boolean skipFkChecks;
 
     private RestoreOptions(
         BackupImporter.Mode mode,
         BackupImporter.FreshStrategy strategy,
         Path from,
-        boolean overwrite) {
+        boolean overwrite,
+        boolean skipFkChecks) {
       this.mode = mode;
       this.strategy = strategy;
       this.from = from;
       this.overwrite = overwrite;
+      this.skipFkChecks = skipFkChecks;
     }
 
     static RestoreOptions parse(String raw) {
@@ -719,6 +747,7 @@ public final class AdminCommands {
       BackupImporter.FreshStrategy strategy = BackupImporter.FreshStrategy.ATOMIC;
       Path from = null;
       boolean overwrite = false;
+      boolean skipFkChecks = false;
       List<String> tokens = tokenize(raw);
       for (int i = 0; i < tokens.size(); i++) {
         String token = tokens.get(i);
@@ -744,6 +773,7 @@ public final class AdminCommands {
             from = Path.of(tokens.get(++i));
           }
           case "--overwrite" -> overwrite = true;
+          case "--skip-fk-checks", "--skip-fk" -> skipFkChecks = true;
           case "" -> {
             // ignore
           }
@@ -756,7 +786,7 @@ public final class AdminCommands {
       if (mode == BackupImporter.Mode.MERGE) {
         strategy = null;
       }
-      return new RestoreOptions(mode, strategy, from, overwrite);
+      return new RestoreOptions(mode, strategy, from, overwrite, skipFkChecks);
     }
   }
 
@@ -795,6 +825,10 @@ public final class AdminCommands {
           }
           default -> throw new IllegalArgumentException("unknown option: " + token);
         }
+      }
+      if (!fk && !orphans && !counts && !analyze && !locks) {
+        fk = true;
+        counts = true;
       }
       return new DoctorOptions(fk, orphans, counts, analyze, locks);
     }
@@ -854,7 +888,7 @@ public final class AdminCommands {
         services,
         sql,
         ps -> {
-          byte[] b = uuidToBytes(u);
+          byte[] b = Uuids.toBytes(u);
           ps.setBytes(1, b);
           ps.setBytes(2, b);
           ps.setInt(3, Math.max(1, Math.min(200, limit)));
@@ -1051,8 +1085,7 @@ public final class AdminCommands {
 
   private static boolean allowAdminRateLimit(ServerCommandSource src, String op) {
     String key = src.getEntity() != null ? src.getEntity().getUuid().toString() : src.getName();
-    long now = Instant.now().getEpochSecond();
-    if (ADMIN_RATE_LIMITER.tryAcquire(key, now)) {
+    if (ADMIN_RATE_LIMITER.tryAcquire(key)) {
       return true;
     }
     LOG.debug("(mincore) admin {} rate-limited for {}", op, key);
@@ -1103,22 +1136,6 @@ public final class AdminCommands {
       return trimmed.substring(0, 80) + "…";
     }
     return trimmed;
-  }
-
-  private static byte[] uuidToBytes(UUID u) {
-    if (u == null) {
-      return null;
-    }
-    byte[] out = new byte[16];
-    long msb = u.getMostSignificantBits();
-    long lsb = u.getLeastSignificantBits();
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) (msb >>> (8 * (7 - i)));
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
-    }
-    return out;
   }
 
   private static Long readNullableLong(ResultSet rs, int index) throws SQLException {

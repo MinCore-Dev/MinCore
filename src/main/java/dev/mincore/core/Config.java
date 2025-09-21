@@ -436,17 +436,24 @@ public final class Config {
     if (minIdle < 0 || minIdle > maxPool) {
       throw new IllegalStateException("core.db.pool.minimumIdle must be between 0 and maxPoolSize");
     }
-    if (db.pool().connectionTimeoutMs() <= 0) {
-      throw new IllegalStateException("core.db.pool.connectionTimeoutMs must be > 0");
+    long connectionTimeout = db.pool().connectionTimeoutMs();
+    if (connectionTimeout < 1_000 || connectionTimeout > 120_000) {
+      throw new IllegalStateException(
+          "core.db.pool.connectionTimeoutMs must be between 1000 and 120000");
     }
-    if (db.pool().idleTimeoutMs() < 0) {
-      throw new IllegalStateException("core.db.pool.idleTimeoutMs must be >= 0");
+    long idleTimeout = db.pool().idleTimeoutMs();
+    if (idleTimeout < 10_000 || idleTimeout > 3_600_000) {
+      throw new IllegalStateException(
+          "core.db.pool.idleTimeoutMs must be between 10000 and 3600000");
     }
-    if (db.pool().maxLifetimeMs() < 30_000L) {
-      throw new IllegalStateException("core.db.pool.maxLifetimeMs must be >= 30000");
+    long maxLifetime = db.pool().maxLifetimeMs();
+    if (maxLifetime < 30_000L || maxLifetime > 3_600_000L) {
+      throw new IllegalStateException(
+          "core.db.pool.maxLifetimeMs must be between 30000 and 3600000");
     }
-    if (db.pool().startupAttempts() < 1) {
-      throw new IllegalStateException("core.db.pool.startupAttempts must be >= 1");
+    int attempts = db.pool().startupAttempts();
+    if (attempts < 1 || attempts > 10) {
+      throw new IllegalStateException("core.db.pool.startupAttempts must be between 1 and 10");
     }
   }
 

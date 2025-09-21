@@ -6,7 +6,6 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.mincore.core.Services;
 import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.Locale;
@@ -103,8 +102,7 @@ public final class TimezoneCommand {
       if (player == null) {
         return true;
       }
-      long now = Instant.now().getEpochSecond();
-      if (PLAYER_RATE_LIMITER.tryAcquire(player.getUuid().toString(), now)) {
+      if (PLAYER_RATE_LIMITER.tryAcquire(player.getUuid().toString())) {
         return true;
       }
       src.sendFeedback(() -> Text.translatable("mincore.err.cmd.rateLimited"), false);

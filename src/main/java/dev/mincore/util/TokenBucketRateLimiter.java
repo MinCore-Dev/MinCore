@@ -14,17 +14,18 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><strong>refillPerSec</strong>: tokens added per second (fractional allowed)
  * </ul>
  *
- * <p>Call {@link #tryAcquire(String, long)} to consume one token. If a token is available, the call
- * succeeds and one token is removed; otherwise it fails.
+ * <p>Call {@link #tryAcquire(String)} to consume one token. If a token is available, the call
+ * succeeds and one token is removed; otherwise it fails. The limiter uses {@link System#nanoTime()}
+ * internally to avoid issues when the system clock jumps.
  */
 public final class TokenBucketRateLimiter {
   private static final class Bucket {
     double tokens;
-    long lastS;
+    long lastNanos;
 
-    Bucket(double tokens, long lastS) {
+    Bucket(double tokens, long lastNanos) {
       this.tokens = tokens;
-      this.lastS = lastS;
+      this.lastNanos = lastNanos;
     }
   }
 
@@ -44,21 +45,24 @@ public final class TokenBucketRateLimiter {
   }
 
   /**
-   * Attempts to consume one token for {@code key} at {@code nowS}.
+   * Attempts to consume one token for {@code key} using a monotonic time source.
    *
    * <p>Refills the bucket based on elapsed time since the last attempt, up to the configured
    * capacity, then consumes one token if available.
    *
    * @param key identity for the bucket (e.g., player UUID string)
-   * @param nowS current time in epoch seconds
    * @return {@code true} if a token was available and consumed; {@code false} otherwise
    */
-  public boolean tryAcquire(String key, long nowS) {
-    Bucket b = buckets.computeIfAbsent(key, k -> new Bucket(capacity, nowS));
+  public boolean tryAcquire(String key) {
+    long nowNanos = System.nanoTime();
+    Bucket b = buckets.computeIfAbsent(key, k -> new Bucket(capacity, nowNanos));
     synchronized (b) {
-      long dt = Math.max(0, nowS - b.lastS);
-      b.tokens = Math.min(capacity, b.tokens + dt * refillPerSec);
-      b.lastS = nowS;
+      long delta = nowNanos - b.lastNanos;
+      if (delta > 0L) {
+        double elapsedSeconds = delta / 1_000_000_000.0d;
+        b.tokens = Math.min(capacity, b.tokens + elapsedSeconds * refillPerSec);
+        b.lastNanos = nowNanos;
+      }
       if (b.tokens >= 1.0) {
         b.tokens -= 1.0;
         return true;

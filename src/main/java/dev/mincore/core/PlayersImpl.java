@@ -4,6 +4,7 @@ package dev.mincore.core;
 import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Players;
 import dev.mincore.api.events.CoreEvents;
+import dev.mincore.util.Uuids;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -35,6 +36,7 @@ public final class PlayersImpl implements Players {
    *
    * @param ds shared datasource
    * @param events event bus for player lifecycle notifications
+   * @param dbHealth health monitor for degraded mode handling
    */
   public PlayersImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
     this.ds = ds;
@@ -50,7 +52,7 @@ public final class PlayersImpl implements Players {
     Optional<PlayerRef> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           result = Optional.of(mapPlayer(rs));
@@ -229,7 +231,7 @@ public final class PlayersImpl implements Players {
   private PlayerSnapshot lockPlayer(Connection c, UUID uuid) throws SQLException {
     String sql = "SELECT name,seen_at_s FROM players WHERE uuid=? FOR UPDATE";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           String name = rs.getString("name");
@@ -247,7 +249,7 @@ public final class PlayersImpl implements Players {
     String sql =
         "INSERT INTO players(uuid,name,balance_units,created_at_s,updated_at_s,seen_at_s) VALUES(?,?,?,?,?,?)";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.setString(2, name);
       ps.setLong(3, 0L);
       ps.setLong(4, now);
@@ -272,7 +274,7 @@ public final class PlayersImpl implements Players {
       } else {
         ps.setLong(3, seenAt);
       }
-      ps.setBytes(4, uuidToBytes(uuid));
+      ps.setBytes(4, Uuids.toBytes(uuid));
       ps.executeUpdate();
     }
   }
@@ -283,7 +285,7 @@ public final class PlayersImpl implements Players {
                 "INSERT INTO player_event_seq(uuid,seq) VALUES(?,1) "
                     + "ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)");
         Statement last = c.createStatement()) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.executeUpdate();
       try (ResultSet rs = last.executeQuery("SELECT LAST_INSERT_ID()")) {
         if (rs.next()) {
@@ -305,19 +307,6 @@ public final class PlayersImpl implements Players {
     long balance = rs.getLong("balance_units");
     Long seen = seenNull ? null : seenRaw;
     return new DbPlayer(uuid, name, created, updated, seen, balance);
-  }
-
-  private static byte[] uuidToBytes(UUID uuid) {
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    byte[] out = new byte[16];
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
-    }
-    return out;
   }
 
   private static UUID bytesToUuid(byte[] data) {

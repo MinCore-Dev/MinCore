@@ -5,12 +5,14 @@ import dev.mincore.api.ErrorCode;
 import dev.mincore.api.storage.ExtensionDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,11 +25,13 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
   private final SchemaHelper schemaHelper;
   private final DbHealth dbHealth;
   private final Set<String> heldLocks = ConcurrentHashMap.newKeySet();
+  private static final Pattern LOCK_NAME_PATTERN = Pattern.compile("[A-Za-z0-9:_\\-\\.]{1,64}");
 
   /**
    * Creates a new instance.
    *
    * @param ds shared datasource
+   * @param dbHealth health monitor for degraded mode handling
    */
   public ExtensionDbImpl(DataSource ds, DbHealth dbHealth) {
     this.ds = ds;
@@ -48,12 +52,16 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
     if (!dbHealth.allowWrite("extDb.tryAdvisoryLock")) {
       return false;
     }
+    String lock = validateLockName(name);
     try (Connection c = ds.getConnection();
-        Statement s = c.createStatement()) {
-      var rs = s.executeQuery("SELECT GET_LOCK('" + name.replace("'", "''") + "', 0)");
-      if (rs.next() && rs.getInt(1) == 1) {
-        heldLocks.add(name);
-        return true;
+        PreparedStatement ps = c.prepareStatement("SELECT GET_LOCK(?, 0)")) {
+      ps.setString(1, lock);
+      try (ResultSet rs = ps.executeQuery()) {
+        if (rs.next() && rs.getInt(1) == 1) {
+          heldLocks.add(lock);
+          dbHealth.markSuccess();
+          return true;
+        }
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
@@ -74,10 +82,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
 
   @Override
   public void releaseAdvisoryLock(String name) {
-    if (!dbHealth.allowWrite("extDb.releaseAdvisoryLock")) {
-      return;
-    }
-    releaseInternal(name, true);
+    releaseInternal(validateLockName(name), true);
   }
 
   @Override
@@ -132,8 +137,9 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         return;
       }
       try (Connection c = ds.getConnection();
-          Statement s = c.createStatement()) {
-        s.executeQuery("SELECT RELEASE_LOCK('" + name.replace("'", "''") + "')");
+          PreparedStatement ps = c.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+        ps.setString(1, name);
+        ps.executeQuery();
         dbHealth.markSuccess();
       }
     } catch (SQLException e) {
@@ -151,5 +157,16 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
     } finally {
       heldLocks.remove(name);
     }
+  }
+
+  private static String validateLockName(String name) {
+    String trimmed = name == null ? null : name.trim();
+    if (trimmed == null || trimmed.isEmpty()) {
+      throw new IllegalArgumentException("lock name must be provided");
+    }
+    if (!LOCK_NAME_PATTERN.matcher(trimmed).matches()) {
+      throw new IllegalArgumentException("invalid advisory lock name: " + name);
+    }
+    return trimmed;
   }
 }

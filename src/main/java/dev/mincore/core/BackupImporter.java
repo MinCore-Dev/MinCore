@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import dev.mincore.util.Uuids;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,13 +19,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.zip.GZIPInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,12 +49,22 @@ public final class BackupImporter {
   public enum FreshStrategy {
     /** Run inside a transaction; roll back on failure. */
     ATOMIC,
-    /** Use a staging table swap. Currently mapped to {@link #ATOMIC}. */
+    /** Use staging tables to load data before swapping into place. */
     STAGING
   }
 
-  /** Summary of an import run. */
-  public record Result(Path source, long players, long attributes, long ledger) {}
+  /**
+   * Summary of an import run.
+   *
+   * @param source snapshot file processed
+   * @param players number of player rows imported
+   * @param attributes number of attribute rows imported
+   * @param eventSeq number of event sequence rows imported
+   * @param ledger number of ledger rows imported
+   */
+  public record Result(Path source, long players, long attributes, long eventSeq, long ledger) {}
+
+  private record Header(String version, int schemaVersion, String defaultZone) {}
 
   /**
    * Restores a snapshot created by {@link BackupExporter}.
@@ -62,35 +74,66 @@ public final class BackupImporter {
    * @param mode restore mode
    * @param strategy strategy for {@link Mode#FRESH}
    * @param overwrite if {@code true}, merge mode replaces conflicting ledger rows
+   * @param skipForeignKeys if {@code true}, temporarily disable foreign key checks during import
    * @return summary of imported rows
    * @throws IOException if reading the snapshot fails
    * @throws SQLException if database access fails
    */
   public static Result restore(
-      Services services, Path source, Mode mode, FreshStrategy strategy, boolean overwrite)
+      Services services,
+      Path source,
+      Mode mode,
+      FreshStrategy strategy,
+      boolean overwrite,
+      boolean skipForeignKeys)
       throws IOException, SQLException {
     Path file = resolveInput(source);
+    Header header = peekHeader(file);
     return switch (Objects.requireNonNull(mode, "mode")) {
-      case FRESH -> restoreFresh(services, file, strategy);
-      case MERGE -> restoreMerge(services, file, overwrite);
+      case FRESH -> restoreFresh(services, file, strategy, skipForeignKeys, header);
+      case MERGE -> restoreMerge(services, file, overwrite, skipForeignKeys, header);
     };
   }
 
-  private static Result restoreFresh(Services services, Path file, FreshStrategy strategy)
+  private static Result restoreFresh(
+      Services services, Path file, FreshStrategy strategy, boolean skipForeignKeys, Header header)
       throws IOException, SQLException {
     FreshStrategy effective = strategy != null ? strategy : FreshStrategy.ATOMIC;
     if (effective == FreshStrategy.STAGING) {
-      LOG.info("(mincore) restore fresh --staging requested; using transactional import");
+      LOG.info("(mincore) restore fresh --staging requested; using staging tables");
     }
 
     try (Connection c = services.database().borrowConnection()) {
       boolean originalAutoCommit = c.getAutoCommit();
       c.setAutoCommit(false);
+      boolean schemaRecorded = false;
       try {
-        clearTables(c);
-        Counters counters = importSnapshot(file, new FreshHandler(c));
+        schemaRecorded = ensureCompatibleSchema(c, header);
+        if (skipForeignKeys) {
+          LOG.warn(
+              "(mincore) restore running with FOREIGN_KEY_CHECKS=0; data integrity checks are skipped");
+          setForeignKeyChecks(c, false);
+        }
+        Counters counters;
+        if (effective == FreshStrategy.STAGING) {
+          LOG.info("(mincore) restore fresh using staging tables");
+          StagingTables staging = StagingTables.create(c);
+          try {
+            counters = importSnapshot(file, new StagingHandler(c, staging));
+            staging.swapIntoPrimary(c);
+          } finally {
+            staging.cleanupQuietly(c);
+          }
+        } else {
+          clearTables(c);
+          counters = importSnapshot(file, new FreshHandler(c));
+        }
         c.commit();
-        return new Result(file, counters.players, counters.attributes, counters.ledger);
+        if (schemaRecorded) {
+          LOG.info("(mincore) recorded schema version {} during restore", header.schemaVersion());
+        }
+        return new Result(
+            file, counters.players, counters.attributes, counters.eventSeq, counters.ledger);
       } catch (Exception e) {
         try {
           c.rollback();
@@ -105,21 +148,40 @@ public final class BackupImporter {
         }
         throw new IOException("restore failed", e);
       } finally {
+        if (skipForeignKeys) {
+          try {
+            setForeignKeyChecks(c, true);
+          } catch (SQLException enable) {
+            LOG.warn("(mincore) failed to re-enable foreign key checks", enable);
+          }
+        }
         c.setAutoCommit(originalAutoCommit);
       }
     }
   }
 
-  private static Result restoreMerge(Services services, Path file, boolean overwrite)
+  private static Result restoreMerge(
+      Services services, Path file, boolean overwrite, boolean skipForeignKeys, Header header)
       throws IOException, SQLException {
     try (Connection c = services.database().borrowConnection()) {
       boolean originalAutoCommit = c.getAutoCommit();
       c.setAutoCommit(false);
       MergeHandler handler = new MergeHandler(c, overwrite);
+      boolean schemaRecorded = false;
       try {
+        schemaRecorded = ensureCompatibleSchema(c, header);
+        if (skipForeignKeys) {
+          LOG.warn(
+              "(mincore) restore running with FOREIGN_KEY_CHECKS=0; data integrity checks are skipped");
+          setForeignKeyChecks(c, false);
+        }
         Counters counters = importSnapshot(file, handler);
         c.commit();
-        return new Result(file, counters.players, counters.attributes, counters.ledger);
+        if (schemaRecorded) {
+          LOG.info("(mincore) recorded schema version {} during restore", header.schemaVersion());
+        }
+        return new Result(
+            file, counters.players, counters.attributes, counters.eventSeq, counters.ledger);
       } catch (Exception e) {
         try {
           c.rollback();
@@ -136,6 +198,13 @@ public final class BackupImporter {
         throw new IOException("restore failed", e);
       } finally {
         handler.closeQuietly();
+        if (skipForeignKeys) {
+          try {
+            setForeignKeyChecks(c, true);
+          } catch (SQLException enable) {
+            LOG.warn("(mincore) failed to re-enable foreign key checks", enable);
+          }
+        }
         c.setAutoCommit(originalAutoCommit);
       }
     }
@@ -145,8 +214,8 @@ public final class BackupImporter {
     try (Statement st = c.createStatement()) {
       st.executeUpdate("DELETE FROM core_ledger");
       st.executeUpdate("DELETE FROM player_attributes");
-      st.executeUpdate("DELETE FROM players");
       st.executeUpdate("DELETE FROM player_event_seq");
+      st.executeUpdate("DELETE FROM players");
     }
   }
 
@@ -179,6 +248,10 @@ public final class BackupImporter {
           case "player_attributes" -> {
             handler.handleAttribute(obj);
             counters.attributes++;
+          }
+          case "player_event_seq" -> {
+            handler.handleEventSeq(obj);
+            counters.eventSeq++;
           }
           case "core_ledger" -> {
             handler.handleLedger(obj);
@@ -226,6 +299,90 @@ public final class BackupImporter {
     return source;
   }
 
+  private static Header peekHeader(Path file) throws IOException {
+    try (BufferedReader reader =
+        new BufferedReader(new InputStreamReader(open(file), StandardCharsets.UTF_8))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        if (line.isBlank()) {
+          continue;
+        }
+        JsonObject obj = parse(line);
+        if (!obj.has("table")) {
+          return validateHeader(obj);
+        }
+        break;
+      }
+    }
+    throw new IOException("snapshot missing header");
+  }
+
+  private static boolean ensureCompatibleSchema(Connection c, Header header)
+      throws SQLException, IOException {
+    int runtimeVersion = Migrations.currentVersion();
+    if (header.schemaVersion() != runtimeVersion) {
+      throw new IOException(
+          "snapshot schema version "
+              + header.schemaVersion()
+              + " incompatible with runtime version "
+              + runtimeVersion);
+    }
+    boolean recorded = ensureSchemaVersionRecorded(c, runtimeVersion);
+    if (recorded) {
+      LOG.debug("(mincore) core_schema_version table was empty; recorded runtime version");
+    }
+    return recorded;
+  }
+
+  private static boolean ensureSchemaVersionRecorded(Connection c, int expected)
+      throws SQLException, IOException {
+    int current = readSchemaVersion(c);
+    if (current == 0) {
+      writeSchemaVersion(c, expected);
+      return true;
+    }
+    if (current != expected) {
+      throw new IOException(
+          "database schema version " + current + " incompatible with runtime version " + expected);
+    }
+    return false;
+  }
+
+  private static int readSchemaVersion(Connection c) throws SQLException {
+    final String sql = "SELECT MAX(version) FROM core_schema_version";
+    try (Statement st = c.createStatement()) {
+      try (ResultSet rs = st.executeQuery(sql)) {
+        if (rs.next()) {
+          return rs.getInt(1);
+        }
+      }
+    } catch (SQLException e) {
+      String state = e.getSQLState();
+      if (state != null && state.startsWith("42")) {
+        return 0;
+      }
+      throw e;
+    }
+    return 0;
+  }
+
+  private static void writeSchemaVersion(Connection c, int version) throws SQLException {
+    final String sql =
+        "INSERT INTO core_schema_version(version, applied_at_s) VALUES(?, ?) "
+            + "ON DUPLICATE KEY UPDATE applied_at_s=VALUES(applied_at_s)";
+    try (PreparedStatement ps = c.prepareStatement(sql)) {
+      ps.setInt(1, version);
+      ps.setLong(2, Instant.now().getEpochSecond());
+      ps.executeUpdate();
+    }
+  }
+
+  private static void setForeignKeyChecks(Connection c, boolean enabled) throws SQLException {
+    try (Statement st = c.createStatement()) {
+      st.execute("SET FOREIGN_KEY_CHECKS=" + (enabled ? "1" : "0"));
+    }
+  }
+
   private static long lastModified(Path path) {
     try {
       return Files.getLastModifiedTime(path).toMillis();
@@ -246,28 +403,26 @@ public final class BackupImporter {
     }
   }
 
-  private static void validateHeader(JsonObject obj) throws IOException {
+  private static Header validateHeader(JsonObject obj) throws IOException {
     String version = stringOrNull(obj, "version");
     if (!"jsonl/v1".equals(version)) {
       throw new IOException("unsupported snapshot version: " + version);
     }
+    if (!obj.has("schemaVersion") || obj.get("schemaVersion").isJsonNull()) {
+      throw new IOException("snapshot missing schemaVersion");
+    }
+    int schemaVersion;
+    try {
+      schemaVersion = obj.get("schemaVersion").getAsInt();
+    } catch (RuntimeException e) {
+      throw new IOException("invalid schemaVersion", e);
+    }
+    String defaultZone = stringOrNull(obj, "defaultZone");
+    return new Header(version, schemaVersion, defaultZone);
   }
 
   private static byte[] uuidToBytes(String value) {
-    if (value == null || value.isBlank()) {
-      return null;
-    }
-    UUID uuid = UUID.fromString(value);
-    byte[] out = new byte[16];
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) (msb >>> (8 * (7 - i)));
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
-    }
-    return out;
+    return Uuids.fromString(value);
   }
 
   private static byte[] hexToBytes(String value) {
@@ -303,6 +458,26 @@ public final class BackupImporter {
     return obj.get(key).getAsBoolean();
   }
 
+  private static String ident(String name) {
+    return "`" + name + "`";
+  }
+
+  private static void copy(Connection c, String source, String target, String columns)
+      throws SQLException {
+    String sql =
+        "INSERT INTO "
+            + ident(target)
+            + "("
+            + columns
+            + ") SELECT "
+            + columns
+            + " FROM "
+            + ident(source);
+    try (Statement st = c.createStatement()) {
+      st.executeUpdate(sql);
+    }
+  }
+
   private interface SnapshotHandler {
     void handlePlayer(JsonObject obj) throws SQLException;
 
@@ -310,12 +485,15 @@ public final class BackupImporter {
 
     void handleLedger(JsonObject obj) throws SQLException;
 
+    default void handleEventSeq(JsonObject obj) throws SQLException {}
+
     default void closeQuietly() {}
   }
 
   private static final class Counters {
     long players;
     long attributes;
+    long eventSeq;
     long ledger;
   }
 
@@ -323,6 +501,7 @@ public final class BackupImporter {
     private final PreparedStatement insertPlayer;
     private final PreparedStatement insertAttr;
     private final PreparedStatement insertLedger;
+    private final PreparedStatement insertSeq;
 
     FreshHandler(Connection c) throws SQLException {
       this.insertPlayer =
@@ -339,6 +518,7 @@ public final class BackupImporter {
                   + "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
                   + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      this.insertSeq = c.prepareStatement("INSERT INTO player_event_seq(uuid,seq) VALUES(?,?)");
     }
 
     @Override
@@ -444,10 +624,267 @@ public final class BackupImporter {
     }
 
     @Override
+    public void handleEventSeq(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player_event_seq uuid in snapshot");
+      }
+      insertSeq.setBytes(1, uuid);
+      insertSeq.setLong(2, longOrZero(obj, "seq"));
+      insertSeq.executeUpdate();
+    }
+
+    @Override
     public void closeQuietly() {
       close(insertLedger);
       close(insertAttr);
       close(insertPlayer);
+      close(insertSeq);
+    }
+  }
+
+  private static final class StagingTables {
+    private final String players;
+    private final String attributes;
+    private final String eventSeq;
+    private final String ledger;
+
+    private StagingTables(String players, String attributes, String eventSeq, String ledger) {
+      this.players = players;
+      this.attributes = attributes;
+      this.eventSeq = eventSeq;
+      this.ledger = ledger;
+    }
+
+    static StagingTables create(Connection c) throws SQLException {
+      String suffix = Long.toUnsignedString(ThreadLocalRandom.current().nextLong(), 16);
+      if (suffix.isEmpty()) {
+        suffix = "0";
+      }
+      StagingTables tables =
+          new StagingTables(
+              "players_restore_" + suffix,
+              "player_attributes_restore_" + suffix,
+              "player_event_seq_restore_" + suffix,
+              "core_ledger_restore_" + suffix);
+      tables.createAll(c);
+      return tables;
+    }
+
+    private void createAll(Connection c) throws SQLException {
+      createLike(c, players, "players");
+      createLike(c, attributes, "player_attributes");
+      createLike(c, eventSeq, "player_event_seq");
+      createLike(c, ledger, "core_ledger");
+    }
+
+    private static void createLike(Connection c, String staging, String base) throws SQLException {
+      try (Statement st = c.createStatement()) {
+        st.execute("DROP TABLE IF EXISTS " + ident(staging));
+        st.execute("CREATE TABLE " + ident(staging) + " LIKE " + ident(base));
+      }
+    }
+
+    void swapIntoPrimary(Connection c) throws SQLException {
+      try (Statement st = c.createStatement()) {
+        st.executeUpdate("DELETE FROM core_ledger");
+        st.executeUpdate("DELETE FROM player_attributes");
+        st.executeUpdate("DELETE FROM player_event_seq");
+        st.executeUpdate("DELETE FROM players");
+      }
+      copy(c, players, "players", "uuid,name,balance_units,created_at_s,updated_at_s,seen_at_s");
+      copy(c, eventSeq, "player_event_seq", "uuid,seq");
+      copy(
+          c,
+          attributes,
+          "player_attributes",
+          "owner_uuid,attr_key,value_json,created_at_s,updated_at_s");
+      copy(
+          c,
+          ledger,
+          "core_ledger",
+          "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json");
+    }
+
+    void cleanupQuietly(Connection c) {
+      dropQuietly(c, ledger);
+      dropQuietly(c, attributes);
+      dropQuietly(c, eventSeq);
+      dropQuietly(c, players);
+    }
+
+    private static void dropQuietly(Connection c, String table) {
+      try (Statement st = c.createStatement()) {
+        st.execute("DROP TABLE IF EXISTS " + ident(table));
+      } catch (SQLException e) {
+        LOG.warn("(mincore) failed to drop staging table {}", table, e);
+      }
+    }
+
+    String players() {
+      return players;
+    }
+
+    String attributes() {
+      return attributes;
+    }
+
+    String eventSeq() {
+      return eventSeq;
+    }
+
+    String ledger() {
+      return ledger;
+    }
+  }
+
+  private static final class StagingHandler implements SnapshotHandler {
+    private final PreparedStatement insertPlayer;
+    private final PreparedStatement insertAttr;
+    private final PreparedStatement insertLedger;
+    private final PreparedStatement insertSeq;
+
+    StagingHandler(Connection c, StagingTables tables) throws SQLException {
+      this.insertPlayer =
+          c.prepareStatement(
+              "INSERT INTO "
+                  + ident(tables.players())
+                  + "(uuid,name,balance_units,created_at_s,updated_at_s,seen_at_s) VALUES(?,?,?,?,?,?)");
+      this.insertAttr =
+          c.prepareStatement(
+              "INSERT INTO "
+                  + ident(tables.attributes())
+                  + "(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) VALUES(?,?,?,?,?)");
+      this.insertLedger =
+          c.prepareStatement(
+              "INSERT INTO "
+                  + ident(tables.ledger())
+                  + "(ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
+                  + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
+                  + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      this.insertSeq =
+          c.prepareStatement("INSERT INTO " + ident(tables.eventSeq()) + "(uuid,seq) VALUES(?,?)");
+    }
+
+    @Override
+    public void handlePlayer(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player uuid in snapshot");
+      }
+      insertPlayer.setBytes(1, uuid);
+      insertPlayer.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "name"), ""));
+      insertPlayer.setLong(3, longOrZero(obj, "balance"));
+      insertPlayer.setLong(4, longOrZero(obj, "createdAt"));
+      insertPlayer.setLong(5, longOrZero(obj, "updatedAt"));
+      long seen = longOrZero(obj, "seenAt");
+      if (seen <= 0) {
+        insertPlayer.setNull(6, Types.BIGINT);
+      } else {
+        insertPlayer.setLong(6, seen);
+      }
+      insertPlayer.executeUpdate();
+    }
+
+    @Override
+    public void handleAttribute(JsonObject obj) throws SQLException {
+      byte[] owner = uuidToBytes(stringOrNull(obj, "owner"));
+      if (owner == null) {
+        throw new SQLException("missing attribute owner uuid in snapshot");
+      }
+      insertAttr.setBytes(1, owner);
+      insertAttr.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "key"), ""));
+      String value = obj.get("value").toString();
+      insertAttr.setString(3, value);
+      insertAttr.setLong(4, longOrZero(obj, "createdAt"));
+      insertAttr.setLong(5, longOrZero(obj, "updatedAt"));
+      insertAttr.executeUpdate();
+    }
+
+    @Override
+    public void handleLedger(JsonObject obj) throws SQLException {
+      insertLedger.setLong(1, longOrZero(obj, "ts"));
+      insertLedger.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "addon"), ""));
+      insertLedger.setString(3, Objects.requireNonNullElse(stringOrNull(obj, "op"), ""));
+      byte[] from = uuidToBytes(stringOrNull(obj, "from"));
+      if (from == null) {
+        insertLedger.setNull(4, Types.BINARY);
+      } else {
+        insertLedger.setBytes(4, from);
+      }
+      byte[] to = uuidToBytes(stringOrNull(obj, "to"));
+      if (to == null) {
+        insertLedger.setNull(5, Types.BINARY);
+      } else {
+        insertLedger.setBytes(5, to);
+      }
+      insertLedger.setLong(6, longOrZero(obj, "amount"));
+      insertLedger.setString(7, Objects.requireNonNullElse(stringOrNull(obj, "reason"), ""));
+      Boolean ok = boolOrNull(obj, "ok");
+      insertLedger.setBoolean(8, ok != null ? ok : false);
+      String code = stringOrNull(obj, "code");
+      if (code == null) {
+        insertLedger.setNull(9, Types.VARCHAR);
+      } else {
+        insertLedger.setString(9, code);
+      }
+      insertLedger.setLong(10, longOrZero(obj, "seq"));
+      String scope = stringOrNull(obj, "idemScope");
+      if (scope == null) {
+        insertLedger.setNull(11, Types.VARCHAR);
+      } else {
+        insertLedger.setString(11, scope);
+      }
+      byte[] key = hexToBytes(stringOrNull(obj, "idemKey"));
+      if (key == null) {
+        insertLedger.setNull(12, Types.BINARY);
+      } else {
+        insertLedger.setBytes(12, key);
+      }
+      long oldUnits = longOrZero(obj, "oldUnits");
+      if (obj.has("oldUnits") && !obj.get("oldUnits").isJsonNull()) {
+        insertLedger.setLong(13, oldUnits);
+      } else {
+        insertLedger.setNull(13, Types.BIGINT);
+      }
+      long newUnits = longOrZero(obj, "newUnits");
+      if (obj.has("newUnits") && !obj.get("newUnits").isJsonNull()) {
+        insertLedger.setLong(14, newUnits);
+      } else {
+        insertLedger.setNull(14, Types.BIGINT);
+      }
+      String node = stringOrNull(obj, "serverNode");
+      if (node == null) {
+        insertLedger.setNull(15, Types.VARCHAR);
+      } else {
+        insertLedger.setString(15, node);
+      }
+      JsonElement extra = obj.get("extra");
+      if (extra == null || extra.isJsonNull()) {
+        insertLedger.setNull(16, Types.LONGVARCHAR);
+      } else {
+        insertLedger.setString(16, extra.toString());
+      }
+      insertLedger.executeUpdate();
+    }
+
+    @Override
+    public void handleEventSeq(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player_event_seq uuid in snapshot");
+      }
+      insertSeq.setBytes(1, uuid);
+      insertSeq.setLong(2, longOrZero(obj, "seq"));
+      insertSeq.executeUpdate();
+    }
+
+    @Override
+    public void closeQuietly() {
+      close(insertLedger);
+      close(insertAttr);
+      close(insertPlayer);
+      close(insertSeq);
     }
   }
 
@@ -457,6 +894,7 @@ public final class BackupImporter {
     private final PreparedStatement insertLedger;
     private final PreparedStatement existsLedger;
     private final PreparedStatement deleteLedger;
+    private final PreparedStatement upsertSeq;
     private final boolean overwrite;
 
     MergeHandler(Connection c, boolean overwrite) throws SQLException {
@@ -485,6 +923,10 @@ public final class BackupImporter {
       this.deleteLedger =
           c.prepareStatement(
               "DELETE FROM core_ledger WHERE ts_s=? AND addon_id=? AND op=? AND seq=? AND reason=?");
+      this.upsertSeq =
+          c.prepareStatement(
+              "INSERT INTO player_event_seq(uuid,seq) VALUES(?,?) "
+                  + "ON DUPLICATE KEY UPDATE seq=GREATEST(seq, VALUES(seq))");
     }
 
     @Override
@@ -616,12 +1058,24 @@ public final class BackupImporter {
     }
 
     @Override
+    public void handleEventSeq(JsonObject obj) throws SQLException {
+      byte[] uuid = uuidToBytes(stringOrNull(obj, "uuid"));
+      if (uuid == null) {
+        throw new SQLException("missing player_event_seq uuid in snapshot");
+      }
+      upsertSeq.setBytes(1, uuid);
+      upsertSeq.setLong(2, longOrZero(obj, "seq"));
+      upsertSeq.executeUpdate();
+    }
+
+    @Override
     public void closeQuietly() {
       close(deleteLedger);
       close(existsLedger);
       close(insertLedger);
       close(upsertAttr);
       close(upsertPlayer);
+      close(upsertSeq);
     }
   }
 

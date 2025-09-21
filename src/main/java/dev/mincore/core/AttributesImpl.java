@@ -1,9 +1,15 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 import dev.mincore.api.Attributes;
 import dev.mincore.api.ErrorCode;
-import java.sql.*;
+import dev.mincore.util.Uuids;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -17,6 +23,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class AttributesImpl implements Attributes {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
+  private static final int MAX_JSON_CHARS = 8192;
   private final DataSource ds;
   private final DbHealth dbHealth;
 
@@ -24,6 +31,7 @@ public final class AttributesImpl implements Attributes {
    * Creates a new instance.
    *
    * @param ds shared datasource
+   * @param dbHealth health monitor for degraded mode handling
    */
   public AttributesImpl(javax.sql.DataSource ds, DbHealth dbHealth) {
     this.ds = ds;
@@ -32,12 +40,11 @@ public final class AttributesImpl implements Attributes {
 
   @Override
   public Optional<String> get(UUID owner, String key) {
-    String sql =
-        "SELECT value_json FROM player_attributes WHERE owner_uuid=UNHEX(REPLACE(?, \"-\", \"\")) AND attr_key=?";
+    String sql = "SELECT value_json FROM player_attributes WHERE owner_uuid=? AND attr_key=?";
     Optional<String> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setString(1, owner.toString());
+      ps.setBytes(1, Uuids.toBytes(owner));
       ps.setString(2, key);
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
@@ -67,12 +74,12 @@ public final class AttributesImpl implements Attributes {
     }
     String sql =
         "INSERT INTO player_attributes(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) "
-            + "VALUES(UNHEX(REPLACE(?, \"-\", \"\")),?,?,?,?) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json), updated_at_s=VALUES(updated_at_s)";
+            + "VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE value_json=VALUES(value_json), updated_at_s=VALUES(updated_at_s)";
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setString(1, owner.toString());
+      ps.setBytes(1, Uuids.toBytes(owner));
       ps.setString(2, key);
-      ps.setString(3, jsonValue);
+      ps.setString(3, sanitizeJson(jsonValue));
       ps.setLong(4, nowS);
       ps.setLong(5, nowS);
       ps.executeUpdate();
@@ -98,9 +105,8 @@ public final class AttributesImpl implements Attributes {
     }
     try (Connection c = ds.getConnection();
         PreparedStatement ps =
-            c.prepareStatement(
-                "DELETE FROM player_attributes WHERE owner_uuid=UNHEX(REPLACE(?, \"-\", \"\")) AND attr_key=?")) {
-      ps.setString(1, owner.toString());
+            c.prepareStatement("DELETE FROM player_attributes WHERE owner_uuid=? AND attr_key=?")) {
+      ps.setBytes(1, Uuids.toBytes(owner));
       ps.setString(2, key);
       ps.executeUpdate();
       dbHealth.markSuccess();
@@ -116,5 +122,21 @@ public final class AttributesImpl implements Attributes {
           e.getErrorCode(),
           e);
     }
+  }
+
+  private static String sanitizeJson(String jsonValue) {
+    if (jsonValue == null) {
+      throw new IllegalArgumentException("jsonValue must not be null");
+    }
+    String trimmed = jsonValue.trim();
+    if (trimmed.length() > MAX_JSON_CHARS) {
+      throw new IllegalArgumentException("jsonValue exceeds 8192 characters");
+    }
+    try {
+      JsonParser.parseString(trimmed);
+    } catch (JsonParseException e) {
+      throw new IllegalArgumentException("jsonValue must be valid JSON", e);
+    }
+    return trimmed;
   }
 }

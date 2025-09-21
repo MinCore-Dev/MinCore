@@ -14,7 +14,11 @@ public final class SchemaVerifier {
 
   private SchemaVerifier() {}
 
-  /** Ensures the schema version recorded in the database is compatible with this build. */
+  /**
+   * Ensures the schema version recorded in the database is compatible with this build.
+   *
+   * @param services live services container used to access the extension database
+   */
   public static void verify(Services services) {
     int expected = Migrations.currentVersion();
     try (Connection c = services.database().borrowConnection();
