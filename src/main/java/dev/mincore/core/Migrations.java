@@ -147,7 +147,11 @@ public final class Migrations {
     recordSchemaVersion(services);
   }
 
-  /** Current schema version number. */
+  /**
+   * Current schema version number.
+   *
+   * @return latest schema version known to the runtime
+   */
   public static int currentVersion() {
     return CURRENT_VERSION;
   }

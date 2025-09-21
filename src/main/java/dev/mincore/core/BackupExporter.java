@@ -83,6 +83,7 @@ public final class BackupExporter {
         writeHeader(writer, cfg);
         long players = dumpPlayers(writer, c);
         long attrs = dumpAttributes(writer, c);
+        long seq = dumpEventSequences(writer, c);
         long ledger = dumpLedger(writer, c);
         writer.flush();
 
@@ -90,7 +91,7 @@ public final class BackupExporter {
             outDir.resolve(baseName + ".sha256"), HexFormat.of().formatHex(sha.digest()));
         prune(outDir, backupCfg.prune(), outFile);
         c.rollback();
-        return new Result(outFile, players, attrs, ledger);
+        return new Result(outFile, players, attrs, seq, ledger);
       }
     }
   }
@@ -193,6 +194,34 @@ public final class BackupExporter {
                 + rs.getLong("updated_at_s")
                 + "}\n";
         writer.write(line);
+        count++;
+      }
+      return count;
+    }
+  }
+
+  private static long dumpEventSequences(BufferedWriter writer, Connection c)
+      throws SQLException, IOException {
+    String sql = "SELECT HEX(uuid) AS uuid, seq FROM player_event_seq";
+    try (PreparedStatement ps = c.prepareStatement(sql);
+        ResultSet rs = ps.executeQuery()) {
+      long count = 0;
+      while (rs.next()) {
+        StringBuilder line = new StringBuilder();
+        line.append('{')
+            .append(quote("table"))
+            .append(':')
+            .append(quote("player_event_seq"))
+            .append(',')
+            .append(quote("uuid"))
+            .append(':')
+            .append(quote(formatUuid(rs.getString("uuid"))))
+            .append(',')
+            .append(quote("seq"))
+            .append(':')
+            .append(rs.getLong("seq"))
+            .append("}\n");
+        writer.write(line.toString());
         count++;
       }
       return count;
@@ -355,16 +384,16 @@ public final class BackupExporter {
     return "\"" + in.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
   }
 
-  /** Result metadata for a backup run. */
   /**
    * Summary of an export run.
    *
    * @param file final archive path that was written
    * @param players number of player records exported
    * @param attributes number of attribute rows exported
+   * @param eventSeq number of event sequence rows exported
    * @param ledger number of ledger entries exported
    */
-  public record Result(Path file, long players, long attributes, long ledger) {}
+  public record Result(Path file, long players, long attributes, long eventSeq, long ledger) {}
 
   /** Simple OutputStream wrapper that updates a MessageDigest. */
   private static final class DigestOutput extends OutputStream {

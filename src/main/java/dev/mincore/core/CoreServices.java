@@ -32,6 +32,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   private final ScheduledExecutorService scheduler;
   private final Playtime playtime;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
 
   private CoreServices(
       HikariDataSource pool,
@@ -42,7 +43,8 @@ public final class CoreServices implements Services, java.io.Closeable {
       ExtensionDbImpl extensionDb,
       ScheduledExecutorService scheduler,
       Playtime playtime,
-      DbHealth dbHealth) {
+      DbHealth dbHealth,
+      Metrics metrics) {
     this.pool = pool;
     this.events = events;
     this.players = players;
@@ -52,6 +54,7 @@ public final class CoreServices implements Services, java.io.Closeable {
     this.scheduler = scheduler;
     this.playtime = playtime;
     this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   /**
@@ -123,9 +126,10 @@ public final class CoreServices implements Services, java.io.Closeable {
     DbHealth dbHealth = new DbHealth(ds, scheduler, cfg.runtime().reconnectEveryS(), cfg.db());
 
     EventBus events = new EventBus();
+    Metrics metrics = new Metrics();
     ExtensionDbImpl ext = new ExtensionDbImpl(ds, dbHealth);
     Players players = new PlayersImpl(ds, events, dbHealth);
-    Wallets wallets = new WalletsImpl(ds, events, dbHealth);
+    Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics);
     Attributes attrs = new AttributesImpl(ds, dbHealth);
     PlaytimeImpl play = new PlaytimeImpl();
 
@@ -135,7 +139,8 @@ public final class CoreServices implements Services, java.io.Closeable {
     ServerPlayConnectionEvents.DISCONNECT.register(
         (handler, server) -> play.onQuit(handler.player.getUuid()));
 
-    return new CoreServices(ds, events, players, wallets, attrs, ext, scheduler, play, dbHealth);
+    return new CoreServices(
+        ds, events, players, wallets, attrs, ext, scheduler, play, dbHealth, metrics);
   }
 
   @Override
@@ -182,6 +187,7 @@ public final class CoreServices implements Services, java.io.Closeable {
     } catch (Exception e) {
       LOG.debug("(mincore) event bus shutdown issue", e);
     }
+    metrics.close();
     scheduler.shutdownNow();
     pool.close();
   }

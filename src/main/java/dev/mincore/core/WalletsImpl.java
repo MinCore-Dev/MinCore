@@ -6,6 +6,7 @@ import dev.mincore.api.Wallets;
 import dev.mincore.api.Wallets.OperationResult;
 import dev.mincore.api.events.CoreEvents;
 import dev.mincore.util.TokenBucketRateLimiter;
+import dev.mincore.util.Uuids;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -31,17 +32,21 @@ public final class WalletsImpl implements Wallets {
   private final DataSource ds;
   private final EventBus events;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
 
   /**
    * Creates a wallet service backed by the given datasource and event bus.
    *
    * @param ds pooled datasource connected to the MinCore schema
    * @param events core event bus used to emit balance change notifications
+   * @param dbHealth health monitor for degraded mode handling
+   * @param metrics metrics registry for observability
    */
-  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
+  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.events = events;
     this.dbHealth = dbHealth;
+    this.metrics = Objects.requireNonNull(metrics, "metrics");
   }
 
   @Override
@@ -50,7 +55,7 @@ public final class WalletsImpl implements Wallets {
     String sql = "SELECT balance_units FROM players WHERE uuid=?";
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(player));
+      ps.setBytes(1, Uuids.toBytes(player));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           dbHealth.markSuccess();
@@ -101,8 +106,10 @@ public final class WalletsImpl implements Wallets {
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:deposit", null, player, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:deposit", idemKey, payload, c -> applyDelta(c, player, amount, cleanReason));
+    return record(
+        "deposit",
+        applyIdempotent(
+            "core:deposit", idemKey, payload, c -> applyDelta(c, player, amount, cleanReason)));
   }
 
   @Override
@@ -118,8 +125,10 @@ public final class WalletsImpl implements Wallets {
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:withdraw", player, null, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:withdraw", idemKey, payload, c -> applyDelta(c, player, -amount, cleanReason));
+    return record(
+        "withdraw",
+        applyIdempotent(
+            "core:withdraw", idemKey, payload, c -> applyDelta(c, player, -amount, cleanReason)));
   }
 
   @Override
@@ -136,8 +145,13 @@ public final class WalletsImpl implements Wallets {
     }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:transfer", from, to, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:transfer", idemKey, payload, c -> applyTransfer(c, from, to, amount, cleanReason));
+    return record(
+        "transfer",
+        applyIdempotent(
+            "core:transfer",
+            idemKey,
+            payload,
+            c -> applyTransfer(c, from, to, amount, cleanReason)));
   }
 
   private Mutation applyDelta(Connection c, UUID player, long delta, String reason)
@@ -204,7 +218,7 @@ public final class WalletsImpl implements Wallets {
   private PlayerBalance lockBalance(Connection c, UUID uuid) throws SQLException {
     String sql = "SELECT balance_units FROM players WHERE uuid=? FOR UPDATE";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           long bal = rs.getLong(1);
@@ -220,7 +234,7 @@ public final class WalletsImpl implements Wallets {
     try (PreparedStatement ps = c.prepareStatement(sql)) {
       ps.setLong(1, newUnits);
       ps.setLong(2, now);
-      ps.setBytes(3, uuidToBytes(uuid));
+      ps.setBytes(3, Uuids.toBytes(uuid));
       ps.executeUpdate();
     }
   }
@@ -231,7 +245,7 @@ public final class WalletsImpl implements Wallets {
                 "INSERT INTO player_event_seq(uuid,seq) VALUES(?,1) "
                     + "ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)");
         Statement last = c.createStatement()) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.executeUpdate();
       try (ResultSet rs = last.executeQuery("SELECT LAST_INSERT_ID()")) {
         if (rs.next()) {
@@ -277,7 +291,6 @@ public final class WalletsImpl implements Wallets {
               c.rollback();
               logIdem(
                   scope + ":mismatch",
-                  now,
                   "(mincore) code={} op={} message={} key={}",
                   ErrorCode.IDEMPOTENCY_MISMATCH,
                   scope,
@@ -291,7 +304,6 @@ public final class WalletsImpl implements Wallets {
               c.commit();
               logIdem(
                   scope + ":replay",
-                  now,
                   "(mincore) code={} op={} message={} key={}",
                   ErrorCode.IDEMPOTENCY_REPLAY,
                   scope,
@@ -354,8 +366,13 @@ public final class WalletsImpl implements Wallets {
     }
   }
 
-  private static void logIdem(String key, long now, String fmt, Object... args) {
-    if (IDEM_LOG_LIMITER.tryAcquire(key, now)) {
+  private OperationResult record(String op, OperationResult result) {
+    metrics.recordWalletOperation(op, result);
+    return result;
+  }
+
+  private static void logIdem(String key, String fmt, Object... args) {
+    if (IDEM_LOG_LIMITER.tryAcquire(key)) {
       LOG.info(fmt, args);
     }
   }
@@ -395,19 +412,6 @@ public final class WalletsImpl implements Wallets {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
-  }
-
-  private static byte[] uuidToBytes(UUID uuid) {
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    byte[] out = new byte[16];
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
-    }
-    return out;
   }
 
   private static int compare(UUID a, UUID b) {

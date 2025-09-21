@@ -66,19 +66,31 @@ public final class EventBus implements CoreEvents, AutoCloseable {
     return () -> seen.remove(h);
   }
 
-  /** Dispatches a balance changed event asynchronously. */
+  /**
+   * Dispatches a balance changed event asynchronously.
+   *
+   * @param e event to dispatch
+   */
   public void fireBalanceChanged(BalanceChangedEvent e) {
     if (e == null || closed.get()) return;
     enqueue(e.player(), () -> dispatch(bal, e));
   }
 
-  /** Dispatches a player registered event asynchronously. */
+  /**
+   * Dispatches a player registered event asynchronously.
+   *
+   * @param e event to dispatch
+   */
   public void firePlayerRegistered(PlayerRegisteredEvent e) {
     if (e == null || closed.get()) return;
     enqueue(e.player(), () -> dispatch(reg, e));
   }
 
-  /** Dispatches a player seen updated event asynchronously. */
+  /**
+   * Dispatches a player seen updated event asynchronously.
+   *
+   * @param e event to dispatch
+   */
   public void firePlayerSeenUpdated(PlayerSeenUpdatedEvent e) {
     if (e == null || closed.get()) return;
     enqueue(e.player(), () -> dispatch(seen, e));
@@ -123,7 +135,12 @@ public final class EventBus implements CoreEvents, AutoCloseable {
       if (next == null) {
         if (queue.draining.compareAndSet(true, false)) {
           if (queue.tasks.isEmpty()) {
-            queues.remove(player, queue);
+            if (queues.remove(player, queue)) {
+              Runnable extra;
+              while ((extra = queue.tasks.poll()) != null) {
+                enqueue(player, extra);
+              }
+            }
             return;
           }
           if (!queue.draining.compareAndSet(false, true)) {

@@ -77,7 +77,13 @@ public final class Timezones {
     write(uuid, zone, services, "manual");
   }
 
-  /** Stores an auto-detected timezone override for the player. */
+  /**
+   * Stores an auto-detected timezone override for the player.
+   *
+   * @param uuid player identifier
+   * @param zone zone to persist
+   * @param services service container used to persist attributes
+   */
   public static void setAuto(UUID uuid, ZoneId zone, Services services) {
     write(uuid, zone, services, "auto");
   }
