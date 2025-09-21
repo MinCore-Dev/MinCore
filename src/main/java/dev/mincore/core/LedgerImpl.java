@@ -65,6 +65,14 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     this.retentionDays = retentionDays;
   }
 
+  private static DataSource requireDataSource(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.pool();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
   /**
    * Install the ledger module according to runtime configuration.
    *
@@ -82,28 +90,20 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    */
   public static LedgerImpl install(Services services, Config cfg) {
     Config.Ledger ledgerCfg = cfg.ledger();
+    DataSource dataSource = requireDataSource(services);
     var inst =
         new LedgerImpl(
-            services instanceof CoreServices cs
-                ? cs.pool()
-                : null, // fallback path; CoreServices exposes DataSource internally
+            dataSource,
             ledgerCfg.enabled(),
             ledgerCfg.jsonlMirror().enabled(),
             Path.of(ledgerCfg.jsonlMirror().path()),
             ledgerCfg.retentionDays());
 
     if (!ledgerCfg.enabled()) {
-            cfg.ledgerEnabled(),
-            cfg.ledgerFileEnabled(),
-            Path.of(cfg.ledgerFilePath()),
-            cfg.ledgerRetentionDays());
-
-    if (!cfg.ledgerEnabled()) {
       LOG.info("(mincore) ledger: disabled by config");
       return inst;
     }
 
-    // Ensure table exists
     try (var c = inst.ds.getConnection();
         var st = c.createStatement()) {
       st.execute(
@@ -141,7 +141,6 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
       LOG.error("(mincore) ledger: failed to ensure table", e);
     }
 
-    // Subscribe to core balance changes
     inst.coreListener =
         services
             .events()
@@ -167,13 +166,9 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                       null);
                 });
 
-    // Schedule TTL cleanup
     if (ledgerCfg.retentionDays() > 0) {
       ScheduledExecutorService sch = services.scheduler();
       long days = ledgerCfg.retentionDays();
-    if (cfg.ledgerRetentionDays() > 0) {
-      ScheduledExecutorService sch = services.scheduler();
-      long days = cfg.ledgerRetentionDays();
       sch.scheduleAtFixedRate(
           () -> {
             try (var c = inst.ds.getConnection();
@@ -181,13 +176,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
               long cutoff = Instant.now().getEpochSecond() - (days * 86400L);
               ps.setLong(1, cutoff);
               int n = ps.executeUpdate();
-              if (n > 0) LOG.info("(mincore) ledger: cleanup removed {} rows", n);
+              if (n > 0) {
+                LOG.info("(mincore) ledger: cleanup removed {} rows", n);
+              }
             } catch (Throwable t) {
               LOG.warn("(mincore) ledger: cleanup failed", t);
             }
           },
-          5, // initial delay
-          TimeUnit.HOURS.toSeconds(1), // hourly sweep; rows older than retention are removed
+          5,
+          TimeUnit.HOURS.toSeconds(1),
           TimeUnit.SECONDS);
     }
 
@@ -195,8 +192,6 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         "(mincore) ledger: enabled (retention={} days, file={})",
         ledgerCfg.retentionDays(),
         ledgerCfg.jsonlMirror().enabled());
-        cfg.ledgerRetentionDays(),
-        cfg.ledgerFileEnabled());
     return inst;
   }
 

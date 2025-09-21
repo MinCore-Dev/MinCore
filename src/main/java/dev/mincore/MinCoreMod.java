@@ -88,8 +88,6 @@ public final class MinCoreMod implements ModInitializer {
 
     // 8) Scheduler hooks (backups, sweeps, etc.)
     Scheduler.install(services, cfg);
-    // 8) Scheduler hooks (backups, sweeps, etc.)
-    Scheduler.install(services);
     // 9) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
         server -> {

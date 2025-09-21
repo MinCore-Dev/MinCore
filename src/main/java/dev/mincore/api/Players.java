@@ -90,22 +90,6 @@ public interface Players {
      *
      * @return balance in minor units
      */
-    /** Player UUID. */
-    UUID uuid();
-
-    /** Last known username. */
-    String name();
-
-    /** Creation time (epoch seconds, UTC). */
-    long createdAtS();
-
-    /** Last update time (epoch seconds, UTC). */
-    long updatedAtS();
-
-    /** Last seen time (epoch seconds, UTC) or {@code null}. */
-    Long seenAtS();
-
-    /** Wallet balance in smallest currency units. */
     long balanceUnits();
   }
 }
