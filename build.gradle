@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
   id 'fabric-loom' version "${loom_version}"
   id 'java'
@@ -31,6 +33,9 @@ dependencies {
   // Bundle Hikari inside the mod jar.
   include(implementation("com.zaxxer:HikariCP:5.1.0"))
 
+  // Optional timezone auto-detect (GeoIP lookup when enabled).
+  include(implementation("com.maxmind.geoip2:geoip2:4.1.0"))
+
   testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
   testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
 }
@@ -61,6 +66,79 @@ spotless {
 
 tasks.named('test') {
   useJUnitPlatform()
+}
+
+def countPlaceholders = { String value ->
+  def matcher = value =~ /%s/
+  int total = 0
+  while (matcher.find()) {
+    total++
+  }
+  total
+}
+
+tasks.register('validateI18n') {
+  group = 'verification'
+  description = 'Validates localization files for missing keys and placeholder mismatches.'
+
+  def langDir = file('src/main/resources/assets/mincore/lang')
+  inputs.dir(langDir)
+
+  doLast {
+    if (!langDir.exists()) {
+      throw new GradleException("Localization directory not found: ${langDir}")
+    }
+
+    File baseFile = new File(langDir, 'en_us.json')
+    if (!baseFile.exists()) {
+      throw new GradleException('Base locale en_us.json is missing')
+    }
+
+    def slurper = new JsonSlurper()
+    def base = slurper.parse(baseFile)
+    if (!(base instanceof Map)) {
+      throw new GradleException("Base locale must be a JSON object")
+    }
+
+    Map<String, Integer> placeholders = [:]
+    base.each { key, value ->
+      if (!(value instanceof String)) {
+        throw new GradleException("Value for ${key} in ${baseFile.name} must be a string")
+      }
+      placeholders[key] = countPlaceholders(value as String)
+    }
+
+    langDir.listFiles()?.findAll { it.name.endsWith('.json') && it.name != 'en_us.json' }?.each { File localeFile ->
+      def locale = slurper.parse(localeFile)
+      if (!(locale instanceof Map)) {
+        throw new GradleException("${localeFile.name} must be a JSON object")
+      }
+
+      placeholders.each { key, expectedCount ->
+        if (!locale.containsKey(key)) {
+          throw new GradleException("${localeFile.name} is missing key ${key}")
+        }
+        def value = locale[key]
+        if (!(value instanceof String)) {
+          throw new GradleException("${localeFile.name} key ${key} must be a string")
+        }
+        int actual = countPlaceholders(value as String)
+        if (actual != expectedCount) {
+          throw new GradleException("${localeFile.name} key ${key} placeholder mismatch (expected ${expectedCount}, found ${actual})")
+        }
+      }
+
+      locale.keySet().each { key ->
+        if (!placeholders.containsKey(key)) {
+          throw new GradleException("${localeFile.name} has extra key ${key}")
+        }
+      }
+    }
+  }
+}
+
+tasks.named('check') {
+  dependsOn 'validateI18n'
 }
 
 publishing {

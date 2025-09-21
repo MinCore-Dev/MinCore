@@ -26,6 +26,7 @@ public final class WalletsImpl implements Wallets {
 
   private final DataSource ds;
   private final EventBus events;
+  private final DbHealth dbHealth;
 
   /**
    * Creates a wallet service backed by the given datasource and event bus.
@@ -33,9 +34,10 @@ public final class WalletsImpl implements Wallets {
    * @param ds pooled datasource connected to the MinCore schema
    * @param events core event bus used to emit balance change notifications
    */
-  public WalletsImpl(DataSource ds, EventBus events) {
+  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
     this.ds = ds;
     this.events = events;
+    this.dbHealth = dbHealth;
   }
 
   @Override
@@ -47,10 +49,13 @@ public final class WalletsImpl implements Wallets {
       ps.setBytes(1, uuidToBytes(player));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
+          dbHealth.markSuccess();
           return rs.getLong(1);
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
+      dbHealth.markFailure(e);
       LOG.warn("(mincore) getBalance failed", e);
     }
     return 0L;
@@ -73,6 +78,9 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public OperationResult depositResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.deposit")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (player == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
     }
@@ -87,6 +95,9 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.withdraw")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (player == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
     }
@@ -102,6 +113,9 @@ public final class WalletsImpl implements Wallets {
   @Override
   public OperationResult transferResult(
       UUID from, UUID to, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.transfer")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
     if (from == null || to == null) {
       return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participants required");
     }
@@ -247,12 +261,14 @@ public final class WalletsImpl implements Wallets {
             if (!java.util.Arrays.equals(ph, payloadHash)) {
               c.rollback();
               LOG.info("(mincore) {} idem mismatch key={}", scope, idemKey);
+              dbHealth.markSuccess();
               return OperationResult.failure(
                   ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
             }
             if (ok == 1) {
               c.commit();
               LOG.info("(mincore) {} replay key={}", scope, idemKey);
+              dbHealth.markSuccess();
               return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
             }
           }
@@ -266,10 +282,16 @@ public final class WalletsImpl implements Wallets {
         c.rollback();
         ErrorCode code = mapSqlException(e);
         LOG.warn("(mincore) {} sql failure", scope, e);
+        if (code == ErrorCode.CONNECTION_LOST) {
+          dbHealth.markFailure(e);
+        } else {
+          dbHealth.markSuccess();
+        }
         return OperationResult.failure(code, "database error");
       }
       if (!result.ok()) {
         c.rollback();
+        dbHealth.markSuccess();
         return result;
       }
 
@@ -279,10 +301,16 @@ public final class WalletsImpl implements Wallets {
         done.executeUpdate();
       }
       c.commit();
+      dbHealth.markSuccess();
       return result;
     } catch (SQLException e) {
       ErrorCode code = mapSqlException(e);
       LOG.warn("(mincore) {} failed", scope, e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       return OperationResult.failure(code, "database error");
     }
   }
