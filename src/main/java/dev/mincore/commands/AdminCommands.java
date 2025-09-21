@@ -450,7 +450,8 @@ public final class AdminCommands {
                   opts.from.toString()),
           false);
       BackupImporter.Result result =
-          BackupImporter.restore(services, opts.from, opts.mode, opts.strategy, opts.overwrite);
+          BackupImporter.restore(
+              services, opts.from, opts.mode, opts.strategy, opts.overwrite, opts.skipFkChecks);
       src.sendFeedback(
           () ->
               Text.translatable(
@@ -726,16 +727,19 @@ public final class AdminCommands {
     final BackupImporter.FreshStrategy strategy;
     final Path from;
     final boolean overwrite;
+    final boolean skipFkChecks;
 
     private RestoreOptions(
         BackupImporter.Mode mode,
         BackupImporter.FreshStrategy strategy,
         Path from,
-        boolean overwrite) {
+        boolean overwrite,
+        boolean skipFkChecks) {
       this.mode = mode;
       this.strategy = strategy;
       this.from = from;
       this.overwrite = overwrite;
+      this.skipFkChecks = skipFkChecks;
     }
 
     static RestoreOptions parse(String raw) {
@@ -743,6 +747,7 @@ public final class AdminCommands {
       BackupImporter.FreshStrategy strategy = BackupImporter.FreshStrategy.ATOMIC;
       Path from = null;
       boolean overwrite = false;
+      boolean skipFkChecks = false;
       List<String> tokens = tokenize(raw);
       for (int i = 0; i < tokens.size(); i++) {
         String token = tokens.get(i);
@@ -768,6 +773,7 @@ public final class AdminCommands {
             from = Path.of(tokens.get(++i));
           }
           case "--overwrite" -> overwrite = true;
+          case "--skip-fk-checks", "--skip-fk" -> skipFkChecks = true;
           case "" -> {
             // ignore
           }
@@ -780,7 +786,7 @@ public final class AdminCommands {
       if (mode == BackupImporter.Mode.MERGE) {
         strategy = null;
       }
-      return new RestoreOptions(mode, strategy, from, overwrite);
+      return new RestoreOptions(mode, strategy, from, overwrite, skipFkChecks);
     }
   }
 

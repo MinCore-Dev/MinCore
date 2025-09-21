@@ -110,6 +110,10 @@ public final class BackupExporter {
             + quote("defaultZone")
             + ":"
             + quote(cfg.time().display().defaultZone().getId())
+            + ','
+            + quote("schemaVersion")
+            + ":"
+            + Migrations.currentVersion()
             + "}\n";
     writer.write(json);
   }
