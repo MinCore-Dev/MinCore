@@ -38,30 +38,35 @@ public interface CoreEvents {
    * Emitted when a player's balance changes.
    *
    * @param player player UUID
-   * @param oldUnits previous balance (units) or {@code -1} if unknown
-   * @param newUnits new balance (units) or {@code -1} if unknown
-   * @param reason free-form reason
-   * @param seq per-player monotonic sequence
+   * @param seq per-player monotonic sequence number
+   * @param oldUnits previous balance (units)
+   * @param newUnits new balance (units)
+   * @param reason normalized reason string
    * @param version event schema version
    */
   record BalanceChangedEvent(
-      UUID player, long oldUnits, long newUnits, String reason, long seq, int version) {}
+      UUID player, long seq, long oldUnits, long newUnits, String reason, int version) {}
 
   /**
    * Emitted when a player row is first created.
    *
    * @param player player UUID
-   * @param seq per-player monotonic sequence
+   * @param seq per-player monotonic sequence number
+   * @param name registered username
    * @param version event schema version
    */
-  record PlayerRegisteredEvent(UUID player, long seq, int version) {}
+  record PlayerRegisteredEvent(UUID player, long seq, String name, int version) {}
 
   /**
    * Emitted when a player's 'seen' timestamp is updated.
    *
    * @param player player UUID
-   * @param seq per-player monotonic sequence
+   * @param seq per-player monotonic sequence number
+   * @param oldName previous username
+   * @param newName new username
+   * @param seenAtS new seen timestamp (epoch seconds, UTC)
    * @param version event schema version
    */
-  record PlayerSeenUpdatedEvent(UUID player, long seq, int version) {}
+  record PlayerSeenUpdatedEvent(
+      UUID player, long seq, String oldName, String newName, long seenAtS, int version) {}
 }

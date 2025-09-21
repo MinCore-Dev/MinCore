@@ -2,6 +2,7 @@
 package dev.mincore.util;
 
 import dev.mincore.api.MinCoreApi;
+import dev.mincore.api.Players;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,7 +17,7 @@ public final class PlayersX {
    * @return UUID if present now, else empty
    */
   public static Optional<UUID> resolveNameExact(String name) {
-    return MinCoreApi.players().getPlayerByName(name).map(v -> v.uuid());
+    return MinCoreApi.players().byName(name).map(v -> v.uuid());
   }
 
   /**
@@ -26,6 +27,6 @@ public final class PlayersX {
    * @return name if known, else empty
    */
   public static Optional<String> nameOf(UUID uuid) {
-    return MinCoreApi.players().getPlayer(uuid).map(v -> v.name());
+    return MinCoreApi.players().byUuid(uuid).map(Players.PlayerRef::name);
   }
 }

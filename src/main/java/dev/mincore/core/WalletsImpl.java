@@ -4,31 +4,27 @@ package dev.mincore.core;
 import dev.mincore.api.Wallets;
 import dev.mincore.api.events.CoreEvents;
 import java.nio.charset.StandardCharsets;
-import java.sql.*;
+import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
+import java.util.Locale;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * MariaDB-backed implementation of {@link Wallets}.
- *
- * <p>Implements idempotent balance operations using the {@code core_requests} table. Each logical
- * operation must provide (or is given) an idempotency key; replays of the same key + payload are
- * accepted without side-effects; a different payload for the same key is rejected.
- */
+/** MariaDB-backed implementation of {@link Wallets}. */
 public final class WalletsImpl implements Wallets {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
+  private static final int EVENT_VERSION = 1;
+
   private final DataSource ds;
   private final EventBus events;
 
-  /**
-   * Creates a new instance.
-   *
-   * @param ds shared datasource
-   * @param events event bus
-   */
   public WalletsImpl(DataSource ds, EventBus events) {
     this.ds = ds;
     this.events = events;
@@ -36,204 +32,171 @@ public final class WalletsImpl implements Wallets {
 
   @Override
   public long getBalance(UUID player) {
+    if (player == null) return 0L;
+    String sql = "SELECT balance_units FROM players WHERE uuid=?";
     try (Connection c = ds.getConnection();
-        PreparedStatement ps =
-            c.prepareStatement(
-                "SELECT balance_units FROM players WHERE uuid=UNHEX(REPLACE(?, \"-\", \"\"))")) {
-      ps.setString(1, player.toString());
+        PreparedStatement ps = c.prepareStatement(sql)) {
+      ps.setBytes(1, uuidToBytes(player));
       try (ResultSet rs = ps.executeQuery()) {
-        return rs.next() ? rs.getLong(1) : 0L;
+        if (rs.next()) {
+          return rs.getLong(1);
+        }
       }
     } catch (SQLException e) {
       LOG.warn("(mincore) getBalance failed", e);
-      return 0L;
     }
+    return 0L;
   }
 
   @Override
   public boolean deposit(UUID player, long amount, String reason) {
-    return deposit(player, amount, reason, "core:auto:" + System.nanoTime());
+    return deposit(player, amount, reason, autoKey());
   }
 
   @Override
   public boolean withdraw(UUID player, long amount, String reason) {
-    return withdraw(player, amount, reason, "core:auto:" + System.nanoTime());
+    return withdraw(player, amount, reason, autoKey());
   }
 
   @Override
   public boolean transfer(UUID from, UUID to, long amount, String reason) {
-    return transfer(from, to, amount, reason, "core:auto:" + System.nanoTime());
-  }
-
-  /** Computes a SHA-256 digest of a string. */
-  private static byte[] sha256(String s) {
-    try {
-      return java.security.MessageDigest.getInstance("SHA-256")
-          .digest(s.getBytes(StandardCharsets.UTF_8));
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  /**
-   * Canonicalizes operation payload for idempotency hashing.
-   *
-   * @param scope logical operation scope
-   * @param from sender or {@code null}
-   * @param to recipient or {@code null}
-   * @param amount amount in units
-   * @param reason normalized reason string
-   */
-  private static String canonical(String scope, UUID from, UUID to, long amount, String reason) {
-    String r = reason == null ? "" : reason.trim().toLowerCase();
-    if (r.length() > 64) r = r.substring(0, 64);
-    return scope
-        + "|"
-        + (from == null ? "00000000-0000-0000-0000-000000000000" : from.toString())
-        + "|"
-        + (to == null ? "00000000-0000-0000-0000-000000000000" : to.toString())
-        + "|"
-        + Long.toString(amount)
-        + "|"
-        + r;
+    return transfer(from, to, amount, reason, autoKey());
   }
 
   @Override
   public boolean deposit(UUID player, long amount, String reason, String idemKey) {
-    if (amount < 0) return false;
-    String scope = "core:deposit";
-    String payload = canonical(scope, null, player, amount, reason);
+    if (player == null || amount < 0) return false;
+    String cleanReason = clampReason(reason);
+    String payload = canonical("core:deposit", null, player, amount, canonicalReason(reason));
     return applyIdempotent(
-        scope,
-        idemKey,
-        payload,
-        c -> {
-          try (PreparedStatement seq =
-              c.prepareStatement(
-                  "INSERT INTO player_event_seq(uuid,seq) VALUES(UNHEX(REPLACE(?, \"-\", \"\")),1) ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)")) {
-            seq.setString(1, player.toString());
-            seq.executeUpdate();
-          }
-          long lastId;
-          try (ResultSet rs = c.createStatement().executeQuery("SELECT LAST_INSERT_ID()")) {
-            rs.next();
-            lastId = rs.getLong(1);
-          }
-
-          try (PreparedStatement upd =
-              c.prepareStatement(
-                  "UPDATE players SET balance_units=balance_units+?, updated_at_s=? WHERE uuid=UNHEX(REPLACE(?, \"-\", \"\"))")) {
-            upd.setLong(1, amount);
-            upd.setLong(2, Instant.now().getEpochSecond());
-            upd.setString(3, player.toString());
-            upd.executeUpdate();
-          }
-          events.fireBalanceChanged(
-              new CoreEvents.BalanceChangedEvent(player, -1, -1, reason, lastId, 1));
-          return true;
-        });
+        "core:deposit", idemKey, payload, c -> applyDelta(c, player, amount, cleanReason));
   }
 
   @Override
   public boolean withdraw(UUID player, long amount, String reason, String idemKey) {
-    if (amount < 0) return false;
-    String scope = "core:withdraw";
-    String payload = canonical(scope, player, null, amount, reason);
+    if (player == null || amount < 0) return false;
+    String cleanReason = clampReason(reason);
+    String payload = canonical("core:withdraw", player, null, amount, canonicalReason(reason));
     return applyIdempotent(
-        scope,
-        idemKey,
-        payload,
-        c -> {
-          try (PreparedStatement seq =
-              c.prepareStatement(
-                  "INSERT INTO player_event_seq(uuid,seq) VALUES(UNHEX(REPLACE(?, \"-\", \"\")),1) ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)")) {
-            seq.setString(1, player.toString());
-            seq.executeUpdate();
-          }
-          long lastId;
-          try (ResultSet rs = c.createStatement().executeQuery("SELECT LAST_INSERT_ID()")) {
-            rs.next();
-            lastId = rs.getLong(1);
-          }
-
-          try (PreparedStatement upd =
-              c.prepareStatement(
-                  "UPDATE players SET balance_units=balance_units-?, updated_at_s=? WHERE uuid=UNHEX(REPLACE(?, \"-\", \"\")) AND balance_units>=?")) {
-            upd.setLong(1, amount);
-            upd.setLong(2, Instant.now().getEpochSecond());
-            upd.setString(3, player.toString());
-            upd.setLong(4, amount);
-            if (upd.executeUpdate() != 1) return false;
-          }
-          events.fireBalanceChanged(
-              new CoreEvents.BalanceChangedEvent(player, -1, -1, reason, lastId, 1));
-          return true;
-        });
+        "core:withdraw", idemKey, payload, c -> applyDelta(c, player, -amount, cleanReason));
   }
 
   @Override
   public boolean transfer(UUID from, UUID to, long amount, String reason, String idemKey) {
-    if (amount < 0) return false;
-    String scope = "shop:transfer";
-    String payload = canonical(scope, from, to, amount, reason);
+    if (from == null || to == null || amount < 0) return false;
+    String cleanReason = clampReason(reason);
+    String payload = canonical("core:transfer", from, to, amount, canonicalReason(reason));
     return applyIdempotent(
-        scope,
-        idemKey,
-        payload,
-        c -> {
-          try (PreparedStatement seq =
-              c.prepareStatement(
-                  "INSERT INTO player_event_seq(uuid,seq) VALUES(UNHEX(REPLACE(?, \"-\", \"\")),1) ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)")) {
-            seq.setString(1, from.toString());
-            seq.executeUpdate();
-          }
-          long lastId;
-          try (ResultSet rs = c.createStatement().executeQuery("SELECT LAST_INSERT_ID()")) {
-            rs.next();
-            lastId = rs.getLong(1);
-          }
-
-          try (PreparedStatement w =
-              c.prepareStatement(
-                  "UPDATE players SET balance_units=balance_units-?, updated_at_s=? WHERE uuid=UNHEX(REPLACE(?, \"-\", \"\")) AND balance_units>=?")) {
-            w.setLong(1, amount);
-            w.setLong(2, Instant.now().getEpochSecond());
-            w.setString(3, from.toString());
-            w.setLong(4, amount);
-            if (w.executeUpdate() != 1) return false;
-          }
-          try (PreparedStatement d =
-              c.prepareStatement(
-                  "UPDATE players SET balance_units=balance_units+?, updated_at_s=? WHERE uuid=UNHEX(REPLACE(?, \"-\", \"\"))")) {
-            d.setLong(1, amount);
-            d.setLong(2, Instant.now().getEpochSecond());
-            d.setString(3, to.toString());
-            d.executeUpdate();
-          }
-          events.fireBalanceChanged(
-              new CoreEvents.BalanceChangedEvent(from, -1, -1, reason, lastId, 1));
-          events.fireBalanceChanged(
-              new CoreEvents.BalanceChangedEvent(to, -1, -1, reason, lastId, 1));
-          return true;
-        });
+        "core:transfer", idemKey, payload, c -> applyTransfer(c, from, to, amount, cleanReason));
   }
 
-  /**
-   * Wraps a unit of work in idempotency bookkeeping using {@code core_requests}.
-   *
-   * @param scope operation scope (e.g., {@code core:deposit})
-   * @param idemKey idempotency key
-   * @param payload canonical payload string
-   * @param work transactional work
-   * @return success status
-   */
+  private boolean applyDelta(Connection c, UUID player, long delta, String reason)
+      throws SQLException {
+    PlayerBalance before = lockBalance(c, player);
+    if (before == null) {
+      return false;
+    }
+    long newUnits = before.units + delta;
+    if (newUnits < 0) {
+      return false;
+    }
+
+    long now = Instant.now().getEpochSecond();
+    updateBalance(c, player, newUnits, now);
+    long seq = nextSeq(c, player);
+    events.fireBalanceChanged(
+        new CoreEvents.BalanceChangedEvent(
+            player, seq, before.units, newUnits, reason, EVENT_VERSION));
+    return true;
+  }
+
+  private boolean applyTransfer(Connection c, UUID from, UUID to, long amount, String reason)
+      throws SQLException {
+    if (from.equals(to)) {
+      return true; // no-op self transfer
+    }
+    UUID first = compare(from, to) <= 0 ? from : to;
+    UUID second = first.equals(from) ? to : from;
+
+    PlayerBalance firstBal = lockBalance(c, first);
+    PlayerBalance secondBal = lockBalance(c, second);
+    PlayerBalance fromBal = first.equals(from) ? firstBal : secondBal;
+    PlayerBalance toBal = first.equals(from) ? secondBal : firstBal;
+
+    if (fromBal == null || toBal == null) {
+      return false;
+    }
+    if (fromBal.units < amount) {
+      return false;
+    }
+
+    long now = Instant.now().getEpochSecond();
+    long newFrom = fromBal.units - amount;
+    long newTo = toBal.units + amount;
+
+    updateBalance(c, from, newFrom, now);
+    updateBalance(c, to, newTo, now);
+
+    long fromSeq = nextSeq(c, from);
+    long toSeq = nextSeq(c, to);
+
+    events.fireBalanceChanged(
+        new CoreEvents.BalanceChangedEvent(
+            from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION));
+    events.fireBalanceChanged(
+        new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION));
+    return true;
+  }
+
+  private PlayerBalance lockBalance(Connection c, UUID uuid) throws SQLException {
+    String sql = "SELECT balance_units FROM players WHERE uuid=? FOR UPDATE";
+    try (PreparedStatement ps = c.prepareStatement(sql)) {
+      ps.setBytes(1, uuidToBytes(uuid));
+      try (ResultSet rs = ps.executeQuery()) {
+        if (rs.next()) {
+          long bal = rs.getLong(1);
+          return new PlayerBalance(uuid, bal);
+        }
+      }
+    }
+    return null;
+  }
+
+  private void updateBalance(Connection c, UUID uuid, long newUnits, long now) throws SQLException {
+    String sql = "UPDATE players SET balance_units=?, updated_at_s=? WHERE uuid=?";
+    try (PreparedStatement ps = c.prepareStatement(sql)) {
+      ps.setLong(1, newUnits);
+      ps.setLong(2, now);
+      ps.setBytes(3, uuidToBytes(uuid));
+      ps.executeUpdate();
+    }
+  }
+
+  private long nextSeq(Connection c, UUID uuid) throws SQLException {
+    try (PreparedStatement ps =
+            c.prepareStatement(
+                "INSERT INTO player_event_seq(uuid,seq) VALUES(?,1) "
+                    + "ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)");
+        Statement last = c.createStatement()) {
+      ps.setBytes(1, uuidToBytes(uuid));
+      ps.executeUpdate();
+      try (ResultSet rs = last.executeQuery("SELECT LAST_INSERT_ID()")) {
+        if (rs.next()) {
+          return rs.getLong(1);
+        }
+      }
+    }
+    return 0L;
+  }
+
   private boolean applyIdempotent(String scope, String idemKey, String payload, TxWork work) {
     String insert =
-        "INSERT INTO core_requests(key_hash,scope,payload_hash,ok,created_at_s,expires_at_s) VALUES(?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE key_hash=VALUES(key_hash)";
+        "INSERT INTO core_requests(key_hash,scope,payload_hash,ok,created_at_s,expires_at_s) "
+            + "VALUES(?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE key_hash=VALUES(key_hash)";
     String select =
         "SELECT payload_hash, ok FROM core_requests WHERE key_hash=? AND scope=? FOR UPDATE";
     String markOk = "UPDATE core_requests SET ok=1 WHERE key_hash=? AND scope=?";
-    long now = java.time.Instant.now().getEpochSecond();
+    long now = Instant.now().getEpochSecond();
     long exp = now + 30L * 24 * 3600;
     try (Connection c = ds.getConnection()) {
       c.setAutoCommit(false);
@@ -248,6 +211,7 @@ public final class WalletsImpl implements Wallets {
         ins.setLong(5, exp);
         ins.executeUpdate();
       }
+
       try (PreparedStatement check = c.prepareStatement(select)) {
         check.setBytes(1, keyHash);
         check.setString(2, scope);
@@ -257,22 +221,30 @@ public final class WalletsImpl implements Wallets {
             int ok = rs.getInt(2);
             if (!java.util.Arrays.equals(ph, payloadHash)) {
               c.rollback();
-              LOG.info("(mincore) IDEMPOTENCY_MISMATCH");
+              LOG.info("(mincore) IDEMPOTENCY_MISMATCH scope={} key={}", scope, idemKey);
               return false;
             }
             if (ok == 1) {
               c.commit();
-              LOG.info("(mincore) IDEMPOTENCY_REPLAY");
+              LOG.info("(mincore) IDEMPOTENCY_REPLAY scope={} key={}", scope, idemKey);
               return true;
             }
           }
         }
       }
-      boolean res = work.run(c);
-      if (!res) {
+
+      boolean result;
+      try {
+        result = work.run(c);
+      } catch (SQLException e) {
+        c.rollback();
+        throw e;
+      }
+      if (!result) {
         c.rollback();
         return false;
       }
+
       try (PreparedStatement done = c.prepareStatement(markOk)) {
         done.setBytes(1, keyHash);
         done.setString(2, scope);
@@ -286,9 +258,70 @@ public final class WalletsImpl implements Wallets {
     }
   }
 
-  /** Functional unit of transactional work. */
+  private static String canonical(
+      String scope, UUID from, UUID to, long amount, String reasonNormalized) {
+    return scope
+        + "|"
+        + (from == null ? "00000000-0000-0000-0000-000000000000" : from.toString())
+        + "|"
+        + (to == null ? "00000000-0000-0000-0000-000000000000" : to.toString())
+        + "|"
+        + amount
+        + "|"
+        + reasonNormalized;
+  }
+
+  private static String canonicalReason(String reason) {
+    return clampReason(reason).toLowerCase(Locale.ROOT);
+  }
+
+  private static String clampReason(String reason) {
+    String r = reason == null ? "" : reason.trim();
+    if (r.length() > 64) {
+      r = r.substring(0, 64);
+    }
+    return r;
+  }
+
+  private static byte[] sha256(String input) {
+    if (input == null) {
+      input = "";
+    }
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      return md.digest(input.getBytes(StandardCharsets.UTF_8));
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static byte[] uuidToBytes(UUID uuid) {
+    long msb = uuid.getMostSignificantBits();
+    long lsb = uuid.getLeastSignificantBits();
+    byte[] out = new byte[16];
+    for (int i = 0; i < 8; i++) {
+      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
+    }
+    for (int i = 0; i < 8; i++) {
+      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
+    }
+    return out;
+  }
+
+  private static int compare(UUID a, UUID b) {
+    int cmp = Long.compare(a.getMostSignificantBits(), b.getMostSignificantBits());
+    if (cmp != 0) return cmp;
+    return Long.compare(a.getLeastSignificantBits(), b.getLeastSignificantBits());
+  }
+
+  private static String autoKey() {
+    return "core:auto:" + System.nanoTime();
+  }
+
   @FunctionalInterface
-  interface TxWork {
+  private interface TxWork {
     boolean run(Connection c) throws SQLException;
   }
+
+  private record PlayerBalance(UUID uuid, long units) {}
 }
