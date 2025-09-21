@@ -63,6 +63,7 @@ public final class BackupImporter {
    * @param ledger number of ledger rows imported
    */
   public record Result(Path source, long players, long attributes, long eventSeq, long ledger) {}
+
   private record Header(String version, int schemaVersion, String defaultZone) {}
 
   /**
