@@ -3,21 +3,50 @@ package dev.mincore.core;
 
 import dev.mincore.api.events.CoreEvents;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * Simple in-process event bus for core events.
+ * Asynchronous in-process event bus for core events.
  *
- * <p>Thread-safe via {@link CopyOnWriteArrayList}. Handlers should be short and non-blocking.
+ * <p>Each player has a dedicated serial queue to guarantee in-order delivery while still allowing
+ * concurrent dispatch for different players.
  */
-public final class EventBus implements CoreEvents {
+public final class EventBus implements CoreEvents, AutoCloseable {
   private final List<Consumer<BalanceChangedEvent>> bal = new CopyOnWriteArrayList<>();
   private final List<Consumer<PlayerRegisteredEvent>> reg = new CopyOnWriteArrayList<>();
   private final List<Consumer<PlayerSeenUpdatedEvent>> seen = new CopyOnWriteArrayList<>();
+  private final Map<UUID, PlayerQueue> queues = new ConcurrentHashMap<>();
+  private final ExecutorService executor;
+  private final AtomicBoolean closed = new AtomicBoolean(false);
 
-  /** Creates a new event bus. */
-  public EventBus() {}
+  /** Creates a new event bus with a daemon thread pool sized for the host. */
+  public EventBus() {
+    this(createExecutor());
+  }
+
+  private EventBus(ExecutorService executor) {
+    this.executor = executor;
+  }
+
+  private static ExecutorService createExecutor() {
+    int threads = Math.max(2, Runtime.getRuntime().availableProcessors() / 2);
+    ThreadFactory factory =
+        r -> {
+          Thread t = new Thread(r, "mincore-events");
+          t.setDaemon(true);
+          return t;
+        };
+    return Executors.newFixedThreadPool(threads, factory);
+  }
 
   @Override
   public AutoCloseable onBalanceChanged(Consumer<BalanceChangedEvent> h) {
@@ -37,45 +66,82 @@ public final class EventBus implements CoreEvents {
     return () -> seen.remove(h);
   }
 
-  /**
-   * Dispatches a balance changed event to all subscribers.
-   *
-   * @param e event payload
-   */
+  /** Dispatches a balance changed event asynchronously. */
   public void fireBalanceChanged(BalanceChangedEvent e) {
-    for (var h : bal) {
-      try {
-        h.accept(e);
-      } catch (Throwable ignored) {
-      }
-    }
+    if (e == null || closed.get()) return;
+    enqueue(e.player(), () -> dispatch(bal, e));
   }
 
-  /**
-   * Dispatches a player registered event to all subscribers.
-   *
-   * @param e event payload
-   */
+  /** Dispatches a player registered event asynchronously. */
   public void firePlayerRegistered(PlayerRegisteredEvent e) {
-    for (var h : reg) {
+    if (e == null || closed.get()) return;
+    enqueue(e.player(), () -> dispatch(reg, e));
+  }
+
+  /** Dispatches a player seen updated event asynchronously. */
+  public void firePlayerSeenUpdated(PlayerSeenUpdatedEvent e) {
+    if (e == null || closed.get()) return;
+    enqueue(e.player(), () -> dispatch(seen, e));
+  }
+
+  @Override
+  public void close() {
+    if (closed.compareAndSet(false, true)) {
+      executor.shutdownNow();
+      queues.clear();
+      bal.clear();
+      reg.clear();
+      seen.clear();
+    }
+  }
+
+  private <T> void dispatch(List<Consumer<T>> handlers, T event) {
+    for (Consumer<T> handler : handlers) {
       try {
-        h.accept(e);
+        handler.accept(event);
+      } catch (Throwable ignored) {
+        // Handlers are isolated; ignore individual failures.
+      }
+    }
+  }
+
+  private void enqueue(UUID player, Runnable task) {
+    if (player == null) {
+      executor.execute(task);
+      return;
+    }
+    PlayerQueue queue = queues.computeIfAbsent(player, id -> new PlayerQueue());
+    queue.tasks.add(task);
+    if (queue.draining.compareAndSet(false, true)) {
+      executor.execute(() -> drain(player, queue));
+    }
+  }
+
+  private void drain(UUID player, PlayerQueue queue) {
+    while (true) {
+      Runnable next = queue.tasks.poll();
+      if (next == null) {
+        if (queue.draining.compareAndSet(true, false)) {
+          if (queue.tasks.isEmpty()) {
+            queues.remove(player, queue);
+            return;
+          }
+          if (!queue.draining.compareAndSet(false, true)) {
+            return;
+          }
+          continue;
+        }
+        return;
+      }
+      try {
+        next.run();
       } catch (Throwable ignored) {
       }
     }
   }
 
-  /**
-   * Dispatches a player seen updated event to all subscribers.
-   *
-   * @param e event payload
-   */
-  public void firePlayerSeenUpdated(PlayerSeenUpdatedEvent e) {
-    for (var h : seen) {
-      try {
-        h.accept(e);
-      } catch (Throwable ignored) {
-      }
-    }
+  private static final class PlayerQueue {
+    final ConcurrentLinkedQueue<Runnable> tasks = new ConcurrentLinkedQueue<>();
+    final AtomicBoolean draining = new AtomicBoolean(false);
   }
 }

@@ -3,6 +3,7 @@ package dev.mincore.core;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Ledger;
 import dev.mincore.api.events.CoreEvents.BalanceChangedEvent;
 import java.io.BufferedWriter;
@@ -167,7 +168,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC
           """);
     } catch (SQLException e) {
-      LOG.error("(mincore) ledger: failed to ensure table", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.error(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "ledger.ensureTable",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
 
     inst.coreListener =
@@ -209,7 +218,12 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                 LOG.info("(mincore) ledger: cleanup removed {} rows", n);
               }
             } catch (Throwable t) {
-              LOG.warn("(mincore) ledger: cleanup failed", t);
+              LOG.warn(
+                  "(mincore) code={} op={} message={}",
+                  ErrorCode.CONNECTION_LOST,
+                  "ledger.cleanup",
+                  t.getMessage(),
+                  t);
             }
           },
           5,
@@ -376,9 +390,22 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         dbHealth.markSuccess();
       } catch (SQLException e) {
         dbHealth.markFailure(e);
-        LOG.warn("(mincore) ledger: write failed", e);
+        ErrorCode errorCode = SqlErrorCodes.classify(e);
+        LOG.warn(
+            "(mincore) code={} op={} message={} sqlState={} vendor={}",
+            errorCode,
+            "ledger.write",
+            e.getMessage(),
+            e.getSQLState(),
+            e.getErrorCode(),
+            e);
       } catch (Throwable t) {
-        LOG.warn("(mincore) ledger: write failed", t);
+        LOG.warn(
+            "(mincore) code={} op={} message={}",
+            ErrorCode.CONNECTION_LOST,
+            "ledger.write",
+            t.getMessage(),
+            t);
       }
     }
 
@@ -417,7 +444,13 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           w.write("\n");
         }
       } catch (IOException ioe) {
-        LOG.warn("(mincore) ledger: file write failed ({})", filePath, ioe);
+        LOG.warn(
+            "(mincore) code={} op={} message={} path={}",
+            "FILE_IO",
+            "ledger.fileWrite",
+            ioe.getMessage(),
+            filePath,
+            ioe);
       }
     }
   }

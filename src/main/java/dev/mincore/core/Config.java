@@ -225,7 +225,9 @@ public final class Config {
       Jobs jobs = parseJobs(optObject(core, "jobs"));
       Log log = parseLog(optObject(core, "log"));
 
-      return new Config(db, runtime, time, i18n, ledger, jobs, log);
+      Config config = new Config(db, runtime, time, i18n, ledger, jobs, log);
+      validate(config);
+      return config;
     } catch (IOException e) {
       throw new RuntimeException("Failed to read config: " + path, e);
     }
@@ -294,7 +296,8 @@ public final class Config {
     try {
       zoneId = ZoneId.of(defaultZone);
     } catch (Exception e) {
-      zoneId = ZoneId.of("UTC");
+      throw new IllegalStateException(
+          "core.time.display.defaultZone is invalid: " + defaultZone, e);
     }
     return new Time(new Display(zoneId, allowOverride, autoDetect));
   }
@@ -405,6 +408,117 @@ public final class Config {
   private static Locale locale(String code) {
     Objects.requireNonNull(code, "locale");
     return Locale.forLanguageTag(code.replace('_', '-'));
+  }
+
+  private static void validate(Config cfg) {
+    validateDb(cfg.db());
+    validateRuntime(cfg.runtime());
+    validateTime(cfg.time());
+    validateI18n(cfg.i18n());
+    validateLedger(cfg.ledger());
+    validateJobs(cfg.jobs());
+    validateLog(cfg.log());
+  }
+
+  private static void validateDb(Db db) {
+    requireNonBlank(db.host(), "core.db.host");
+    requireNonBlank(db.database(), "core.db.database");
+    requireNonBlank(db.user(), "core.db.user");
+    requireNonBlank(db.password(), "core.db.password");
+    if (db.port() <= 0 || db.port() > 65535) {
+      throw new IllegalStateException("core.db.port must be between 1 and 65535");
+    }
+    int maxPool = db.pool().maxPoolSize();
+    if (maxPool < 1 || maxPool > 50) {
+      throw new IllegalStateException("core.db.pool.maxPoolSize must be between 1 and 50");
+    }
+    int minIdle = db.pool().minimumIdle();
+    if (minIdle < 0 || minIdle > maxPool) {
+      throw new IllegalStateException("core.db.pool.minimumIdle must be between 0 and maxPoolSize");
+    }
+    if (db.pool().connectionTimeoutMs() <= 0) {
+      throw new IllegalStateException("core.db.pool.connectionTimeoutMs must be > 0");
+    }
+    if (db.pool().idleTimeoutMs() < 0) {
+      throw new IllegalStateException("core.db.pool.idleTimeoutMs must be >= 0");
+    }
+    if (db.pool().maxLifetimeMs() < 30_000L) {
+      throw new IllegalStateException("core.db.pool.maxLifetimeMs must be >= 30000");
+    }
+    if (db.pool().startupAttempts() < 1) {
+      throw new IllegalStateException("core.db.pool.startupAttempts must be >= 1");
+    }
+  }
+
+  private static void validateRuntime(Runtime runtime) {
+    int reconnect = runtime.reconnectEveryS();
+    if (reconnect < 5 || reconnect > 300) {
+      throw new IllegalStateException(
+          "core.runtime.reconnectEveryS must be between 5 and 300 seconds");
+    }
+  }
+
+  private static void validateTime(Time time) {
+    if (time == null || time.display() == null) {
+      throw new IllegalStateException("core.time.display must be specified");
+    }
+    if (time.display().defaultZone() == null) {
+      throw new IllegalStateException("core.time.display.defaultZone must be a valid ZoneId");
+    }
+  }
+
+  private static void validateI18n(I18n i18n) {
+    if (i18n == null) {
+      throw new IllegalStateException("core.i18n block missing");
+    }
+    if (i18n.enabledLocales().isEmpty()) {
+      throw new IllegalStateException("core.i18n.enabledLocales must include at least one entry");
+    }
+    for (String locale : i18n.enabledLocales()) {
+      requireNonBlank(locale, "core.i18n.enabledLocales entry");
+    }
+    requireNonBlank(i18n.defaultLocale().toLanguageTag(), "core.i18n.defaultLocale");
+    requireNonBlank(i18n.fallbackLocale().toLanguageTag(), "core.i18n.fallbackLocale");
+  }
+
+  private static void validateLedger(Ledger ledger) {
+    if (ledger.retentionDays() < 0) {
+      throw new IllegalStateException("core.ledger.retentionDays must be >= 0");
+    }
+    if (ledger.jsonlMirror().enabled()) {
+      requireNonBlank(ledger.jsonlMirror().path(), "core.ledger.file.path");
+    }
+  }
+
+  private static void validateJobs(Jobs jobs) {
+    requireNonBlank(jobs.backup().schedule(), "core.jobs.backup.schedule");
+    requireNonBlank(jobs.backup().outDir(), "core.jobs.backup.outDir");
+    if (jobs.backup().prune().keepDays() < 0) {
+      throw new IllegalStateException("core.jobs.backup.prune.keepDays must be >= 0");
+    }
+    if (jobs.backup().prune().keepMax() < 1) {
+      throw new IllegalStateException("core.jobs.backup.prune.keepMax must be >= 1");
+    }
+    if (jobs.cleanup().idempotencySweep().retentionDays() < 0) {
+      throw new IllegalStateException(
+          "core.jobs.cleanup.idempotencySweep.retentionDays must be >= 0");
+    }
+    if (jobs.cleanup().idempotencySweep().batchLimit() < 1) {
+      throw new IllegalStateException("core.jobs.cleanup.idempotencySweep.batchLimit must be >= 1");
+    }
+  }
+
+  private static void validateLog(Log log) {
+    if (log.slowQueryMs() < 0) {
+      throw new IllegalStateException("core.log.slowQueryMs must be >= 0");
+    }
+    requireNonBlank(log.level(), "core.log.level");
+  }
+
+  private static void requireNonBlank(String value, String field) {
+    if (value == null || value.trim().isEmpty()) {
+      throw new IllegalStateException(field + " must be provided");
+    }
   }
 
   /**

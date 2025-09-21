@@ -24,7 +24,7 @@ public interface Wallets {
    * Deposits into a player's balance.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason (prefer {@code <=} 64 chars)
    * @return {@code true} on success
    */
@@ -36,7 +36,7 @@ public interface Wallets {
    * Withdraws from a player's balance; fails if insufficient funds.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @return {@code true} on success
    */
@@ -49,7 +49,7 @@ public interface Wallets {
    *
    * @param from sender UUID
    * @param to recipient UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @return {@code true} on success
    */
@@ -61,7 +61,7 @@ public interface Wallets {
    * Deposits with an explicit idempotency key.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return {@code true} on success
@@ -74,7 +74,7 @@ public interface Wallets {
    * Withdraws with an explicit idempotency key; fails if insufficient funds.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return {@code true} on success
@@ -88,7 +88,7 @@ public interface Wallets {
    *
    * @param from sender UUID
    * @param to recipient UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return {@code true} on success
@@ -97,34 +97,46 @@ public interface Wallets {
     return transferResult(from, to, amount, reason, idemKey).ok();
   }
 
+  default OperationResult depositResult(UUID player, long amount, String reason) {
+    return depositResult(player, amount, reason, autoKey());
+  }
+
   /**
    * Deposits into a player's balance and returns a structured result with an {@link ErrorCode}.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return structured outcome describing success/failure
    */
   OperationResult depositResult(UUID player, long amount, String reason, String idemKey);
 
+  default OperationResult withdrawResult(UUID player, long amount, String reason) {
+    return withdrawResult(player, amount, reason, autoKey());
+  }
+
   /**
    * Withdraws from a player's balance and returns a structured result with an {@link ErrorCode}.
    *
    * @param player player UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return structured outcome describing success/failure
    */
   OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey);
 
+  default OperationResult transferResult(UUID from, UUID to, long amount, String reason) {
+    return transferResult(from, to, amount, reason, autoKey());
+  }
+
   /**
    * Transfers between players and returns a structured result with an {@link ErrorCode}.
    *
    * @param from sender UUID
    * @param to recipient UUID
-   * @param amount amount (must be &gt;= 0)
+   * @param amount amount (must be &gt; 0)
    * @param reason short reason
    * @param idemKey idempotency key string
    * @return structured outcome describing success/failure

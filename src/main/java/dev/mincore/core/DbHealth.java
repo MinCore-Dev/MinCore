@@ -1,7 +1,11 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,13 +22,17 @@ final class DbHealth {
   private final DataSource ds;
   private final ScheduledExecutorService scheduler;
   private final int reconnectEveryS;
+  private final Config.Db dbConfig;
   private final AtomicBoolean degraded = new AtomicBoolean(false);
   private final AtomicLong lastRefusalLogNs = new AtomicLong(0L);
+  private final AtomicBoolean bootstrapScheduled = new AtomicBoolean(false);
 
-  DbHealth(DataSource ds, ScheduledExecutorService scheduler, int reconnectEveryS) {
+  DbHealth(
+      DataSource ds, ScheduledExecutorService scheduler, int reconnectEveryS, Config.Db dbConfig) {
     this.ds = ds;
     this.scheduler = scheduler;
     this.reconnectEveryS = Math.max(1, reconnectEveryS);
+    this.dbConfig = dbConfig;
     this.scheduler.scheduleWithFixedDelay(
         this::probe, this.reconnectEveryS, this.reconnectEveryS, TimeUnit.SECONDS);
   }
@@ -36,7 +44,11 @@ final class DbHealth {
     long now = System.nanoTime();
     long prev = lastRefusalLogNs.get();
     if (now - prev > REFUSAL_LOG_INTERVAL_NS && lastRefusalLogNs.compareAndSet(prev, now)) {
-      LOG.warn("(mincore) refusing {} while database is degraded", operation);
+      LOG.warn(
+          "(mincore) code={} op={} message={}",
+          ErrorCode.DEGRADED_MODE,
+          operation,
+          "database is in degraded mode");
     }
     return false;
   }
@@ -44,15 +56,24 @@ final class DbHealth {
   void markFailure(Throwable cause) {
     if (degraded.compareAndSet(false, true)) {
       LOG.warn(
-          "(mincore) database unavailable; entering degraded mode ({})",
-          cause != null ? cause.getMessage() : "unknown");
+          "(mincore) code={} op={} message={}",
+          ErrorCode.CONNECTION_LOST,
+          "db.health",
+          cause != null ? cause.getMessage() : "database unavailable",
+          cause);
     }
+    maybeBootstrap(cause);
   }
 
   void markSuccess() {
     if (degraded.compareAndSet(true, false)) {
-      LOG.info("(mincore) database recovered; leaving degraded mode");
+      LOG.info(
+          "(mincore) code={} op={} message={}",
+          ErrorCode.DEGRADED_MODE,
+          "db.health",
+          "database recovered; leaving degraded mode");
     }
+    bootstrapScheduled.set(false);
   }
 
   boolean isDegraded() {
@@ -63,10 +84,58 @@ final class DbHealth {
     if (!degraded.get()) {
       return;
     }
-    try (Connection ignored = ds.getConnection()) {
+    try (Connection c = ds.getConnection();
+        PreparedStatement read = c.prepareStatement("SELECT 1");
+        PreparedStatement write = c.prepareStatement("SET @mincore_probe = ?")) {
+      try (ResultSet rs = read.executeQuery()) {
+        while (rs.next()) {
+          // drain result set to ensure the read completes
+        }
+      }
+      write.setInt(1, 1);
+      write.execute();
       markSuccess();
     } catch (Exception e) {
+      maybeBootstrap(e);
       // Still degraded; swallow to avoid log spam.
     }
+  }
+
+  private void maybeBootstrap(Throwable cause) {
+    if (dbConfig == null) {
+      return;
+    }
+    SQLException sql = unwrapSql(cause);
+    if (sql == null || !DbBootstrap.isUnknownDatabase(sql)) {
+      return;
+    }
+    if (bootstrapScheduled.compareAndSet(false, true)) {
+      scheduler.execute(
+          () -> {
+            try {
+              DbBootstrap.ensureDatabaseExists(
+                  dbConfig.jdbcUrl(), dbConfig.user(), dbConfig.password());
+            } catch (SQLException e) {
+              LOG.warn(
+                  "(mincore) code={} op={} message={}",
+                  ErrorCode.CONNECTION_LOST,
+                  "db.bootstrap",
+                  e.getMessage(),
+                  e);
+              bootstrapScheduled.set(false);
+            }
+          });
+    }
+  }
+
+  private SQLException unwrapSql(Throwable cause) {
+    Throwable cursor = cause;
+    while (cursor != null) {
+      if (cursor instanceof SQLException sql) {
+        return sql;
+      }
+      cursor = cursor.getCause();
+    }
+    return null;
   }
 }

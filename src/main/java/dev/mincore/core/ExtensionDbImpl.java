@@ -1,6 +1,7 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.storage.ExtensionDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import java.sql.Connection;
@@ -55,7 +56,16 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         return true;
       }
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "extDb.tryAdvisoryLock",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
       return false;
     }
     dbHealth.markSuccess();
@@ -83,7 +93,17 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         return result;
       } catch (SQLException e) {
         last = e;
+        ErrorCode code = SqlErrorCodes.classify(e);
         dbHealth.markFailure(e);
+        LOG.warn(
+            "(mincore) code={} op={} attempt={} message={} sqlState={} vendor={}",
+            code,
+            "extDb.withRetry",
+            i + 1,
+            e.getMessage(),
+            e.getSQLState(),
+            e.getErrorCode(),
+            e);
         try {
           Thread.sleep(50L * (i + 1));
         } catch (InterruptedException ignored) {
@@ -117,8 +137,17 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         dbHealth.markSuccess();
       }
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.debug("(mincore) failed to release advisory lock {}: {}", name, e.getMessage());
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={} lock={}",
+          code,
+          "extDb.releaseAdvisoryLock",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          name,
+          e);
     } finally {
       heldLocks.remove(name);
     }

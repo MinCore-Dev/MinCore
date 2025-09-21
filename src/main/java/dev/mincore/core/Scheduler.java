@@ -103,7 +103,12 @@ public final class Scheduler {
               try {
                 execute(job);
               } catch (Exception e) {
-                LOG.warn("(mincore) job {} failed", job.name, e);
+                LOG.warn(
+                    "(mincore) code={} op={} message={}",
+                    "JOB_FAILURE",
+                    job.name,
+                    e.getMessage(),
+                    e);
               }
             },
             delayMs,
@@ -126,7 +131,7 @@ public final class Scheduler {
     } catch (Exception e) {
       job.status.lastError = e.getMessage();
       job.status.failureCount++;
-      LOG.warn("(mincore) job {} error", job.name, e);
+      LOG.warn("(mincore) code={} op={} message={}", "JOB_FAILURE", job.name, e.getMessage(), e);
     } finally {
       job.status.running = false;
       schedule(job, Instant.now());

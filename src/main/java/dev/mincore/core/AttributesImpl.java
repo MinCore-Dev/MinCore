@@ -2,6 +2,7 @@
 package dev.mincore.core;
 
 import dev.mincore.api.Attributes;
+import dev.mincore.api.ErrorCode;
 import java.sql.*;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,8 +46,16 @@ public final class AttributesImpl implements Attributes {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) attr.get failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "attributes.get",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return result;
   }
@@ -69,8 +78,16 @@ public final class AttributesImpl implements Attributes {
       ps.executeUpdate();
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) attr.put failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "attributes.put",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 
@@ -88,8 +105,16 @@ public final class AttributesImpl implements Attributes {
       ps.executeUpdate();
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) attr.remove failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "attributes.remove",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 }

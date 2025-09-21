@@ -120,7 +120,7 @@ public final class CoreServices implements Services, java.io.Closeable {
               return t;
             });
 
-    DbHealth dbHealth = new DbHealth(ds, scheduler, cfg.runtime().reconnectEveryS());
+    DbHealth dbHealth = new DbHealth(ds, scheduler, cfg.runtime().reconnectEveryS(), cfg.db());
 
     EventBus events = new EventBus();
     ExtensionDbImpl ext = new ExtensionDbImpl(ds, dbHealth);
@@ -177,6 +177,11 @@ public final class CoreServices implements Services, java.io.Closeable {
   @Override
   public void shutdown() throws IOException {
     extensionDb.close();
+    try {
+      events.close();
+    } catch (Exception e) {
+      LOG.debug("(mincore) event bus shutdown issue", e);
+    }
     scheduler.shutdownNow();
     pool.close();
   }

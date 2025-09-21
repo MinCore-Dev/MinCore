@@ -1,6 +1,7 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Players;
 import dev.mincore.api.events.CoreEvents;
 import java.sql.Connection;
@@ -57,8 +58,16 @@ public final class PlayersImpl implements Players {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) players.byUuid failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byUuid",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return result;
   }
@@ -79,8 +88,16 @@ public final class PlayersImpl implements Players {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) players.byName failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byName",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return result;
   }
@@ -103,8 +120,16 @@ public final class PlayersImpl implements Players {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) players.byNameAll failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byNameAll",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return List.copyOf(out);
   }
@@ -162,8 +187,16 @@ public final class PlayersImpl implements Players {
         throw e;
       }
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) players.upsertSeen failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.upsertSeen",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 
@@ -180,8 +213,16 @@ public final class PlayersImpl implements Players {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
-      LOG.warn("(mincore) players.iteratePlayers failed", e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.iteratePlayers",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 
