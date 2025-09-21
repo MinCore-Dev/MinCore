@@ -92,6 +92,15 @@ public final class MinCoreApi {
   }
 
   /**
+   * Gets the playtime tracker singleton.
+   *
+   * @return playtime tracker
+   */
+  public static dev.mincore.api.Playtime playtime() {
+    return services.playtime();
+  }
+
+  /**
    * Gets the published ledger singleton.
    *
    * @return the ledger instance, or {@code null} if the ledger is disabled in config or not yet

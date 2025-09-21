@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
  *       op {@code balance}).
  *   <li>Expose a {@link Ledger} implementation for add-ons to record operations with optional
  *       idempotency.
- *   <li>Perform periodic TTL cleanup when {@link Config#ledgerRetentionDays()} is positive.
+ *   <li>Perform periodic TTL cleanup when {@link Config.Ledger#retentionDays()} is positive.
  * </ul>
  *
  * <p><strong>Thread-safety</strong> — Stateless aside from shared {@link DataSource}; uses a new
@@ -80,17 +80,18 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    * @return created instance (if disabled, returns a no-op instance to keep API stable)
    */
   public static LedgerImpl install(Services services, Config cfg) {
+    Config.Ledger ledgerCfg = cfg.ledger();
     var inst =
         new LedgerImpl(
             services instanceof CoreServices cs
                 ? cs.pool()
                 : null, // fallback path; CoreServices exposes DataSource internally
-            cfg.ledgerEnabled(),
-            cfg.ledgerFileEnabled(),
-            Path.of(cfg.ledgerFilePath()),
-            cfg.ledgerRetentionDays());
+            ledgerCfg.enabled(),
+            ledgerCfg.jsonlMirror().enabled(),
+            Path.of(ledgerCfg.jsonlMirror().path()),
+            ledgerCfg.retentionDays());
 
-    if (!cfg.ledgerEnabled()) {
+    if (!ledgerCfg.enabled()) {
       LOG.info("(mincore) ledger: disabled by config");
       return inst;
     }
@@ -150,7 +151,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                       e.reason(),
                       true,
                       null,
-                      0L,
+                      e.seq(),
                       null,
                       null,
                       e.oldUnits(),
@@ -160,9 +161,9 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                 });
 
     // Schedule TTL cleanup
-    if (cfg.ledgerRetentionDays() > 0) {
+    if (ledgerCfg.retentionDays() > 0) {
       ScheduledExecutorService sch = services.scheduler();
-      long days = cfg.ledgerRetentionDays();
+      long days = ledgerCfg.retentionDays();
       sch.scheduleAtFixedRate(
           () -> {
             try (var c = inst.ds.getConnection();
@@ -182,8 +183,8 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
 
     LOG.info(
         "(mincore) ledger: enabled (retention={} days, file={})",
-        cfg.ledgerRetentionDays(),
-        cfg.ledgerFileEnabled());
+        ledgerCfg.retentionDays(),
+        ledgerCfg.jsonlMirror().enabled());
     return inst;
   }
 

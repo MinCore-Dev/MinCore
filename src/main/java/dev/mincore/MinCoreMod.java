@@ -3,6 +3,8 @@ package dev.mincore;
 
 import dev.mincore.api.MinCoreApi;
 import dev.mincore.commands.AdminCommands;
+import dev.mincore.commands.PlaytimeCommand;
+import dev.mincore.commands.TimezoneCommand;
 import dev.mincore.core.Config;
 import dev.mincore.core.CoreServices;
 import dev.mincore.core.LedgerImpl;
@@ -37,6 +39,7 @@ public final class MinCoreMod implements ModInitializer {
   public static final String MOD_ID = "mincore";
 
   private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
+  private static Config CONFIG;
 
   /** Public no-arg constructor for Fabric. */
   public MinCoreMod() {}
@@ -52,6 +55,7 @@ public final class MinCoreMod implements ModInitializer {
     // 2) Config + services
     Path cfgPath = Path.of("config", "mincore.json5");
     Config cfg = Config.loadOrWriteDefault(cfgPath);
+    CONFIG = cfg;
     Services services = CoreServices.start(cfg);
 
     // 3) DDL (idempotent; safe to run every boot)
@@ -72,14 +76,19 @@ public final class MinCoreMod implements ModInitializer {
           var p = handler.player;
           UUID uuid = p.getUuid();
           String name = p.getGameProfile().getName();
-          services.players().ensureAccount(uuid, name);
+          long now = java.time.Instant.now().getEpochSecond();
+          services.players().upsertSeen(uuid, name, now);
         });
 
     // 7) Admin commands (db diag + ledger peek)
     AdminCommands.register(services);
 
+    // Player-facing commands
+    TimezoneCommand.register(services);
+    PlaytimeCommand.register(services);
+
     // 8) Scheduler hooks (backups, sweeps, etc.)
-    Scheduler.install(services);
+    Scheduler.install(services, cfg);
 
     // 9) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
@@ -92,5 +101,10 @@ public final class MinCoreMod implements ModInitializer {
         });
 
     LOG.info("(mincore) initialized");
+  }
+
+  /** Returns the currently loaded runtime configuration. */
+  public static Config config() {
+    return CONFIG;
   }
 }
