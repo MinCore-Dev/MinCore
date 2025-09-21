@@ -1,99 +1,71 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.api;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 
-/**
- * Player directory backed by the core database.
- *
- * <p>Provides identity lookups and iteration helpers. Names are normalized to a lowercase column
- * for fast case-insensitive lookups.
- */
+/** Player directory backed by the core database. */
 public interface Players {
-  /**
-   * Ensures an account row exists for {@code uuid}; updates name/seen time.
-   *
-   * @param uuid player UUID
-   * @param name current username
-   */
-  void ensureAccount(UUID uuid, String name);
-
-  /**
-   * Updates the stored player name if it changed.
-   *
-   * @param uuid player UUID
-   * @param name new username
-   */
-  void syncName(UUID uuid, String name);
-
   /**
    * Looks up a player by UUID.
    *
    * @param uuid player UUID
-   * @return a view if found
+   * @return player reference if present
    */
-  Optional<PlayerView> getPlayer(UUID uuid);
+  Optional<PlayerRef> byUuid(UUID uuid);
 
   /**
-   * Looks up a player by exact name (case-insensitive internally).
+   * Looks up a player by case-insensitive name.
    *
-   * @param exactName username to match
-   * @return a view if found
+   * @param name exact username (case preserved)
+   * @return player reference if present
    */
-  Optional<PlayerView> getPlayerByName(String exactName);
+  Optional<PlayerRef> byName(String name);
 
   /**
-   * Iterates players in batches to avoid loading the entire table in memory.
+   * Returns all players that share the provided case-insensitive name.
    *
-   * @param consumer callback for each row
-   * @param batchSize max rows per batch (e.g., 500–5000)
+   * @param name username to match (case insensitive)
+   * @return immutable list of player references
    */
-  void iteratePlayers(Consumer<PlayerView> consumer, int batchSize);
+  List<PlayerRef> byNameAll(String name);
+
+  /**
+   * Upserts the player row and "seen" timestamp.
+   *
+   * @param uuid player UUID
+   * @param name latest username
+   * @param seenAtS last seen time in epoch seconds (UTC)
+   */
+  void upsertSeen(UUID uuid, String name, long seenAtS);
+
+  /**
+   * Iterates over all players in primary-key order.
+   *
+   * @param consumer callback for each player reference
+   */
+  void iteratePlayers(Consumer<PlayerRef> consumer);
 
   /** Immutable projection of a player row. */
-  interface PlayerView {
-    /**
-     * Returns the player UUID.
-     *
-     * @return player UUID
-     */
+  interface PlayerRef {
+    /** Player UUID. */
     UUID uuid();
 
-    /**
-     * Returns the last known username.
-     *
-     * @return username
-     */
+    /** Last known username. */
     String name();
 
-    /**
-     * Returns the creation time in epoch seconds.
-     *
-     * @return creation time (epoch seconds)
-     */
-    long createdAtEpochSeconds();
+    /** Creation time (epoch seconds, UTC). */
+    long createdAtS();
 
-    /**
-     * Returns the last update time in epoch seconds.
-     *
-     * @return last update time (epoch seconds)
-     */
-    long updatedAtEpochSeconds();
+    /** Last update time (epoch seconds, UTC). */
+    long updatedAtS();
 
-    /**
-     * Returns the last seen time in epoch seconds, or {@code null} if unknown.
-     *
-     * @return last seen time (epoch seconds) or {@code null}
-     */
-    Long seenAtEpochSeconds();
+    /** Last seen time (epoch seconds, UTC) or {@code null}. */
+    Long seenAtS();
 
-    /**
-     * Returns the wallet balance in smallest currency units.
-     *
-     * @return balance (units)
-     */
+    /** Wallet balance in smallest currency units. */
     long balanceUnits();
   }
 }
