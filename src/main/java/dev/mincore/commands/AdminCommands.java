@@ -867,18 +867,11 @@ public final class AdminCommands {
     if (!ensureLedgerEnabled(src)) {
       return 0;
     }
-    UUID uuid = tryParseUuid(target);
-    if (uuid == null) {
-      Players players = services.players();
-      PlayerRef ref = players.byName(target).orElse(null);
-      if (ref == null) {
-        src.sendFeedback(() -> Text.translatable("mincore.err.player.unknown"), false);
-        return 0;
-      }
-      uuid = ref.uuid();
+    UUID resolved = resolvePlayer(src, services, target);
+    if (resolved == null) {
+      return 0;
     }
-
-    final UUID u = uuid;
+    final UUID u = resolved;
     final String sql =
         "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
             + " idem_scope, old_units, new_units, server_node, extra_json "
@@ -937,6 +930,25 @@ public final class AdminCommands {
           ps.setString(1, "%" + needle + "%");
           ps.setInt(2, Math.max(1, Math.min(200, limit)));
         });
+  }
+
+  private static UUID resolvePlayer(
+      final ServerCommandSource src, final Services services, final String target) {
+    UUID uuid = tryParseUuid(target);
+    if (uuid != null) {
+      return uuid;
+    }
+    Players players = services.players();
+    List<PlayerRef> matches = players.byNameAll(target);
+    if (matches.isEmpty()) {
+      src.sendFeedback(() -> Text.translatable("mincore.err.player.unknown"), false);
+      return null;
+    }
+    if (matches.size() > 1) {
+      src.sendFeedback(() -> Text.translatable("mincore.err.player.ambiguous"), false);
+      return null;
+    }
+    return matches.get(0).uuid();
   }
 
   private static int printLedger(

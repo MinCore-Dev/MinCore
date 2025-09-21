@@ -78,6 +78,21 @@ public final class CoreServices implements Services, java.io.Closeable {
     hc.setInitializationFailTimeout(-1);
     hc.setConnectionInitSql(cfg.db().forceUtc() ? "SET time_zone = '+00:00'" : null);
 
+    if (!cfg.db().tlsEnabled() && !isLocalHost(cfg.db().host())) {
+      LOG.warn(
+          "(mincore) code={} op={} message={}",
+          "DB_TLS_DISABLED",
+          "config",
+          "TLS is disabled for a non-local database host; enable core.db.tls.enabled for security");
+    }
+    if ("change-me".equals(cfg.db().password())) {
+      LOG.warn(
+          "(mincore) code={} op={} message={}",
+          "DB_PASSWORD_DEFAULT",
+          "config",
+          "Database password is still set to the default 'change-me'; update before production use");
+    }
+
     HikariDataSource ds = null;
     RuntimeException last = null;
     boolean bootstrapped = false;
@@ -205,6 +220,21 @@ public final class CoreServices implements Services, java.io.Closeable {
 
   DbHealth dbHealth() {
     return dbHealth;
+  }
+
+  private static boolean isLocalHost(String host) {
+    if (host == null) {
+      return false;
+    }
+    String normalized = host.trim();
+    if (normalized.isEmpty()) {
+      return false;
+    }
+    return normalized.equalsIgnoreCase("localhost")
+        || normalized.equals("127.0.0.1")
+        || normalized.equals("0.0.0.0")
+        || normalized.equals("::1")
+        || normalized.equalsIgnoreCase("[::1]");
   }
 
   private static SQLException findSqlException(Throwable error) {

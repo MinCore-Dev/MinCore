@@ -565,7 +565,10 @@ public final class Config {
               .append(database)
               .append("?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=UTC");
       if (tlsEnabled) {
-        url.append("&useSSL=true&requireSSL=true");
+        url.append(
+            "&useSsl=true&useSSL=true&requireSSL=true&sslMode=VERIFY_IDENTITY&trustServerCertificate=false");
+      } else {
+        url.append("&useSsl=false&useSSL=false");
       }
       return url.toString();
     }
