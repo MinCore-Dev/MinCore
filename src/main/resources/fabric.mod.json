@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "mincore",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "name": "MinCore",
   "description": "MariaDB-backed core services for Fabric servers (players, wallets, attributes, events).",
   "authors": ["YourName"],

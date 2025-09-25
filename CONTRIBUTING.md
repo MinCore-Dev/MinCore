@@ -1,7 +1,7 @@
 # Contributing to MinCore
 
 Welcome! MinCore is a small but opinionated core for Fabric servers. This document summarises the
-process for proposing changes and ensures they stay aligned with the v0.2.0 master specification.
+process for proposing changes and ensures they stay aligned with the v1.0.0 master specification.
 
 ## Getting Started
 

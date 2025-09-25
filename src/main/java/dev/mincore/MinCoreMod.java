@@ -50,7 +50,7 @@ public final class MinCoreMod implements ModInitializer {
   /** Initializes MinCore when Fabric loads the mod. */
   @Override
   public void onInitialize() {
-    LOG.info("(mincore) booting MinCore 0.2.0");
+    LOG.info("(mincore) booting MinCore 1.0.0");
     // 1) Ensure MariaDB driver is present before the pool tries to connect.
     dev.mincore.jdbc.DriverLoader.tryLoadMariaDbDriver();
 
