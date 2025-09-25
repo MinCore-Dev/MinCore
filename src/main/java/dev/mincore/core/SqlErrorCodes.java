@@ -6,7 +6,7 @@ import java.sql.SQLException;
 import java.util.Locale;
 
 /** Utility that maps JDBC {@link SQLException} instances to MinCore {@link ErrorCode}s. */
-final class SqlErrorCodes {
+public final class SqlErrorCodes {
 
   private SqlErrorCodes() {}
 
@@ -16,7 +16,7 @@ final class SqlErrorCodes {
    * @param e SQL exception thrown by MariaDB/MySQL
    * @return mapped {@link ErrorCode}, defaulting to {@link ErrorCode#CONNECTION_LOST}
    */
-  static ErrorCode classify(SQLException e) {
+  public static ErrorCode classify(SQLException e) {
     if (e == null) {
       return ErrorCode.CONNECTION_LOST;
     }

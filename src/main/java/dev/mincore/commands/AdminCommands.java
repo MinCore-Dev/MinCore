@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.mincore.MinCoreMod;
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Players;
 import dev.mincore.api.Players.PlayerRef;
 import dev.mincore.core.BackupExporter;
@@ -14,6 +15,7 @@ import dev.mincore.core.Config;
 import dev.mincore.core.Migrations;
 import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
+import dev.mincore.core.SqlErrorCodes;
 import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
 import dev.mincore.util.Uuids;
@@ -235,12 +237,7 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.db.ping.ok", tookMs), false);
       return 1;
     } catch (Exception e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore db ping",
-          e.getMessage(),
-          e);
+      logAdminFailure("/mincore db ping", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.db.ping.fail", e.getClass().getSimpleName()), false);
       return 0;
@@ -275,12 +272,7 @@ public final class AdminCommands {
           false);
       return 1;
     } catch (Exception e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore db info",
-          e.getMessage(),
-          e);
+      logAdminFailure("/mincore db info", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.db.ping.fail", e.getClass().getSimpleName()), false);
       return 0;
@@ -297,6 +289,7 @@ public final class AdminCommands {
       ok &= reportSchemaVersion(src, c);
     } catch (Exception e) {
       ok = false;
+      logAdminFailure("/mincore diag", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.diag.db.fail", e.getClass().getSimpleName()), false);
     }
@@ -333,14 +326,7 @@ public final class AdminCommands {
           () -> Text.translatable("mincore.cmd.migrate.check.pending", current, target), false);
       return 0;
     } catch (SQLException e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={} sqlState={} vendor={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore migrate --check",
-          e.getMessage(),
-          e.getSQLState(),
-          e.getErrorCode(),
-          e);
+      logAdminFailure("/mincore migrate --check", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.migrate.check.fail", e.getClass().getSimpleName()),
           false);
@@ -362,26 +348,14 @@ public final class AdminCommands {
     } catch (RuntimeException e) {
       Throwable cause = e.getCause();
       if (cause instanceof SQLException sql) {
-        LOG.warn(
-            "(mincore) code={} op={} message={} sqlState={} vendor={}",
-            "ADMIN_CMD_FAILURE",
-            "/mincore migrate --apply",
-            sql.getMessage(),
-            sql.getSQLState(),
-            sql.getErrorCode(),
-            sql);
+        logAdminFailure("/mincore migrate --apply", sql);
         String detail =
             String.format(
                 "%s (SQLState=%s vendor=%s)",
                 sql.getMessage(), sql.getSQLState(), sql.getErrorCode());
         src.sendFeedback(() -> Text.translatable("mincore.cmd.migrate.apply.fail", detail), false);
       } else {
-        LOG.warn(
-            "(mincore) code={} op={} message={}",
-            "ADMIN_CMD_FAILURE",
-            "/mincore migrate --apply",
-            e.getMessage(),
-            e);
+        logAdminFailure("/mincore migrate --apply", e);
         src.sendFeedback(
             () -> Text.translatable("mincore.cmd.migrate.apply.fail", e.getMessage()), false);
       }
@@ -420,12 +394,7 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.export.usage", e.getMessage()), false);
       return 0;
     } catch (Exception e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore export",
-          e.getMessage(),
-          e);
+      logAdminFailure("/mincore export", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.export.fail", e.getClass().getSimpleName()), false);
       return 0;
@@ -467,14 +436,7 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.restore.usage", e.getMessage()), false);
       return 0;
     } catch (IOException | SQLException e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={} sqlState={} vendor={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore restore",
-          e.getMessage(),
-          (e instanceof SQLException se) ? se.getSQLState() : null,
-          (e instanceof SQLException se) ? se.getErrorCode() : null,
-          e);
+      logAdminFailure("/mincore restore", e);
       src.sendFeedback(() -> Text.translatable("mincore.cmd.restore.fail", e.getMessage()), false);
       return 0;
     }
@@ -513,14 +475,7 @@ public final class AdminCommands {
         ok &= doctorLocks(src, services);
       }
     } catch (SQLException e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={} sqlState={} vendor={}",
-          "ADMIN_CMD_FAILURE",
-          "/mincore doctor",
-          e.getMessage(),
-          e.getSQLState(),
-          e.getErrorCode(),
-          e);
+      logAdminFailure("/mincore doctor", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.doctor.fail", e.getClass().getSimpleName()), false);
       return 0;
@@ -983,12 +938,7 @@ public final class AdminCommands {
         }
       }
     } catch (Exception e) {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          "LEDGER_QUERY_FAILURE",
-          "admin.ledger",
-          e.getMessage(),
-          e);
+      logAdminFailure("/mincore ledger", e);
       src.sendFeedback(
           () -> Text.translatable("mincore.cmd.ledger.error", e.getClass().getSimpleName()), false);
       return 0;
@@ -1103,6 +1053,29 @@ public final class AdminCommands {
     LOG.debug("(mincore) admin {} rate-limited for {}", op, key);
     src.sendFeedback(() -> Text.translatable("mincore.err.cmd.rateLimited"), false);
     return false;
+  }
+
+  private static void logAdminFailure(String op, Throwable error) {
+    ErrorCode code = classifyError(error);
+    if (error instanceof SQLException sql) {
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          op,
+          sql.getMessage(),
+          sql.getSQLState(),
+          sql.getErrorCode(),
+          sql);
+    } else {
+      LOG.warn("(mincore) code={} op={} message={}", code, op, error.getMessage(), error);
+    }
+  }
+
+  private static ErrorCode classifyError(Throwable error) {
+    if (error instanceof SQLException sql) {
+      return SqlErrorCodes.classify(sql);
+    }
+    return ErrorCode.CONNECTION_LOST;
   }
 
   private static UUID tryParseUuid(String raw) {

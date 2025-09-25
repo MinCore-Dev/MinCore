@@ -56,6 +56,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   private final Path filePath;
   private final int retentionDays;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
   private AutoCloseable coreListener; // event unsubscription
 
   private LedgerImpl(
@@ -64,13 +65,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
       boolean fileEnabled,
       Path filePath,
       int retentionDays,
-      DbHealth dbHealth) {
+      DbHealth dbHealth,
+      Metrics metrics) {
     this.ds = ds;
     this.enabled = enabled;
     this.fileEnabled = enabled && fileEnabled && filePath != null;
     this.filePath = this.fileEnabled ? filePath : null;
     this.retentionDays = retentionDays;
     this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   private static DataSource requireDataSource(Services services) {
@@ -84,6 +87,14 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   private static DbHealth requireHealth(Services services) {
     if (services instanceof CoreServices core) {
       return core.dbHealth();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static Metrics requireMetrics(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.metrics();
     }
     throw new IllegalStateException(
         "Unsupported Services implementation: " + services.getClass().getName());
@@ -120,6 +131,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     Config.Ledger ledgerCfg = cfg.ledger();
     DataSource dataSource = requireDataSource(services);
     DbHealth health = requireHealth(services);
+    Metrics metrics = requireMetrics(services);
     var inst =
         new LedgerImpl(
             dataSource,
@@ -127,17 +139,21 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
             ledgerCfg.jsonlMirror().enabled(),
             safePath(ledgerCfg.jsonlMirror().path()),
             ledgerCfg.retentionDays(),
-            health);
+            health,
+            metrics);
 
     if (!ledgerCfg.enabled()) {
       LOG.info("(mincore) ledger: disabled by config");
       return inst;
     }
 
-    try (var c = inst.ds.getConnection();
-        var st = c.createStatement()) {
-      st.execute(
-          """
+    try {
+      services
+          .database()
+          .schema()
+          .ensureTable(
+              "core_ledger",
+              """
           CREATE TABLE IF NOT EXISTS core_ledger (
             id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             ts_s            BIGINT UNSIGNED NOT NULL,
@@ -388,9 +404,15 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         else ps.setString(i++, extraJson);
         ps.executeUpdate();
         dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordLedgerWrite(true, null);
+        }
       } catch (SQLException e) {
         dbHealth.markFailure(e);
         ErrorCode errorCode = SqlErrorCodes.classify(e);
+        if (metrics != null) {
+          metrics.recordLedgerWrite(false, errorCode);
+        }
         LOG.warn(
             "(mincore) code={} op={} message={} sqlState={} vendor={}",
             errorCode,
@@ -406,7 +428,12 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
             "ledger.write",
             t.getMessage(),
             t);
+        if (metrics != null) {
+          metrics.recordLedgerWrite(false, ErrorCode.CONNECTION_LOST);
+        }
       }
+    } else if (metrics != null) {
+      metrics.recordLedgerWrite(false, ErrorCode.DEGRADED_MODE);
     }
 
     // Optional JSONL

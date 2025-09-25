@@ -24,6 +24,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
   private final DataSource ds;
   private final SchemaHelper schemaHelper;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
   private final Set<String> heldLocks = ConcurrentHashMap.newKeySet();
   private static final Pattern LOCK_NAME_PATTERN = Pattern.compile("[A-Za-z0-9:_\\-\\.]{1,64}");
 
@@ -33,10 +34,11 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
    * @param ds shared datasource
    * @param dbHealth health monitor for degraded mode handling
    */
-  public ExtensionDbImpl(DataSource ds, DbHealth dbHealth) {
+  public ExtensionDbImpl(DataSource ds, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.schemaHelper = new SchemaHelperImpl(ds);
     this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   @Override
@@ -60,12 +62,18 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         if (rs.next() && rs.getInt(1) == 1) {
           heldLocks.add(lock);
           dbHealth.markSuccess();
+          if (metrics != null) {
+            metrics.recordExtensionOperation(true, null);
+          }
           return true;
         }
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordExtensionOperation(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -77,6 +85,9 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
       return false;
     }
     dbHealth.markSuccess();
+    if (metrics != null) {
+      metrics.recordExtensionOperation(false, ErrorCode.DEGRADED_MODE);
+    }
     return false;
   }
 
@@ -95,11 +106,17 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
       try {
         T result = action.get();
         dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordExtensionOperation(true, null);
+        }
         return result;
       } catch (SQLException e) {
         last = e;
         ErrorCode code = SqlErrorCodes.classify(e);
         dbHealth.markFailure(e);
+        if (metrics != null) {
+          metrics.recordExtensionOperation(false, code);
+        }
         LOG.warn(
             "(mincore) code={} op={} attempt={} message={} sqlState={} vendor={}",
             code,
@@ -141,10 +158,16 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         ps.setString(1, name);
         ps.executeQuery();
         dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordExtensionOperation(true, null);
+        }
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordExtensionOperation(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={} lock={}",
           code,

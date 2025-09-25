@@ -142,10 +142,10 @@ public final class CoreServices implements Services, java.io.Closeable {
 
     EventBus events = new EventBus();
     Metrics metrics = new Metrics();
-    ExtensionDbImpl ext = new ExtensionDbImpl(ds, dbHealth);
-    Players players = new PlayersImpl(ds, events, dbHealth);
+    ExtensionDbImpl ext = new ExtensionDbImpl(ds, dbHealth, metrics);
+    Players players = new PlayersImpl(ds, events, dbHealth, metrics);
     Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics);
-    Attributes attrs = new AttributesImpl(ds, dbHealth);
+    Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
     PlaytimeImpl play = new PlaytimeImpl();
 
     // Track playtime via Fabric connection events
@@ -220,6 +220,10 @@ public final class CoreServices implements Services, java.io.Closeable {
 
   DbHealth dbHealth() {
     return dbHealth;
+  }
+
+  Metrics metrics() {
+    return metrics;
   }
 
   private static boolean isLocalHost(String host) {

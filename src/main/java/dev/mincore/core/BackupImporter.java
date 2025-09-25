@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
+import dev.mincore.api.ErrorCode;
 import dev.mincore.util.Uuids;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -138,7 +139,7 @@ public final class BackupImporter {
         try {
           c.rollback();
         } catch (SQLException rollback) {
-          LOG.warn("(mincore) rollback after restore failed", rollback);
+          logSqlWarning("restore.rollback", rollback);
         }
         if (e instanceof IOException io) {
           throw io;
@@ -152,7 +153,7 @@ public final class BackupImporter {
           try {
             setForeignKeyChecks(c, true);
           } catch (SQLException enable) {
-            LOG.warn("(mincore) failed to re-enable foreign key checks", enable);
+            logSqlWarning("restore.fk.enable", enable);
           }
         }
         c.setAutoCommit(originalAutoCommit);
@@ -186,7 +187,7 @@ public final class BackupImporter {
         try {
           c.rollback();
         } catch (SQLException rollback) {
-          LOG.warn("(mincore) rollback after merge restore failed", rollback);
+          logSqlWarning("restore.merge.rollback", rollback);
         }
         handler.closeQuietly();
         if (e instanceof IOException io) {
@@ -202,7 +203,7 @@ public final class BackupImporter {
           try {
             setForeignKeyChecks(c, true);
           } catch (SQLException enable) {
-            LOG.warn("(mincore) failed to re-enable foreign key checks", enable);
+            logSqlWarning("restore.merge.fk.enable", enable);
           }
         }
         c.setAutoCommit(originalAutoCommit);
@@ -717,7 +718,7 @@ public final class BackupImporter {
       try (Statement st = c.createStatement()) {
         st.execute("DROP TABLE IF EXISTS " + ident(table));
       } catch (SQLException e) {
-        LOG.warn("(mincore) failed to drop staging table {}", table, e);
+        logSqlWarning("restore.staging.drop", e);
       }
     }
 
@@ -1086,5 +1087,17 @@ public final class BackupImporter {
       } catch (SQLException ignored) {
       }
     }
+  }
+
+  private static void logSqlWarning(String op, SQLException e) {
+    ErrorCode code = SqlErrorCodes.classify(e);
+    LOG.warn(
+        "(mincore) code={} op={} message={} sqlState={} vendor={}",
+        code,
+        op,
+        e.getMessage(),
+        e.getSQLState(),
+        e.getErrorCode(),
+        e);
   }
 }

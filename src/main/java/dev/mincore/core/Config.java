@@ -428,6 +428,12 @@ public final class Config {
     if (db.port() <= 0 || db.port() > 65535) {
       throw new IllegalStateException("core.db.port must be between 1 and 65535");
     }
+    if (db.host().contains(" ")) {
+      throw new IllegalStateException("core.db.host must not contain spaces");
+    }
+    if (!db.database().matches("[A-Za-z0-9_]+")) {
+      throw new IllegalStateException("core.db.database must match [A-Za-z0-9_]+");
+    }
     int maxPool = db.pool().maxPoolSize();
     if (maxPool < 1 || maxPool > 50) {
       throw new IllegalStateException("core.db.pool.maxPoolSize must be between 1 and 50");
@@ -455,6 +461,13 @@ public final class Config {
     if (attempts < 1 || attempts > 10) {
       throw new IllegalStateException("core.db.pool.startupAttempts must be between 1 and 10");
     }
+    if (idleTimeout >= maxLifetime) {
+      throw new IllegalStateException("core.db.pool.idleTimeoutMs must be less than maxLifetimeMs");
+    }
+    if (db.pool().connectionTimeoutMs() >= maxLifetime) {
+      throw new IllegalStateException(
+          "core.db.pool.connectionTimeoutMs must be less than maxLifetimeMs");
+    }
   }
 
   private static void validateRuntime(Runtime runtime) {
@@ -472,6 +485,10 @@ public final class Config {
     if (time.display().defaultZone() == null) {
       throw new IllegalStateException("core.time.display.defaultZone must be a valid ZoneId");
     }
+    if (time.display().autoDetect() && !time.display().allowPlayerOverride()) {
+      throw new IllegalStateException(
+          "core.time.display.autoDetect requires allowPlayerOverride=true");
+    }
   }
 
   private static void validateI18n(I18n i18n) {
@@ -486,6 +503,14 @@ public final class Config {
     }
     requireNonBlank(i18n.defaultLocale().toLanguageTag(), "core.i18n.defaultLocale");
     requireNonBlank(i18n.fallbackLocale().toLanguageTag(), "core.i18n.fallbackLocale");
+    String defaultCode = i18n.defaultLocale().toLanguageTag().replace('-', '_');
+    if (i18n.enabledLocales().stream().noneMatch(l -> l.equalsIgnoreCase(defaultCode))) {
+      throw new IllegalStateException("core.i18n.enabledLocales must include defaultLocale");
+    }
+    String fallbackCode = i18n.fallbackLocale().toLanguageTag().replace('-', '_');
+    if (i18n.enabledLocales().stream().noneMatch(l -> l.equalsIgnoreCase(fallbackCode))) {
+      throw new IllegalStateException("core.i18n.enabledLocales must include fallbackLocale");
+    }
   }
 
   private static void validateLedger(Ledger ledger) {
@@ -494,17 +519,26 @@ public final class Config {
     }
     if (ledger.jsonlMirror().enabled()) {
       requireNonBlank(ledger.jsonlMirror().path(), "core.ledger.file.path");
+      ensureValidPath(ledger.jsonlMirror().path(), "core.ledger.file.path");
     }
   }
 
   private static void validateJobs(Jobs jobs) {
     requireNonBlank(jobs.backup().schedule(), "core.jobs.backup.schedule");
     requireNonBlank(jobs.backup().outDir(), "core.jobs.backup.outDir");
+    ensureValidPath(jobs.backup().outDir(), "core.jobs.backup.outDir");
+    validateCron(jobs.backup().schedule(), "core.jobs.backup.schedule");
     if (jobs.backup().prune().keepDays() < 0) {
       throw new IllegalStateException("core.jobs.backup.prune.keepDays must be >= 0");
     }
     if (jobs.backup().prune().keepMax() < 1) {
       throw new IllegalStateException("core.jobs.backup.prune.keepMax must be >= 1");
+    }
+    if (jobs.backup().prune().keepDays() > 3650) {
+      throw new IllegalStateException("core.jobs.backup.prune.keepDays must be <= 3650");
+    }
+    if (jobs.backup().prune().keepMax() > 1000) {
+      throw new IllegalStateException("core.jobs.backup.prune.keepMax must be <= 1000");
     }
     if (jobs.cleanup().idempotencySweep().retentionDays() < 0) {
       throw new IllegalStateException(
@@ -513,6 +547,9 @@ public final class Config {
     if (jobs.cleanup().idempotencySweep().batchLimit() < 1) {
       throw new IllegalStateException("core.jobs.cleanup.idempotencySweep.batchLimit must be >= 1");
     }
+    validateCron(
+        jobs.cleanup().idempotencySweep().schedule(),
+        "core.jobs.cleanup.idempotencySweep.schedule");
   }
 
   private static void validateLog(Log log) {
@@ -520,11 +557,30 @@ public final class Config {
       throw new IllegalStateException("core.log.slowQueryMs must be >= 0");
     }
     requireNonBlank(log.level(), "core.log.level");
+    String normalized = log.level().toUpperCase(Locale.ROOT);
+    if (!List.of("TRACE", "DEBUG", "INFO", "WARN", "ERROR").contains(normalized)) {
+      throw new IllegalStateException("core.log.level must be TRACE, DEBUG, INFO, WARN, or ERROR");
+    }
   }
 
   private static void requireNonBlank(String value, String field) {
     if (value == null || value.trim().isEmpty()) {
       throw new IllegalStateException(field + " must be provided");
+    }
+  }
+
+  private static void validateCron(String schedule, String field) {
+    String[] parts = schedule.trim().split("\\s+");
+    if (parts.length != 6) {
+      throw new IllegalStateException(field + " must be a 6-field cron expression");
+    }
+  }
+
+  private static void ensureValidPath(String value, String field) {
+    try {
+      Path.of(value);
+    } catch (Exception e) {
+      throw new IllegalStateException(field + " must be a valid file system path", e);
     }
   }
 
