@@ -1,6 +1,7 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -103,12 +104,7 @@ public final class Scheduler {
               try {
                 execute(job);
               } catch (Exception e) {
-                LOG.warn(
-                    "(mincore) code={} op={} message={}",
-                    "JOB_FAILURE",
-                    job.name,
-                    e.getMessage(),
-                    e);
+                logJobFailure(job.name, e);
               }
             },
             delayMs,
@@ -131,7 +127,7 @@ public final class Scheduler {
     } catch (Exception e) {
       job.status.lastError = e.getMessage();
       job.status.failureCount++;
-      LOG.warn("(mincore) code={} op={} message={}", "JOB_FAILURE", job.name, e.getMessage(), e);
+      logJobFailure(job.name, e);
     } finally {
       job.status.running = false;
       schedule(job, Instant.now());
@@ -161,6 +157,7 @@ public final class Scheduler {
         LOG.info("(mincore) cleanup removed {} expired idempotency rows", deleted);
       }
     } catch (SQLException e) {
+      logJobFailure("cleanup.idempotencySweep", e);
       throw new RuntimeException("idempotency sweep failed", e);
     }
   }
@@ -175,6 +172,7 @@ public final class Scheduler {
           result.attributes(),
           result.ledger());
     } catch (Exception e) {
+      logJobFailure("backup", e);
       throw new RuntimeException("backup failed", e);
     }
   }
@@ -343,6 +341,27 @@ public final class Scheduler {
         return false;
       }
       return values.contains(value);
+    }
+  }
+
+  private static void logJobFailure(String jobName, Throwable error) {
+    if (error instanceof SQLException sql) {
+      ErrorCode code = SqlErrorCodes.classify(sql);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          jobName,
+          sql.getMessage(),
+          sql.getSQLState(),
+          sql.getErrorCode(),
+          sql);
+    } else {
+      LOG.warn(
+          "(mincore) code={} op={} message={}",
+          ErrorCode.CONNECTION_LOST,
+          jobName,
+          error.getMessage(),
+          error);
     }
   }
 }

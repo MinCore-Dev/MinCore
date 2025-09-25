@@ -26,6 +26,7 @@ public final class AttributesImpl implements Attributes {
   private static final int MAX_JSON_CHARS = 8192;
   private final DataSource ds;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
 
   /**
    * Creates a new instance.
@@ -33,9 +34,10 @@ public final class AttributesImpl implements Attributes {
    * @param ds shared datasource
    * @param dbHealth health monitor for degraded mode handling
    */
-  public AttributesImpl(javax.sql.DataSource ds, DbHealth dbHealth) {
+  public AttributesImpl(javax.sql.DataSource ds, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   @Override
@@ -52,9 +54,15 @@ public final class AttributesImpl implements Attributes {
         }
       }
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordAttributeRead(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordAttributeRead(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -70,6 +78,9 @@ public final class AttributesImpl implements Attributes {
   @Override
   public void put(UUID owner, String key, String jsonValue, long nowS) {
     if (!dbHealth.allowWrite("attributes.put")) {
+      if (metrics != null) {
+        metrics.recordAttributeWrite(false, ErrorCode.DEGRADED_MODE);
+      }
       return;
     }
     String sql =
@@ -84,9 +95,15 @@ public final class AttributesImpl implements Attributes {
       ps.setLong(5, nowS);
       ps.executeUpdate();
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordAttributeWrite(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordAttributeWrite(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -101,6 +118,9 @@ public final class AttributesImpl implements Attributes {
   @Override
   public void remove(UUID owner, String key) {
     if (!dbHealth.allowWrite("attributes.remove")) {
+      if (metrics != null) {
+        metrics.recordAttributeWrite(false, ErrorCode.DEGRADED_MODE);
+      }
       return;
     }
     try (Connection c = ds.getConnection();
@@ -110,9 +130,15 @@ public final class AttributesImpl implements Attributes {
       ps.setString(2, key);
       ps.executeUpdate();
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordAttributeWrite(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordAttributeWrite(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,

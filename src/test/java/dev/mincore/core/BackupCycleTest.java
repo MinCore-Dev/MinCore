@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ch.vorburger.mariadb4j.DB;
-import ch.vorburger.mariadb4j.DBConfigurationBuilder;
 import dev.mincore.api.Attributes;
 import dev.mincore.api.Players;
 import dev.mincore.api.Playtime;
@@ -16,7 +14,6 @@ import dev.mincore.api.storage.ExtensionDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import dev.mincore.util.Uuids;
 import java.io.IOException;
-import java.lang.reflect.Constructor;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,10 +23,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -41,48 +36,23 @@ import org.junit.jupiter.api.Test;
 /** Integration test covering the backup/export and restore lifecycle. */
 final class BackupCycleTest {
   private static final String DB_NAME = "mincore_test";
-  private static final String DB_USER = "root";
-  private static final String DB_PASSWORD = "";
-
-  private static DB embeddedDb;
-  private static int dbPort;
 
   @BeforeAll
-  static void startDatabase() throws Exception {
-    Class.forName("org.mariadb.jdbc.Driver");
-    DBConfigurationBuilder builder = DBConfigurationBuilder.newBuilder();
-    builder.setPort(0); // random available port
-    builder.setDeletingTemporaryBaseAndDataDirsOnShutdown(true);
-    builder.setSecurityDisabled(true);
-    builder.addArg("--user=root");
-    embeddedDb = DB.newEmbeddedDB(builder.build());
-    embeddedDb.start();
-    dbPort = embeddedDb.getConfiguration().getPort();
-    try (Connection c =
-            DriverManager.getConnection(
-                "jdbc:mariadb://127.0.0.1:"
-                    + dbPort
-                    + "/mysql"
-                    + "?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=UTC",
-                DB_USER,
-                DB_PASSWORD);
-        Statement st = c.createStatement()) {
-      st.executeUpdate("CREATE DATABASE IF NOT EXISTS " + DB_NAME);
-    }
+  static void prepareDatabase() throws Exception {
+    MariaDbTestSupport.ensureDatabase(DB_NAME);
   }
 
   @AfterAll
-  static void stopDatabase() throws Exception {
-    if (embeddedDb != null) {
-      embeddedDb.stop();
-    }
+  static void cleanupDatabase() throws Exception {
+    MariaDbTestSupport.dropDatabase(DB_NAME);
   }
 
   @Test
   void backupAndRestoreCyclePreservesData() throws Exception {
     Path backupDir = Files.createTempDirectory("mincore-backup-test");
-    TestServices services = new TestServices(jdbcUrl(), DB_USER, DB_PASSWORD);
-    Config config = buildConfig(backupDir);
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+    Config config = TestConfigFactory.create(DB_NAME, backupDir);
 
     try {
       Migrations.apply(services);
@@ -141,61 +111,13 @@ final class BackupCycleTest {
   }
 
   private static String jdbcUrl() {
-    return "jdbc:mariadb://127.0.0.1:"
-        + dbPort
-        + "/"
-        + DB_NAME
-        + "?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=UTC";
-  }
-
-  private static Config buildConfig(Path backupDir) throws Exception {
-    Config.Db dbConfig =
-        new Config.Db(
-            "127.0.0.1",
-            dbPort,
-            DB_NAME,
-            DB_USER,
-            DB_PASSWORD,
-            false,
-            true,
-            new Config.Pool(4, 1, 10_000L, 60_000L, 120_000L, 1));
-
-    Config.Runtime runtime = new Config.Runtime(5);
-    Config.Time time = new Config.Time(new Config.Display(ZoneId.of("UTC"), false, false));
-    Config.I18n i18n =
-        new Config.I18n(
-            Locale.forLanguageTag("en-US"), List.of("en_US"), Locale.forLanguageTag("en-US"));
-    Config.Ledger ledger =
-        new Config.Ledger(
-            true, 0, new Config.JsonlMirror(false, backupDir.resolve("ledger.jsonl").toString()));
-    Config.Backup backup =
-        new Config.Backup(
-            true,
-            "0 45 4 * * *",
-            backupDir.toString(),
-            Config.OnMissed.RUN_AT_NEXT_STARTUP,
-            false,
-            new Config.Prune(30, 10));
-    Config.Cleanup cleanup =
-        new Config.Cleanup(new Config.IdempotencySweep(true, "0 30 4 * * *", 30, 5_000));
-    Config.Jobs jobs = new Config.Jobs(backup, cleanup);
-    Config.Log log = new Config.Log(false, 250L, "INFO");
-
-    Constructor<Config> ctor =
-        Config.class.getDeclaredConstructor(
-            Config.Db.class,
-            Config.Runtime.class,
-            Config.Time.class,
-            Config.I18n.class,
-            Config.Ledger.class,
-            Config.Jobs.class,
-            Config.Log.class);
-    ctor.setAccessible(true);
-    return ctor.newInstance(dbConfig, runtime, time, i18n, ledger, jobs, log);
+    return MariaDbTestSupport.jdbcUrl(DB_NAME);
   }
 
   private static void seedTestData() throws SQLException {
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD)) {
+    try (Connection c =
+        DriverManager.getConnection(
+            jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD)) {
       c.setAutoCommit(false);
 
       try (Statement st = c.createStatement()) {
@@ -310,7 +232,9 @@ final class BackupCycleTest {
   }
 
   private static void wipeAndCorrupt() throws SQLException {
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD)) {
+    try (Connection c =
+        DriverManager.getConnection(
+            jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD)) {
       c.setAutoCommit(false);
       try (Statement st = c.createStatement()) {
         st.executeUpdate("DELETE FROM core_ledger");
@@ -344,7 +268,9 @@ final class BackupCycleTest {
             + " (SELECT COUNT(*) FROM player_attributes) AS attrs,"
             + " (SELECT COUNT(*) FROM player_event_seq) AS event_seq,"
             + " (SELECT COUNT(*) FROM core_ledger) AS ledger";
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps = c.prepareStatement(sql);
         ResultSet rs = ps.executeQuery()) {
       rs.next();
@@ -360,7 +286,9 @@ final class BackupCycleTest {
     final String sql =
         "SELECT uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s "
             + "FROM players ORDER BY name";
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps = c.prepareStatement(sql);
         ResultSet rs = ps.executeQuery()) {
       List<PlayerRow> rows = new ArrayList<>();
@@ -382,7 +310,9 @@ final class BackupCycleTest {
     final String sql =
         "SELECT owner_uuid, attr_key, value_json, created_at_s, updated_at_s "
             + "FROM player_attributes ORDER BY attr_key, owner_uuid";
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps = c.prepareStatement(sql);
         ResultSet rs = ps.executeQuery()) {
       List<AttributeRow> rows = new ArrayList<>();
@@ -401,7 +331,9 @@ final class BackupCycleTest {
 
   private static List<EventSeqRow> readEventSequences() throws SQLException {
     final String sql = "SELECT uuid, seq FROM player_event_seq ORDER BY uuid";
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps = c.prepareStatement(sql);
         ResultSet rs = ps.executeQuery()) {
       List<EventSeqRow> rows = new ArrayList<>();
@@ -417,7 +349,9 @@ final class BackupCycleTest {
         "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
             + "idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger ORDER BY ts_s, seq, addon_id";
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps = c.prepareStatement(sql);
         ResultSet rs = ps.executeQuery()) {
       List<LedgerRow> rows = new ArrayList<>();
@@ -445,7 +379,9 @@ final class BackupCycleTest {
   }
 
   private static int readSchemaVersion() throws SQLException {
-    try (Connection c = DriverManager.getConnection(jdbcUrl(), DB_USER, DB_PASSWORD);
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
         PreparedStatement ps =
             c.prepareStatement("SELECT COALESCE(MAX(version), 0) FROM core_schema_version");
         ResultSet rs = ps.executeQuery()) {
@@ -627,9 +563,25 @@ final class BackupCycleTest {
       return new SchemaHelper() {
         @Override
         public void ensureTable(String createSql) throws SQLException {
+          ensureTable(null, createSql);
+        }
+
+        @Override
+        public void ensureTable(String table, String createSql) throws SQLException {
+          if (table != null && tableExists(table)) {
+            return;
+          }
           try (Connection c = borrowConnection();
               Statement st = c.createStatement()) {
             st.execute(createSql);
+          }
+        }
+
+        @Override
+        public boolean tableExists(String table) throws SQLException {
+          try (Connection c = borrowConnection();
+              ResultSet rs = c.getMetaData().getTables(null, null, table, null)) {
+            return rs.next();
           }
         }
 
@@ -653,15 +605,23 @@ final class BackupCycleTest {
         }
 
         @Override
-        public void ensureIndex(String table, String indexName, String createIndexSql)
-            throws SQLException {
+        public boolean hasIndex(String table, String indexName) throws SQLException {
           try (Connection c = borrowConnection();
               ResultSet rs = c.getMetaData().getIndexInfo(null, null, table, false, false)) {
             while (rs.next()) {
               if (indexName.equalsIgnoreCase(rs.getString("INDEX_NAME"))) {
-                return;
+                return true;
               }
             }
+          }
+          return false;
+        }
+
+        @Override
+        public void ensureIndex(String table, String indexName, String createIndexSql)
+            throws SQLException {
+          if (hasIndex(table, indexName)) {
+            return;
           }
           try (Connection c = borrowConnection();
               Statement st = c.createStatement()) {
@@ -670,8 +630,7 @@ final class BackupCycleTest {
         }
 
         @Override
-        public void ensureCheck(String table, String checkName, String addCheckSql)
-            throws SQLException {
+        public boolean hasCheck(String table, String checkName) throws SQLException {
           try (Connection c = borrowConnection();
               PreparedStatement ps =
                   c.prepareStatement(
@@ -680,14 +639,73 @@ final class BackupCycleTest {
             ps.setString(1, table);
             ps.setString(2, checkName);
             try (ResultSet rs = ps.executeQuery()) {
-              if (rs.next()) {
-                return;
-              }
+              return rs.next();
             }
+          }
+        }
+
+        @Override
+        public void ensureCheck(String table, String checkName, String addCheckSql)
+            throws SQLException {
+          if (hasCheck(table, checkName)) {
+            return;
           }
           try (Connection c = borrowConnection();
               Statement st = c.createStatement()) {
             st.execute(addCheckSql);
+          }
+        }
+
+        @Override
+        public boolean hasPrimaryKey(String table, String constraintName) throws SQLException {
+          try (Connection c = borrowConnection();
+              ResultSet rs = c.getMetaData().getPrimaryKeys(null, null, table)) {
+            while (rs.next()) {
+              if (constraintName.equalsIgnoreCase(rs.getString("PK_NAME"))) {
+                return true;
+              }
+            }
+          }
+          return false;
+        }
+
+        @Override
+        public void ensurePrimaryKey(String table, String constraintName, String addPrimaryKeySql)
+            throws SQLException {
+          if (hasPrimaryKey(table, constraintName)) {
+            return;
+          }
+          try (Connection c = borrowConnection();
+              Statement st = c.createStatement()) {
+            st.execute(addPrimaryKeySql);
+          }
+        }
+
+        @Override
+        public boolean hasForeignKey(String table, String constraintName) throws SQLException {
+          try (Connection c = borrowConnection();
+              PreparedStatement ps =
+                  c.prepareStatement(
+                      "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS "
+                          + "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? "
+                          + "AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE='FOREIGN KEY'")) {
+            ps.setString(1, table);
+            ps.setString(2, constraintName);
+            try (ResultSet rs = ps.executeQuery()) {
+              return rs.next();
+            }
+          }
+        }
+
+        @Override
+        public void ensureForeignKey(String table, String constraintName, String addForeignKeySql)
+            throws SQLException {
+          if (hasForeignKey(table, constraintName)) {
+            return;
+          }
+          try (Connection c = borrowConnection();
+              Statement st = c.createStatement()) {
+            st.execute(addForeignKeySql);
           }
         }
       };

@@ -30,6 +30,7 @@ public final class PlayersImpl implements Players {
   private final DataSource ds;
   private final EventBus events;
   private final DbHealth dbHealth;
+  private final Metrics metrics;
 
   /**
    * Creates a new instance.
@@ -38,10 +39,11 @@ public final class PlayersImpl implements Players {
    * @param events event bus for player lifecycle notifications
    * @param dbHealth health monitor for degraded mode handling
    */
-  public PlayersImpl(DataSource ds, EventBus events, DbHealth dbHealth) {
+  public PlayersImpl(DataSource ds, EventBus events, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.events = events;
     this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   @Override
@@ -59,9 +61,15 @@ public final class PlayersImpl implements Players {
         }
       }
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -89,9 +97,15 @@ public final class PlayersImpl implements Players {
         }
       }
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -121,9 +135,15 @@ public final class PlayersImpl implements Players {
         }
       }
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -140,6 +160,9 @@ public final class PlayersImpl implements Players {
   public void upsertSeen(UUID uuid, String name, long seenAtS) {
     if (uuid == null) return;
     if (!dbHealth.allowWrite("players.upsertSeen")) {
+      if (metrics != null) {
+        metrics.recordPlayerMutation(false, ErrorCode.DEGRADED_MODE);
+      }
       return;
     }
     String cleanName = sanitizeName(name);
@@ -155,6 +178,9 @@ public final class PlayersImpl implements Players {
           long seq = nextSeq(c, uuid);
           c.commit();
           dbHealth.markSuccess();
+          if (metrics != null) {
+            metrics.recordPlayerMutation(true, null);
+          }
           events.firePlayerRegistered(
               new CoreEvents.PlayerRegisteredEvent(uuid, seq, cleanName, EVENT_VERSION));
           return;
@@ -172,6 +198,9 @@ public final class PlayersImpl implements Players {
         long seq = nextSeq(c, uuid);
         c.commit();
         dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordPlayerMutation(true, null);
+        }
         events.firePlayerSeenUpdated(
             new CoreEvents.PlayerSeenUpdatedEvent(
                 uuid,
@@ -191,6 +220,9 @@ public final class PlayersImpl implements Players {
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerMutation(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
@@ -214,9 +246,15 @@ public final class PlayersImpl implements Players {
         consumer.accept(mapPlayer(rs));
       }
       dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,

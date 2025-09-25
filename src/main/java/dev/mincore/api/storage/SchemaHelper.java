@@ -11,10 +11,14 @@ import java.sql.SQLException;
  * MinCoreApi.database().schema()} and then:
  *
  * <ol>
- *   <li>Create tables with {@link #ensureTable(String)}.
+ *   <li>Create tables with {@link #ensureTable(String)} or {@link #ensureTable(String, String)}.
  *   <li>Add missing columns with {@link #addColumnIfMissing(String, String, String)}.
- *   <li>Add indexes with {@link #ensureIndex(String, String, String)}.
- *   <li>Verify a named {@code CHECK} constraint with {@link #ensureCheck(String, String, String)}.
+ *   <li>Add indexes with {@link #ensureIndex(String, String, String)} (or {@link #hasIndex(String,
+ *       String)} to test beforehand).
+ *   <li>Verify a named {@code CHECK} constraint with {@link #ensureCheck(String, String, String)}
+ *       (or {@link #hasCheck(String, String)} to test beforehand).
+ *   <li>Guard foreign keys and primary keys with {@link #ensureForeignKey(String, String, String)}
+ *       and {@link #ensurePrimaryKey(String, String, String)} as needed.
  * </ol>
  *
  * <p>Implementations are provided by MinCore; add-ons should not implement this interface.
@@ -29,6 +33,24 @@ public interface SchemaHelper {
    * @throws SQLException if the statement fails to execute
    */
   void ensureTable(String createSql) throws SQLException;
+
+  /**
+   * Ensures a table exists by name, optionally using {@code createSql} when the table is missing.
+   *
+   * @param table the table identifier as used in {@code information_schema}
+   * @param createSql the full DDL statement to create the table when it is missing
+   * @throws SQLException if checking metadata or executing the statement fails
+   */
+  void ensureTable(String table, String createSql) throws SQLException;
+
+  /**
+   * Checks whether a table currently exists in the active schema.
+   *
+   * @param table the table name (unquoted identifier as used in DDL)
+   * @return {@code true} if the table exists in the current schema
+   * @throws SQLException if the metadata query fails
+   */
+  boolean tableExists(String table) throws SQLException;
 
   /**
    * Checks whether a table currently has a column.
@@ -58,6 +80,16 @@ public interface SchemaHelper {
   void addColumnIfMissing(String table, String column, String columnDef) throws SQLException;
 
   /**
+   * Checks whether the named index is already present on the table.
+   *
+   * @param table the table name
+   * @param indexName the index identifier (case-sensitive match)
+   * @return {@code true} if the index exists
+   * @throws SQLException if metadata lookup fails
+   */
+  boolean hasIndex(String table, String indexName) throws SQLException;
+
+  /**
    * Ensures an index exists on a table. The create statement should be idempotent (for example,
    * using {@code CREATE INDEX IF NOT EXISTS} where supported) or otherwise safe to re-run.
    *
@@ -67,6 +99,16 @@ public interface SchemaHelper {
    * @throws SQLException if creating the index fails
    */
   void ensureIndex(String table, String indexName, String createIndexSql) throws SQLException;
+
+  /**
+   * Checks whether the named {@code CHECK} constraint exists on the table.
+   *
+   * @param table the table name
+   * @param checkName the constraint name
+   * @return {@code true} if the constraint exists
+   * @throws SQLException if metadata lookup fails
+   */
+  boolean hasCheck(String table, String checkName) throws SQLException;
 
   /**
    * Ensures a named {@code CHECK} constraint exists on a table; if it is missing, executes the
@@ -83,4 +125,46 @@ public interface SchemaHelper {
    * @throws SQLException if adding the constraint fails
    */
   void ensureCheck(String table, String checkName, String addCheckSql) throws SQLException;
+
+  /**
+   * Checks whether the named {@code PRIMARY KEY} constraint exists on the table.
+   *
+   * @param table the table name
+   * @param constraintName the constraint identifier
+   * @return {@code true} if the primary key already exists
+   * @throws SQLException if metadata lookup fails
+   */
+  boolean hasPrimaryKey(String table, String constraintName) throws SQLException;
+
+  /**
+   * Ensures a {@code PRIMARY KEY} exists for the table.
+   *
+   * @param table the table name
+   * @param constraintName the constraint identifier to check for
+   * @param addPrimaryKeySql DDL statement that adds the primary key if missing
+   * @throws SQLException if metadata lookup or executing the statement fails
+   */
+  void ensurePrimaryKey(String table, String constraintName, String addPrimaryKeySql)
+      throws SQLException;
+
+  /**
+   * Checks whether the named {@code FOREIGN KEY} constraint exists on the table.
+   *
+   * @param table the table name
+   * @param constraintName the constraint identifier
+   * @return {@code true} if the foreign key already exists
+   * @throws SQLException if metadata lookup fails
+   */
+  boolean hasForeignKey(String table, String constraintName) throws SQLException;
+
+  /**
+   * Ensures a {@code FOREIGN KEY} constraint exists for the table.
+   *
+   * @param table the table name
+   * @param constraintName the constraint identifier to check for
+   * @param addForeignKeySql DDL statement that adds the foreign key if missing
+   * @throws SQLException if metadata lookup or executing the statement fails
+   */
+  void ensureForeignKey(String table, String constraintName, String addForeignKeySql)
+      throws SQLException;
 }

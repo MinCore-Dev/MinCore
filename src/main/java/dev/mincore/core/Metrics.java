@@ -6,6 +6,7 @@ import dev.mincore.api.Wallets.OperationResult;
 import java.lang.management.ManagementFactory;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.management.InstanceAlreadyExistsException;
 import javax.management.MBeanRegistrationException;
 import javax.management.MBeanServer;
@@ -18,8 +19,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Simple metrics registry that exposes core counters via JMX.
  *
- * <p>The implementation deliberately keeps the surface small: wallet operation success/failure
- * counts and idempotency outcomes. Additional metrics can be added as the core grows.
+ * <p>The implementation exposes wallet, player, attribute, ledger, and extension-database counters
+ * via JMX. Metrics focus on success/failure counts and capture the last observed error codes for
+ * quick diagnostics.
  */
 public final class Metrics implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
@@ -35,6 +37,23 @@ public final class Metrics implements AutoCloseable {
   private final AtomicLong transferFailure = new AtomicLong();
   private final AtomicLong walletReplays = new AtomicLong();
   private final AtomicLong walletMismatches = new AtomicLong();
+  private final AtomicLong playerLookupSuccess = new AtomicLong();
+  private final AtomicLong playerLookupFailure = new AtomicLong();
+  private final AtomicLong playerMutationSuccess = new AtomicLong();
+  private final AtomicLong playerMutationFailure = new AtomicLong();
+  private final AtomicLong attributeReadSuccess = new AtomicLong();
+  private final AtomicLong attributeReadFailure = new AtomicLong();
+  private final AtomicLong attributeWriteSuccess = new AtomicLong();
+  private final AtomicLong attributeWriteFailure = new AtomicLong();
+  private final AtomicLong ledgerWriteSuccess = new AtomicLong();
+  private final AtomicLong ledgerWriteFailure = new AtomicLong();
+  private final AtomicLong extensionOpSuccess = new AtomicLong();
+  private final AtomicLong extensionOpFailure = new AtomicLong();
+
+  private final AtomicReference<String> lastPlayerErrorCode = new AtomicReference<>("NONE");
+  private final AtomicReference<String> lastAttributeErrorCode = new AtomicReference<>("NONE");
+  private final AtomicReference<String> lastLedgerErrorCode = new AtomicReference<>("NONE");
+  private final AtomicReference<String> lastExtensionErrorCode = new AtomicReference<>("NONE");
 
   private final MBeanServer server;
   private final ObjectName objectName;
@@ -70,6 +89,54 @@ public final class Metrics implements AutoCloseable {
       walletReplays.incrementAndGet();
     } else if (result.code() == ErrorCode.IDEMPOTENCY_MISMATCH) {
       walletMismatches.incrementAndGet();
+    }
+  }
+
+  /** Records a player lookup (read-only) outcome. */
+  public void recordPlayerLookup(boolean ok, ErrorCode code) {
+    increment(ok ? playerLookupSuccess : playerLookupFailure);
+    if (!ok && code != null) {
+      lastPlayerErrorCode.set(code.name());
+    }
+  }
+
+  /** Records a player mutation (insert/update/delete) outcome. */
+  public void recordPlayerMutation(boolean ok, ErrorCode code) {
+    increment(ok ? playerMutationSuccess : playerMutationFailure);
+    if (!ok && code != null) {
+      lastPlayerErrorCode.set(code.name());
+    }
+  }
+
+  /** Records an attribute read operation. */
+  public void recordAttributeRead(boolean ok, ErrorCode code) {
+    increment(ok ? attributeReadSuccess : attributeReadFailure);
+    if (!ok && code != null) {
+      lastAttributeErrorCode.set(code.name());
+    }
+  }
+
+  /** Records an attribute write (put/remove) operation. */
+  public void recordAttributeWrite(boolean ok, ErrorCode code) {
+    increment(ok ? attributeWriteSuccess : attributeWriteFailure);
+    if (!ok && code != null) {
+      lastAttributeErrorCode.set(code.name());
+    }
+  }
+
+  /** Records a ledger database write. */
+  public void recordLedgerWrite(boolean ok, ErrorCode code) {
+    increment(ok ? ledgerWriteSuccess : ledgerWriteFailure);
+    if (!ok && code != null) {
+      lastLedgerErrorCode.set(code.name());
+    }
+  }
+
+  /** Records an ExtensionDatabase helper operation outcome. */
+  public void recordExtensionOperation(boolean ok, ErrorCode code) {
+    increment(ok ? extensionOpSuccess : extensionOpFailure);
+    if (!ok && code != null) {
+      lastExtensionErrorCode.set(code.name());
     }
   }
 
@@ -161,6 +228,86 @@ public final class Metrics implements AutoCloseable {
     public long getWalletMismatches() {
       return walletMismatches.get();
     }
+
+    @Override
+    public long getPlayerLookupSuccess() {
+      return playerLookupSuccess.get();
+    }
+
+    @Override
+    public long getPlayerLookupFailure() {
+      return playerLookupFailure.get();
+    }
+
+    @Override
+    public long getPlayerMutationSuccess() {
+      return playerMutationSuccess.get();
+    }
+
+    @Override
+    public long getPlayerMutationFailure() {
+      return playerMutationFailure.get();
+    }
+
+    @Override
+    public long getAttributeReadSuccess() {
+      return attributeReadSuccess.get();
+    }
+
+    @Override
+    public long getAttributeReadFailure() {
+      return attributeReadFailure.get();
+    }
+
+    @Override
+    public long getAttributeWriteSuccess() {
+      return attributeWriteSuccess.get();
+    }
+
+    @Override
+    public long getAttributeWriteFailure() {
+      return attributeWriteFailure.get();
+    }
+
+    @Override
+    public long getLedgerWriteSuccess() {
+      return ledgerWriteSuccess.get();
+    }
+
+    @Override
+    public long getLedgerWriteFailure() {
+      return ledgerWriteFailure.get();
+    }
+
+    @Override
+    public long getExtensionOperationSuccess() {
+      return extensionOpSuccess.get();
+    }
+
+    @Override
+    public long getExtensionOperationFailure() {
+      return extensionOpFailure.get();
+    }
+
+    @Override
+    public String getLastPlayerErrorCode() {
+      return lastPlayerErrorCode.get();
+    }
+
+    @Override
+    public String getLastAttributeErrorCode() {
+      return lastAttributeErrorCode.get();
+    }
+
+    @Override
+    public String getLastLedgerErrorCode() {
+      return lastLedgerErrorCode.get();
+    }
+
+    @Override
+    public String getLastExtensionErrorCode() {
+      return lastExtensionErrorCode.get();
+    }
   }
 
   /** JMX view of the metrics registry. */
@@ -234,5 +381,53 @@ public final class Metrics implements AutoCloseable {
      * @return total wallet operations that triggered idempotency mismatches
      */
     long getWalletMismatches();
+
+    /** Player lookup successes. */
+    long getPlayerLookupSuccess();
+
+    /** Player lookup failures. */
+    long getPlayerLookupFailure();
+
+    /** Player mutation successes. */
+    long getPlayerMutationSuccess();
+
+    /** Player mutation failures. */
+    long getPlayerMutationFailure();
+
+    /** Attribute read successes. */
+    long getAttributeReadSuccess();
+
+    /** Attribute read failures. */
+    long getAttributeReadFailure();
+
+    /** Attribute write successes. */
+    long getAttributeWriteSuccess();
+
+    /** Attribute write failures. */
+    long getAttributeWriteFailure();
+
+    /** Ledger write successes. */
+    long getLedgerWriteSuccess();
+
+    /** Ledger write failures. */
+    long getLedgerWriteFailure();
+
+    /** Extension database helper successes. */
+    long getExtensionOperationSuccess();
+
+    /** Extension database helper failures. */
+    long getExtensionOperationFailure();
+
+    /** Last observed player error code. */
+    String getLastPlayerErrorCode();
+
+    /** Last observed attribute error code. */
+    String getLastAttributeErrorCode();
+
+    /** Last observed ledger error code. */
+    String getLastLedgerErrorCode();
+
+    /** Last observed extension database error code. */
+    String getLastExtensionErrorCode();
   }
 }
