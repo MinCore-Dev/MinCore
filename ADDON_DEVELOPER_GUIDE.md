@@ -183,7 +183,7 @@ public static void onMain(MinecraftServer server, Runnable r) {
 ### UTC Storage, Timezone Rendering, i18n
 
 - All timestamps in storage are UTC seconds. Rendering for players should respect their timezone.
-- MinCore commands render timestamps in either the server default zone or the player override set by /timezone.
+- MinCore commands render timestamps using each player’s timezone and clock preference (with zone abbreviations + UTC offsets) when `/timezone` is enabled.
 - For your own messages, render times in a consistent zone. If you cannot query a player’s preference, use the server default or UTC and label it clearly.
 
 ## Public API Overview
@@ -593,8 +593,8 @@ No. Stay consistent with MariaDB or MySQL, and reuse MinCore’s pool via Extens
 Can I read the ledger without SQL  
 The write API is provided. For reads, query the core_ledger table using borrowConnection.
 
-How do I render times in a player’s timezone  
-Use your own lookup and Java time APIs, or keep server timezone for simplicity. MinCore commands already render their own outputs correctly.
+How do I render times in a player’s timezone
+Reuse `Timezones.preferences` + `TimeDisplay.formatDateTime` if you want the same zone abbreviation + UTC offset + clock style output as core commands. Otherwise, keep server timezone for simplicity.
 
 Can I schedule cron strings  
 MinCore’s internal jobs use a cron parser. For your add-on, rely on executors and advisory locks, or build your own small parser if needed.

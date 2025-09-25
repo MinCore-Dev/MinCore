@@ -16,6 +16,7 @@ Use this table to map failures to localisation keys and recommended operator act
 | `MIGRATION_LOCKED` | `mincore.err.migrate.locked` | Migrations held by another node | Wait for the other process or clear the advisory lock manually. |
 | `NAME_AMBIGUOUS` | `mincore.err.player.ambiguous` | `/mincore ledger player <name>` duplicate matches | Use the UUID to disambiguate players with similar names. |
 | `INVALID_TZ` | `mincore.err.tz.invalid` | `/timezone set` with bad zone ID | Provide a valid [IANA Zone ID](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones). |
+| `INVALID_CLOCK` | `mincore.err.tz.clockInvalid` | `/timezone clock` with unsupported format | Accept `12` or `24` only and update help copy. |
 | `OVERRIDES_DISABLED` | `mincore.err.tz.overridesDisabled` | Overrides disabled in config | Update `core.time.display.allowPlayerOverride` or advise players it’s locked. |
 
 All error codes are defined in [`src/main/java/dev/mincore/api/ErrorCode.java`](../src/main/java/dev/mincore/api/ErrorCode.java) and logged with the `(mincore)` prefix for easy filtering.

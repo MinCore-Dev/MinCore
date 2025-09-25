@@ -23,6 +23,7 @@
       display: {
         defaultZone: "UTC",
         allowPlayerOverride: false,
+        // When true, auto-detect each joining player's timezone via GeoIP
         autoDetect: false
       }
     },

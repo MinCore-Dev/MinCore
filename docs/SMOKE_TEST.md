@@ -48,6 +48,7 @@ export MINCORE_RCON_PASSWORD=change-me
    * `/mincore doctor --counts --fk` – confirm reported counts match expectations and no FK issues.
 7. **Timezone & I18n**
    * If overrides are enabled, run `/timezone set Europe/Berlin` as a player and ensure success.
+   * Toggle `/timezone clock 12` and `/timezone clock 24` to confirm the clock format updates and feedback shows the zone abbreviation + UTC offset label.
    * Toggle JSON logging and ensure locale messages render correctly in your configured language.
 
 Record the commands issued and their responses in your change log or pull request before marking the

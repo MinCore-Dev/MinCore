@@ -200,7 +200,7 @@ Generates/updates `mincore.json5.example` with full comments; never overwrites l
 
 ### 3.4 Timezones
 
-UTC storage; server display TZ; optional per‑player `/timezone set <ZoneId>` (if enabled); owner‑only auto‑detect (privacy note); no player “auto” command.
+UTC storage; server display TZ; optional per‑player `/timezone set <ZoneId>` (if enabled); optional GeoIP auto-detect applies to every joining player when enabled; `/timezone clock <12|24>` lets players pick their clock style.
 
 ### 3.5 Localization (i18n)
 
@@ -365,10 +365,11 @@ public interface ExtensionDatabase {
 
 ### 4.4 Commands
 
-**/timezone**  
-- `/timezone` — help (+ current setting; note that auto‑detect is owner‑controlled).  
-- `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) — set personal TZ if enabled.  
-Errors: `mincore.err.tz.invalid`, `mincore.err.tz.overridesDisabled`; Success: `mincore.cmd.tz.set.ok`.
+**/timezone**
+- `/timezone` — help (shows zone, timezone label with abbreviation + UTC offset, clock style, sample time).
+- `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) — set personal TZ if enabled.
+- `/timezone clock <12|24>` — toggle per-player clock style.
+Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`; Success: `mincore.cmd.tz.set.ok`, `mincore.cmd.tz.clock.ok`.
 
 **/mincore db**  
 - `/mincore db ping` — driver/server versions, RTT. (`mincore.cmd.db.ping.ok|fail`)
@@ -412,11 +413,12 @@ Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
 | MIGRATION_LOCKED | `mincore.err.migrate.locked` |
 | NAME_AMBIGUOUS | `mincore.err.player.ambiguous` |
 | INVALID_TZ | `mincore.err.tz.invalid` |
+| INVALID_CLOCK | `mincore.err.tz.clockInvalid` |
 | OVERRIDES_DISABLED | `mincore.err.tz.overridesDisabled` |
 
 ### 4.7 Output Examples
 
-- `/timezone` help, `/mincore db ping`, `/mincore ledger recent`, `/playtime top N` — localized; timestamps in viewer TZ.
+- `/timezone` help, `/mincore db ping`, `/mincore ledger recent`, `/playtime top N` — localized; timestamps in viewer TZ with zone abbreviations + UTC offsets + clock style.
 
 ---
 

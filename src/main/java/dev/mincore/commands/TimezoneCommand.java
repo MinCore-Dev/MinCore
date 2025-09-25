@@ -4,11 +4,13 @@ package dev.mincore.commands;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.mincore.core.Services;
+import dev.mincore.util.ClockFormat;
+import dev.mincore.util.TimeDisplay;
+import dev.mincore.util.TimePreference;
 import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
+import java.time.Instant;
 import java.time.ZoneId;
-import java.time.format.TextStyle;
-import java.util.Locale;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
@@ -22,7 +24,6 @@ public final class TimezoneCommand {
 
   private TimezoneCommand() {}
 
-  /** Registers the command tree. */
   /**
    * Registers the `/timezone` command hierarchy.
    *
@@ -46,6 +47,16 @@ public final class TimezoneCommand {
                                       services,
                                       StringArgumentType.getString(ctx, "zone")))));
           root.then(
+              CommandManager.literal("clock")
+                  .then(
+                      CommandManager.argument("format", StringArgumentType.string())
+                          .executes(
+                              ctx ->
+                                  setClock(
+                                      ctx.getSource(),
+                                      services,
+                                      StringArgumentType.getString(ctx, "format")))));
+          root.then(
               CommandManager.argument("zone", StringArgumentType.string())
                   .executes(
                       ctx ->
@@ -61,8 +72,16 @@ public final class TimezoneCommand {
     if (!allowPlayerRateLimit(src)) {
       return 0;
     }
-    ZoneId zone = Timezones.resolve(src, services);
-    Text header = Text.translatable("mincore.cmd.tz.help", zone.getId());
+    TimePreference pref = Timezones.preferences(src, services);
+    String offset = TimeDisplay.offsetLabel(pref.zone());
+    String sample = TimeDisplay.formatTime(Instant.now(), pref);
+    Text header =
+        Text.translatable(
+            "mincore.cmd.tz.help",
+            pref.zone().getId(),
+            offset,
+            pref.clock().description(),
+            sample);
     src.sendFeedback(() -> header, false);
     return 1;
   }
@@ -82,16 +101,49 @@ public final class TimezoneCommand {
         src.sendFeedback(() -> Text.translatable("mincore.err.tz.invalid"), false);
         return 0;
       }
-      Timezones.set(player.getUuid(), zone, services);
+      TimePreference pref = Timezones.set(player.getUuid(), zone, services);
+      String offset = TimeDisplay.offsetLabel(pref.zone());
+      String sample = TimeDisplay.formatTime(Instant.now(), pref);
       Text msg =
           Text.translatable(
               "mincore.cmd.tz.set.ok",
-              zone.getId(),
-              zone.getDisplayName(TextStyle.FULL, Locale.ENGLISH));
+              pref.zone().getId(),
+              offset,
+              pref.clock().description(),
+              sample);
       src.sendFeedback(() -> msg, false);
       return 1;
     } catch (Exception e) {
       src.sendFeedback(() -> Text.translatable("mincore.err.tz.invalid"), false);
+      return 0;
+    }
+  }
+
+  private static int setClock(ServerCommandSource src, Services services, String raw) {
+    if (!allowPlayerRateLimit(src)) {
+      return 0;
+    }
+    if (!Timezones.overridesAllowed()) {
+      src.sendFeedback(() -> Text.translatable("mincore.err.tz.overridesDisabled"), false);
+      return 0;
+    }
+    try {
+      ClockFormat clock = ClockFormat.parse(raw);
+      var player = src.getPlayer();
+      if (player == null) {
+        src.sendFeedback(() -> Text.translatable("mincore.err.tz.invalid"), false);
+        return 0;
+      }
+      TimePreference pref = Timezones.setClock(player.getUuid(), clock, services);
+      String sample = TimeDisplay.formatTime(Instant.now(), pref);
+      String label = TimeDisplay.offsetLabel(pref.zone());
+      Text msg =
+          Text.translatable(
+              "mincore.cmd.tz.clock.ok", pref.clock().description(), sample, label);
+      src.sendFeedback(() -> msg, false);
+      return 1;
+    } catch (IllegalArgumentException e) {
+      src.sendFeedback(() -> Text.translatable("mincore.err.tz.clockInvalid"), false);
       return 0;
     }
   }

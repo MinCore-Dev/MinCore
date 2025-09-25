@@ -197,17 +197,18 @@ core {
 Notes
 
 - Set `allowPlayerOverride = true` to allow `/timezone set <ZoneId>` for players
-- `autoDetect = true` only applies to the single player owner use case
+- `autoDetect = true` will detect each joining player’s timezone when GeoIP data is present
 - Keep `forceUtc = true` so storage is consistent
 
 ## Commands
 
 ### /timezone
 
-- `/timezone` shows help and current setting
+- `/timezone` shows help with the player’s zone, time zone label (e.g., PST (UTC-08:00)), clock style, and a formatted sample
 - `/timezone set <ZoneId>` allows a player to set a personal time zone when overrides are enabled
+- `/timezone clock <12|24>` lets players pick a 12-hour or 24-hour clock without changing their zone
 
-Errors: `mincore.err.tz.invalid`, `mincore.err.tz.overridesDisabled`
+Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`
 
 ### /playtime
 
@@ -281,7 +282,7 @@ For large servers, consider `mariadb-dump` or `mariabackup` for point in time re
 - Store secrets with environment variables or an external secrets manager
 - Use TLS between server and database when they run on different hosts
 - MinCore does not collect PII by default
-- Time zone auto detection is owner only and opt in
+- Time zone auto detection is opt in and, when enabled, runs for every joining player
 
 ## Developer Guide
 

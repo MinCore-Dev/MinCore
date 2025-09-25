@@ -16,6 +16,8 @@ import dev.mincore.core.Migrations;
 import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.core.SqlErrorCodes;
+import dev.mincore.util.TimeDisplay;
+import dev.mincore.util.TimePreference;
 import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
 import dev.mincore.util.Uuids;
@@ -27,8 +29,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -44,8 +44,6 @@ import org.slf4j.LoggerFactory;
 /** Admin/diagnostic commands exposed under /mincore (permission level 4). */
 public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
-  private static final DateTimeFormatter LEDGER_TIME =
-      DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z").withLocale(Locale.ENGLISH);
   private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
       new TokenBucketRateLimiter(4, 0.3);
 
@@ -949,13 +947,20 @@ public final class AdminCommands {
       return 1;
     }
 
-    ZoneId zone = Timezones.resolve(src, services);
-    DateTimeFormatter fmt = LEDGER_TIME.withZone(zone);
+    TimePreference pref = Timezones.preferences(src, services);
     Players players = services.players();
+    String offset = TimeDisplay.offsetLabel(pref.zone());
     src.sendFeedback(
-        () -> Text.translatable("mincore.cmd.ledger.header", rows.size(), zone.getId()), false);
+        () ->
+            Text.translatable(
+                "mincore.cmd.ledger.header",
+                rows.size(),
+                pref.zone().getId(),
+                offset,
+                pref.clock().description()),
+        false);
     for (LedgerRow row : rows) {
-      String when = fmt.format(Instant.ofEpochSecond(row.ts()));
+      String when = TimeDisplay.formatDateTime(Instant.ofEpochSecond(row.ts()), pref);
       String from = formatPlayer(players, row.from());
       String to = formatPlayer(players, row.to());
       src.sendFeedback(
@@ -985,16 +990,23 @@ public final class AdminCommands {
 
   private static int cmdJobsList(final ServerCommandSource src, final Services services) {
     List<Scheduler.JobStatus> jobs = Scheduler.jobs();
-    ZoneId zone = Timezones.resolve(src, services);
-    DateTimeFormatter fmt = LEDGER_TIME.withZone(zone);
+    TimePreference pref = Timezones.preferences(src, services);
+    String offset = TimeDisplay.offsetLabel(pref.zone());
     if (jobs.isEmpty()) {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.list.none"), false);
       return 1;
     }
-    src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.list.header", zone.getId()), false);
+    src.sendFeedback(
+        () ->
+            Text.translatable(
+                "mincore.cmd.jobs.list.header",
+                pref.zone().getId(),
+                offset,
+                pref.clock().description()),
+        false);
     for (Scheduler.JobStatus job : jobs) {
-      String next = job.nextRun != null ? fmt.format(job.nextRun) : "-";
-      String last = job.lastRun != null ? fmt.format(job.lastRun) : "-";
+      String next = job.nextRun != null ? TimeDisplay.formatDateTime(job.nextRun, pref) : "-";
+      String last = job.lastRun != null ? TimeDisplay.formatDateTime(job.lastRun, pref) : "-";
       String error = job.lastError == null ? "" : job.lastError;
       src.sendFeedback(
           () ->
