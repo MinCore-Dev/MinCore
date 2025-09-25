@@ -13,7 +13,7 @@ public final class Currency {
   private Currency() {}
 
   /**
-   * Format smallest currency units (long) into a human-readable string.
+   * Format smallest currency units (long) into a human-readable string with grouping separators.
    *
    * @param units amount in smallest units
    * @return formatted amount like "1,234"
@@ -23,14 +23,44 @@ public final class Currency {
   }
 
   /**
+   * Format using compact suffixes ({@code k}, {@code M}, {@code B}) for large values.
+   *
+   * <p>Examples:
+   *
+   * <ul>
+   *   <li>{@code formatCompact(950)} ⇒ {@code "950"}
+   *   <li>{@code formatCompact(12_000)} ⇒ {@code "12.00k"}
+   *   <li>{@code formatCompact(3_500_000)} ⇒ {@code "3.50M"}
+   * </ul>
+   *
+   * @param units amount in smallest units
+   * @return compact formatted string
+   */
+  public static String formatCompact(long units) {
+    if (Math.abs(units) >= 1_000_000_000L) {
+      return String.format(Locale.ROOT, "%.2fB", units / 1_000_000_000.0);
+    }
+    if (Math.abs(units) >= 1_000_000L) {
+      return String.format(Locale.ROOT, "%.2fM", units / 1_000_000.0);
+    }
+    if (Math.abs(units) >= 1_000L) {
+      return String.format(Locale.ROOT, "%.2fk", units / 1_000.0);
+    }
+    return Long.toString(units);
+  }
+
+  /**
    * Parse a human input like "1_000" or "1,000" into smallest currency units.
    *
    * @param s input string
    * @return parsed amount in smallest units
-   * @throws NumberFormatException if not a valid number
+   * @throws IllegalArgumentException if not a valid non-negative number
    */
   public static long parse(String s) {
-    String t = s.replace("_", "").trim().toLowerCase(Locale.ROOT);
+    if (s == null) {
+      throw new IllegalArgumentException("Input may not be null");
+    }
+    String t = s.replace("_", "").replace(",", "").trim().toLowerCase(Locale.ROOT);
     double base;
     long mul = 1L;
     if (t.endsWith("k")) {

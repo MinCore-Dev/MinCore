@@ -45,6 +45,17 @@ public interface ExtensionDatabase {
   <T> T withRetry(SQLSupplier<T> action) throws SQLException;
 
   /**
+   * Gets a helper that provides idempotent schema evolution primitives.
+   *
+   * <p>The returned helper is safe to cache and reuse. It exposes convenience methods such as
+   * {@link SchemaHelper#ensureTable(String)}, {@link SchemaHelper#addColumnIfMissing(String,
+   * String, String)}, and {@link SchemaHelper#ensureIndex(String, String, String)}.
+   *
+   * @return schema helper singleton
+   */
+  SchemaHelper schema();
+
+  /**
    * Functional supplier that can throw {@link SQLException}.
    *
    * @param <T> result type

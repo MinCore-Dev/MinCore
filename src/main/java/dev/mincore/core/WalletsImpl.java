@@ -1,8 +1,12 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Wallets;
+import dev.mincore.api.Wallets.OperationResult;
 import dev.mincore.api.events.CoreEvents;
+import dev.mincore.util.TokenBucketRateLimiter;
+import dev.mincore.util.Uuids;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.sql.Connection;
@@ -11,7 +15,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
@@ -21,13 +27,26 @@ import org.slf4j.LoggerFactory;
 public final class WalletsImpl implements Wallets {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
   private static final int EVENT_VERSION = 1;
+  private static final TokenBucketRateLimiter IDEM_LOG_LIMITER = new TokenBucketRateLimiter(4, 0.5);
 
   private final DataSource ds;
   private final EventBus events;
+  private final DbHealth dbHealth;
+  private final Metrics metrics;
 
-  public WalletsImpl(DataSource ds, EventBus events) {
+  /**
+   * Creates a wallet service backed by the given datasource and event bus.
+   *
+   * @param ds pooled datasource connected to the MinCore schema
+   * @param events core event bus used to emit balance change notifications
+   * @param dbHealth health monitor for degraded mode handling
+   * @param metrics metrics registry for observability
+   */
+  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.events = events;
+    this.dbHealth = dbHealth;
+    this.metrics = Objects.requireNonNull(metrics, "metrics");
   }
 
   @Override
@@ -36,84 +55,130 @@ public final class WalletsImpl implements Wallets {
     String sql = "SELECT balance_units FROM players WHERE uuid=?";
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(player));
+      ps.setBytes(1, Uuids.toBytes(player));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
+          dbHealth.markSuccess();
           return rs.getLong(1);
         }
       }
+      dbHealth.markSuccess();
     } catch (SQLException e) {
-      LOG.warn("(mincore) getBalance failed", e);
+      dbHealth.markFailure(e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "wallets.getBalance",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return 0L;
   }
 
   @Override
   public boolean deposit(UUID player, long amount, String reason) {
-    return deposit(player, amount, reason, autoKey());
+    return depositResult(player, amount, reason, autoKey()).ok();
   }
 
   @Override
   public boolean withdraw(UUID player, long amount, String reason) {
-    return withdraw(player, amount, reason, autoKey());
+    return withdrawResult(player, amount, reason, autoKey()).ok();
   }
 
   @Override
   public boolean transfer(UUID from, UUID to, long amount, String reason) {
-    return transfer(from, to, amount, reason, autoKey());
+    return transferResult(from, to, amount, reason, autoKey()).ok();
   }
 
   @Override
-  public boolean deposit(UUID player, long amount, String reason, String idemKey) {
-    if (player == null || amount < 0) return false;
+  public OperationResult depositResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.deposit")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
+    if (player == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
+    }
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:deposit", null, player, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:deposit", idemKey, payload, c -> applyDelta(c, player, amount, cleanReason));
+    return record(
+        "deposit",
+        applyIdempotent(
+            "core:deposit", idemKey, payload, c -> applyDelta(c, player, amount, cleanReason)));
   }
 
   @Override
-  public boolean withdraw(UUID player, long amount, String reason, String idemKey) {
-    if (player == null || amount < 0) return false;
+  public OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.withdraw")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
+    if (player == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player required");
+    }
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:withdraw", player, null, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:withdraw", idemKey, payload, c -> applyDelta(c, player, -amount, cleanReason));
+    return record(
+        "withdraw",
+        applyIdempotent(
+            "core:withdraw", idemKey, payload, c -> applyDelta(c, player, -amount, cleanReason)));
   }
 
   @Override
-  public boolean transfer(UUID from, UUID to, long amount, String reason, String idemKey) {
-    if (from == null || to == null || amount < 0) return false;
+  public OperationResult transferResult(
+      UUID from, UUID to, long amount, String reason, String idemKey) {
+    if (!dbHealth.allowWrite("wallets.transfer")) {
+      return OperationResult.failure(ErrorCode.DEGRADED_MODE, "database degraded");
+    }
+    if (from == null || to == null) {
+      return OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participants required");
+    }
+    if (amount <= 0) {
+      return OperationResult.failure(ErrorCode.INVALID_AMOUNT, "amount must be > 0");
+    }
     String cleanReason = clampReason(reason);
     String payload = canonical("core:transfer", from, to, amount, canonicalReason(reason));
-    return applyIdempotent(
-        "core:transfer", idemKey, payload, c -> applyTransfer(c, from, to, amount, cleanReason));
+    return record(
+        "transfer",
+        applyIdempotent(
+            "core:transfer",
+            idemKey,
+            payload,
+            c -> applyTransfer(c, from, to, amount, cleanReason)));
   }
 
-  private boolean applyDelta(Connection c, UUID player, long delta, String reason)
+  private Mutation applyDelta(Connection c, UUID player, long delta, String reason)
       throws SQLException {
     PlayerBalance before = lockBalance(c, player);
     if (before == null) {
-      return false;
+      return Mutation.failure(OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player missing"));
     }
     long newUnits = before.units + delta;
     if (newUnits < 0) {
-      return false;
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "balance would go negative"));
     }
 
     long now = Instant.now().getEpochSecond();
     updateBalance(c, player, newUnits, now);
     long seq = nextSeq(c, player);
-    events.fireBalanceChanged(
+    CoreEvents.BalanceChangedEvent event =
         new CoreEvents.BalanceChangedEvent(
-            player, seq, before.units, newUnits, reason, EVENT_VERSION));
-    return true;
+            player, seq, before.units, newUnits, reason, EVENT_VERSION);
+    return Mutation.success(OperationResult.success(), List.of(event));
   }
 
-  private boolean applyTransfer(Connection c, UUID from, UUID to, long amount, String reason)
+  private Mutation applyTransfer(Connection c, UUID from, UUID to, long amount, String reason)
       throws SQLException {
     if (from.equals(to)) {
-      return true; // no-op self transfer
+      return Mutation.success(OperationResult.success(), List.of());
     }
     UUID first = compare(from, to) <= 0 ? from : to;
     UUID second = first.equals(from) ? to : from;
@@ -124,10 +189,12 @@ public final class WalletsImpl implements Wallets {
     PlayerBalance toBal = first.equals(from) ? secondBal : firstBal;
 
     if (fromBal == null || toBal == null) {
-      return false;
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "participant missing"));
     }
     if (fromBal.units < amount) {
-      return false;
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "insufficient funds"));
     }
 
     long now = Instant.now().getEpochSecond();
@@ -140,18 +207,18 @@ public final class WalletsImpl implements Wallets {
     long fromSeq = nextSeq(c, from);
     long toSeq = nextSeq(c, to);
 
-    events.fireBalanceChanged(
+    CoreEvents.BalanceChangedEvent debit =
         new CoreEvents.BalanceChangedEvent(
-            from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION));
-    events.fireBalanceChanged(
-        new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION));
-    return true;
+            from, fromSeq, fromBal.units, newFrom, reason, EVENT_VERSION);
+    CoreEvents.BalanceChangedEvent credit =
+        new CoreEvents.BalanceChangedEvent(to, toSeq, toBal.units, newTo, reason, EVENT_VERSION);
+    return Mutation.success(OperationResult.success(), List.of(debit, credit));
   }
 
   private PlayerBalance lockBalance(Connection c, UUID uuid) throws SQLException {
     String sql = "SELECT balance_units FROM players WHERE uuid=? FOR UPDATE";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           long bal = rs.getLong(1);
@@ -167,7 +234,7 @@ public final class WalletsImpl implements Wallets {
     try (PreparedStatement ps = c.prepareStatement(sql)) {
       ps.setLong(1, newUnits);
       ps.setLong(2, now);
-      ps.setBytes(3, uuidToBytes(uuid));
+      ps.setBytes(3, Uuids.toBytes(uuid));
       ps.executeUpdate();
     }
   }
@@ -178,7 +245,7 @@ public final class WalletsImpl implements Wallets {
                 "INSERT INTO player_event_seq(uuid,seq) VALUES(?,1) "
                     + "ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)");
         Statement last = c.createStatement()) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.executeUpdate();
       try (ResultSet rs = last.executeQuery("SELECT LAST_INSERT_ID()")) {
         if (rs.next()) {
@@ -189,7 +256,8 @@ public final class WalletsImpl implements Wallets {
     return 0L;
   }
 
-  private boolean applyIdempotent(String scope, String idemKey, String payload, TxWork work) {
+  private OperationResult applyIdempotent(
+      String scope, String idemKey, String payload, OpWork work) {
     String insert =
         "INSERT INTO core_requests(key_hash,scope,payload_hash,ok,created_at_s,expires_at_s) "
             + "VALUES(?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE key_hash=VALUES(key_hash)";
@@ -221,28 +289,51 @@ public final class WalletsImpl implements Wallets {
             int ok = rs.getInt(2);
             if (!java.util.Arrays.equals(ph, payloadHash)) {
               c.rollback();
-              LOG.info("(mincore) IDEMPOTENCY_MISMATCH scope={} key={}", scope, idemKey);
-              return false;
+              logIdem(
+                  scope + ":mismatch",
+                  "(mincore) code={} op={} message={} key={}",
+                  ErrorCode.IDEMPOTENCY_MISMATCH,
+                  scope,
+                  "idempotency payload mismatch",
+                  idemKey);
+              dbHealth.markSuccess();
+              return OperationResult.failure(
+                  ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
             }
             if (ok == 1) {
               c.commit();
-              LOG.info("(mincore) IDEMPOTENCY_REPLAY scope={} key={}", scope, idemKey);
-              return true;
+              logIdem(
+                  scope + ":replay",
+                  "(mincore) code={} op={} message={} key={}",
+                  ErrorCode.IDEMPOTENCY_REPLAY,
+                  scope,
+                  "idempotent replay",
+                  idemKey);
+              dbHealth.markSuccess();
+              return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
             }
           }
         }
       }
 
-      boolean result;
+      Mutation mutation;
       try {
-        result = work.run(c);
+        mutation = work.run(c);
       } catch (SQLException e) {
         c.rollback();
-        throw e;
+        ErrorCode code = SqlErrorCodes.classify(e);
+        LOG.warn("(mincore) code={} op={} message={}", code, scope, e.getMessage(), e);
+        if (code == ErrorCode.CONNECTION_LOST) {
+          dbHealth.markFailure(e);
+        } else {
+          dbHealth.markSuccess();
+        }
+        return OperationResult.failure(code, "database error");
       }
-      if (!result) {
+      if (!mutation.result().ok()) {
         c.rollback();
-        return false;
+        dbHealth.markSuccess();
+        return mutation.result();
       }
 
       try (PreparedStatement done = c.prepareStatement(markOk)) {
@@ -251,10 +342,38 @@ public final class WalletsImpl implements Wallets {
         done.executeUpdate();
       }
       c.commit();
-      return true;
+      dbHealth.markSuccess();
+      dispatchEvents(mutation.events());
+      return mutation.result();
     } catch (SQLException e) {
-      LOG.warn("(mincore) idempotent op failed", e);
-      return false;
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.warn("(mincore) code={} op={} message={}", code, scope, e.getMessage(), e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
+      return OperationResult.failure(code, "database error");
+    }
+  }
+
+  private void dispatchEvents(List<CoreEvents.BalanceChangedEvent> eventsToPublish) {
+    if (eventsToPublish == null || eventsToPublish.isEmpty()) {
+      return;
+    }
+    for (CoreEvents.BalanceChangedEvent event : eventsToPublish) {
+      events.fireBalanceChanged(event);
+    }
+  }
+
+  private OperationResult record(String op, OperationResult result) {
+    metrics.recordWalletOperation(op, result);
+    return result;
+  }
+
+  private static void logIdem(String key, String fmt, Object... args) {
+    if (IDEM_LOG_LIMITER.tryAcquire(key)) {
+      LOG.info(fmt, args);
     }
   }
 
@@ -295,19 +414,6 @@ public final class WalletsImpl implements Wallets {
     }
   }
 
-  private static byte[] uuidToBytes(UUID uuid) {
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    byte[] out = new byte[16];
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
-    }
-    return out;
-  }
-
   private static int compare(UUID a, UUID b) {
     int cmp = Long.compare(a.getMostSignificantBits(), b.getMostSignificantBits());
     if (cmp != 0) return cmp;
@@ -318,9 +424,24 @@ public final class WalletsImpl implements Wallets {
     return "core:auto:" + System.nanoTime();
   }
 
+  private record Mutation(OperationResult result, List<CoreEvents.BalanceChangedEvent> events) {
+    Mutation {
+      result = Objects.requireNonNull(result, "result");
+      events = events == null ? List.of() : List.copyOf(events);
+    }
+
+    static Mutation success(OperationResult result, List<CoreEvents.BalanceChangedEvent> events) {
+      return new Mutation(result, events);
+    }
+
+    static Mutation failure(OperationResult result) {
+      return new Mutation(result, List.of());
+    }
+  }
+
   @FunctionalInterface
-  private interface TxWork {
-    boolean run(Connection c) throws SQLException;
+  private interface OpWork {
+    Mutation run(Connection c) throws SQLException;
   }
 
   private record PlayerBalance(UUID uuid, long units) {}

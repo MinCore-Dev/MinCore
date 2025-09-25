@@ -3,8 +3,10 @@ package dev.mincore.core;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Ledger;
 import dev.mincore.api.events.CoreEvents.BalanceChangedEvent;
+import dev.mincore.util.Uuids;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +37,7 @@ import org.slf4j.LoggerFactory;
  *       op {@code balance}).
  *   <li>Expose a {@link Ledger} implementation for add-ons to record operations with optional
  *       idempotency.
- *   <li>Perform periodic TTL cleanup when {@link Config#ledgerRetentionDays()} is positive.
+ *   <li>Perform periodic TTL cleanup when {@link Config.Ledger#retentionDays()} is positive.
  * </ul>
  *
  * <p><strong>Thread-safety</strong> — Stateless aside from shared {@link DataSource}; uses a new
@@ -53,15 +55,61 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   private final boolean fileEnabled;
   private final Path filePath;
   private final int retentionDays;
+  private final DbHealth dbHealth;
+  private final Metrics metrics;
   private AutoCloseable coreListener; // event unsubscription
 
   private LedgerImpl(
-      DataSource ds, boolean enabled, boolean fileEnabled, Path filePath, int retentionDays) {
+      DataSource ds,
+      boolean enabled,
+      boolean fileEnabled,
+      Path filePath,
+      int retentionDays,
+      DbHealth dbHealth,
+      Metrics metrics) {
     this.ds = ds;
     this.enabled = enabled;
-    this.fileEnabled = fileEnabled;
-    this.filePath = filePath;
+    this.fileEnabled = enabled && fileEnabled && filePath != null;
+    this.filePath = this.fileEnabled ? filePath : null;
     this.retentionDays = retentionDays;
+    this.dbHealth = dbHealth;
+    this.metrics = metrics;
+  }
+
+  private static DataSource requireDataSource(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.pool();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static DbHealth requireHealth(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.dbHealth();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static Metrics requireMetrics(Services services) {
+    if (services instanceof CoreServices core) {
+      return core.metrics();
+    }
+    throw new IllegalStateException(
+        "Unsupported Services implementation: " + services.getClass().getName());
+  }
+
+  private static Path safePath(String value) {
+    if (value == null || value.isBlank()) {
+      return null;
+    }
+    try {
+      return Path.of(value);
+    } catch (Exception e) {
+      LOG.warn("(mincore) ledger: invalid mirror path {}; disabling file mirror", value, e);
+      return null;
+    }
   }
 
   /**
@@ -80,26 +128,32 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    * @return created instance (if disabled, returns a no-op instance to keep API stable)
    */
   public static LedgerImpl install(Services services, Config cfg) {
+    Config.Ledger ledgerCfg = cfg.ledger();
+    DataSource dataSource = requireDataSource(services);
+    DbHealth health = requireHealth(services);
+    Metrics metrics = requireMetrics(services);
     var inst =
         new LedgerImpl(
-            services instanceof CoreServices cs
-                ? cs.pool()
-                : null, // fallback path; CoreServices exposes DataSource internally
-            cfg.ledgerEnabled(),
-            cfg.ledgerFileEnabled(),
-            Path.of(cfg.ledgerFilePath()),
-            cfg.ledgerRetentionDays());
+            dataSource,
+            ledgerCfg.enabled(),
+            ledgerCfg.jsonlMirror().enabled(),
+            safePath(ledgerCfg.jsonlMirror().path()),
+            ledgerCfg.retentionDays(),
+            health,
+            metrics);
 
-    if (!cfg.ledgerEnabled()) {
+    if (!ledgerCfg.enabled()) {
       LOG.info("(mincore) ledger: disabled by config");
       return inst;
     }
 
-    // Ensure table exists
-    try (var c = inst.ds.getConnection();
-        var st = c.createStatement()) {
-      st.execute(
-          """
+    try {
+      services
+          .database()
+          .schema()
+          .ensureTable(
+              "core_ledger",
+              """
           CREATE TABLE IF NOT EXISTS core_ledger (
             id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             ts_s            BIGINT UNSIGNED NOT NULL,
@@ -130,10 +184,17 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC
           """);
     } catch (SQLException e) {
-      LOG.error("(mincore) ledger: failed to ensure table", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      LOG.error(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "ledger.ensureTable",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
 
-    // Subscribe to core balance changes
     inst.coreListener =
         services
             .events()
@@ -159,10 +220,9 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                       null);
                 });
 
-    // Schedule TTL cleanup
-    if (cfg.ledgerRetentionDays() > 0) {
+    if (ledgerCfg.retentionDays() > 0) {
       ScheduledExecutorService sch = services.scheduler();
-      long days = cfg.ledgerRetentionDays();
+      long days = ledgerCfg.retentionDays();
       sch.scheduleAtFixedRate(
           () -> {
             try (var c = inst.ds.getConnection();
@@ -170,20 +230,27 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
               long cutoff = Instant.now().getEpochSecond() - (days * 86400L);
               ps.setLong(1, cutoff);
               int n = ps.executeUpdate();
-              if (n > 0) LOG.info("(mincore) ledger: cleanup removed {} rows", n);
+              if (n > 0) {
+                LOG.info("(mincore) ledger: cleanup removed {} rows", n);
+              }
             } catch (Throwable t) {
-              LOG.warn("(mincore) ledger: cleanup failed", t);
+              LOG.warn(
+                  "(mincore) code={} op={} message={}",
+                  ErrorCode.CONNECTION_LOST,
+                  "ledger.cleanup",
+                  t.getMessage(),
+                  t);
             }
           },
-          5, // initial delay
-          TimeUnit.HOURS.toSeconds(1), // hourly sweep; rows older than retention are removed
+          5,
+          TimeUnit.HOURS.toSeconds(1),
           TimeUnit.SECONDS);
     }
 
     LOG.info(
         "(mincore) ledger: enabled (retention={} days, file={})",
-        cfg.ledgerRetentionDays(),
-        cfg.ledgerFileEnabled());
+        ledgerCfg.retentionDays(),
+        inst.fileEnabled);
     return inst;
   }
 
@@ -300,48 +367,77 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
       Long newUnits,
       String serverNode,
       String extraJson) {
-    // DB
-    try (Connection c = ds.getConnection();
-        PreparedStatement ps =
-            c.prepareStatement(
-                """
-                INSERT INTO core_ledger
-                  (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
-                   seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """)) {
-      int i = 1;
-      ps.setLong(i++, tsS);
-      ps.setString(i++, addonId);
-      ps.setString(i++, op);
-      if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(from));
-      if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, uuidToBytes(to));
-      ps.setLong(i++, amount);
-      ps.setString(i++, reason);
-      ps.setBoolean(i++, ok);
-      if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, code);
-      ps.setLong(i++, seq);
-      if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-      else ps.setString(i++, idemScope);
-      if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
-      else ps.setBytes(i++, idemKeyHash);
-      if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, oldUnits);
-      if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
-      else ps.setLong(i++, newUnits);
-      ps.setString(i++, serverNode);
-      if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
-      else ps.setString(i++, extraJson);
-      ps.executeUpdate();
-    } catch (Throwable t) {
-      LOG.warn("(mincore) ledger: write failed", t);
+    if (dbHealth.allowWrite("ledger.write")) {
+      try (Connection c = ds.getConnection();
+          PreparedStatement ps =
+              c.prepareStatement(
+                  """
+                  INSERT INTO core_ledger
+                    (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
+                     seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  """)) {
+        int i = 1;
+        ps.setLong(i++, tsS);
+        ps.setString(i++, addonId);
+        ps.setString(i++, op);
+        if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, Uuids.toBytes(from));
+        if (to == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, Uuids.toBytes(to));
+        ps.setLong(i++, amount);
+        ps.setString(i++, reason);
+        ps.setBoolean(i++, ok);
+        if (code == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, code);
+        ps.setLong(i++, seq);
+        if (idemScope == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+        else ps.setString(i++, idemScope);
+        if (idemKeyHash == null) ps.setNull(i++, java.sql.Types.BINARY);
+        else ps.setBytes(i++, idemKeyHash);
+        if (oldUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, oldUnits);
+        if (newUnits == null) ps.setNull(i++, java.sql.Types.BIGINT);
+        else ps.setLong(i++, newUnits);
+        ps.setString(i++, serverNode);
+        if (extraJson == null) ps.setNull(i++, java.sql.Types.LONGVARCHAR);
+        else ps.setString(i++, extraJson);
+        ps.executeUpdate();
+        dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordLedgerWrite(true, null);
+        }
+      } catch (SQLException e) {
+        dbHealth.markFailure(e);
+        ErrorCode errorCode = SqlErrorCodes.classify(e);
+        if (metrics != null) {
+          metrics.recordLedgerWrite(false, errorCode);
+        }
+        LOG.warn(
+            "(mincore) code={} op={} message={} sqlState={} vendor={}",
+            errorCode,
+            "ledger.write",
+            e.getMessage(),
+            e.getSQLState(),
+            e.getErrorCode(),
+            e);
+      } catch (Throwable t) {
+        LOG.warn(
+            "(mincore) code={} op={} message={}",
+            ErrorCode.CONNECTION_LOST,
+            "ledger.write",
+            t.getMessage(),
+            t);
+        if (metrics != null) {
+          metrics.recordLedgerWrite(false, ErrorCode.CONNECTION_LOST);
+        }
+      }
+    } else if (metrics != null) {
+      metrics.recordLedgerWrite(false, ErrorCode.DEGRADED_MODE);
     }
 
     // Optional JSONL
-    if (fileEnabled) {
+    if (fileEnabled && filePath != null) {
       try {
         ensureParent(filePath);
         JsonObject j = new JsonObject();
@@ -375,7 +471,13 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           w.write("\n");
         }
       } catch (IOException ioe) {
-        LOG.warn("(mincore) ledger: file write failed ({})", filePath, ioe);
+        LOG.warn(
+            "(mincore) code={} op={} message={} path={}",
+            "FILE_IO",
+            "ledger.fileWrite",
+            ioe.getMessage(),
+            filePath,
+            ioe);
       }
     }
   }
@@ -413,7 +515,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         ORDER BY id DESC LIMIT ?
         """,
         ps -> {
-          byte[] b = uuidToBytes(player);
+          byte[] b = Uuids.toBytes(player);
           ps.setBytes(1, b);
           ps.setBytes(2, b);
           ps.setInt(3, Math.max(1, Math.min(200, limit)));
@@ -594,16 +696,6 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     } catch (Exception e) {
       return null;
     }
-  }
-
-  private static byte[] uuidToBytes(UUID u) {
-    if (u == null) return null;
-    long msb = u.getMostSignificantBits();
-    long lsb = u.getLeastSignificantBits();
-    byte[] b = new byte[16];
-    for (int i = 0; i < 8; i++) b[i] = (byte) (msb >>> (8 * (7 - i)));
-    for (int i = 0; i < 8; i++) b[8 + i] = (byte) (lsb >>> (8 * (7 - i)));
-    return b;
   }
 
   private static UUID bytesToUuid(byte[] b) {

@@ -1,8 +1,10 @@
 /* MinCore © 2025 — MIT */
 package dev.mincore.core;
 
+import dev.mincore.api.ErrorCode;
 import dev.mincore.api.Players;
 import dev.mincore.api.events.CoreEvents;
+import dev.mincore.util.Uuids;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -27,16 +29,21 @@ public final class PlayersImpl implements Players {
 
   private final DataSource ds;
   private final EventBus events;
+  private final DbHealth dbHealth;
+  private final Metrics metrics;
 
   /**
    * Creates a new instance.
    *
    * @param ds shared datasource
    * @param events event bus for player lifecycle notifications
+   * @param dbHealth health monitor for degraded mode handling
    */
-  public PlayersImpl(DataSource ds, EventBus events) {
+  public PlayersImpl(DataSource ds, EventBus events, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.events = events;
+    this.dbHealth = dbHealth;
+    this.metrics = metrics;
   }
 
   @Override
@@ -44,18 +51,35 @@ public final class PlayersImpl implements Players {
     if (uuid == null) return Optional.empty();
     String sql =
         "SELECT uuid,name,created_at_s,updated_at_s,seen_at_s,balance_units FROM players WHERE uuid=?";
+    Optional<PlayerRef> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
-          return Optional.of(mapPlayer(rs));
+          result = Optional.of(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
-      LOG.warn("(mincore) players.byUuid failed", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byUuid",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
-    return Optional.empty();
+    return result;
   }
 
   @Override
@@ -63,18 +87,35 @@ public final class PlayersImpl implements Players {
     if (name == null || name.isBlank()) return Optional.empty();
     String sql =
         "SELECT uuid,name,created_at_s,updated_at_s,seen_at_s,balance_units FROM players WHERE name_lower=?";
+    Optional<PlayerRef> result = Optional.empty();
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement(sql)) {
       ps.setString(1, normalizeNameKey(name));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
-          return Optional.of(mapPlayer(rs));
+          result = Optional.of(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
-      LOG.warn("(mincore) players.byName failed", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byName",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
-    return Optional.empty();
+    return result;
   }
 
   @Override
@@ -93,8 +134,24 @@ public final class PlayersImpl implements Players {
           out.add(mapPlayer(rs));
         }
       }
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
-      LOG.warn("(mincore) players.byNameAll failed", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byNameAll",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
     return List.copyOf(out);
   }
@@ -102,6 +159,12 @@ public final class PlayersImpl implements Players {
   @Override
   public void upsertSeen(UUID uuid, String name, long seenAtS) {
     if (uuid == null) return;
+    if (!dbHealth.allowWrite("players.upsertSeen")) {
+      if (metrics != null) {
+        metrics.recordPlayerMutation(false, ErrorCode.DEGRADED_MODE);
+      }
+      return;
+    }
     String cleanName = sanitizeName(name);
     Long seen = seenAtS > 0 ? seenAtS : null;
     long now = Instant.now().getEpochSecond();
@@ -114,6 +177,10 @@ public final class PlayersImpl implements Players {
           insertPlayer(c, uuid, cleanName, seen, now);
           long seq = nextSeq(c, uuid);
           c.commit();
+          dbHealth.markSuccess();
+          if (metrics != null) {
+            metrics.recordPlayerMutation(true, null);
+          }
           events.firePlayerRegistered(
               new CoreEvents.PlayerRegisteredEvent(uuid, seq, cleanName, EVENT_VERSION));
           return;
@@ -123,12 +190,17 @@ public final class PlayersImpl implements Players {
         boolean seenChanged = !equalsNullable(before.seenAt(), seen);
         if (!nameChanged && !seenChanged) {
           c.commit();
+          dbHealth.markSuccess();
           return;
         }
 
         updatePlayer(c, uuid, cleanName, seen, now);
         long seq = nextSeq(c, uuid);
         c.commit();
+        dbHealth.markSuccess();
+        if (metrics != null) {
+          metrics.recordPlayerMutation(true, null);
+        }
         events.firePlayerSeenUpdated(
             new CoreEvents.PlayerSeenUpdatedEvent(
                 uuid,
@@ -142,10 +214,23 @@ public final class PlayersImpl implements Players {
           c.rollback();
         } catch (SQLException ignore) {
         }
+        dbHealth.markFailure(e);
         throw e;
       }
     } catch (SQLException e) {
-      LOG.warn("(mincore) players.upsertSeen failed", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerMutation(false, code);
+      }
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.upsertSeen",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 
@@ -160,15 +245,31 @@ public final class PlayersImpl implements Players {
       while (rs.next()) {
         consumer.accept(mapPlayer(rs));
       }
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
     } catch (SQLException e) {
-      LOG.warn("(mincore) players.iteratePlayers failed", e);
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.iteratePlayers",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
     }
   }
 
   private PlayerSnapshot lockPlayer(Connection c, UUID uuid) throws SQLException {
     String sql = "SELECT name,seen_at_s FROM players WHERE uuid=? FOR UPDATE";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
           String name = rs.getString("name");
@@ -186,7 +287,7 @@ public final class PlayersImpl implements Players {
     String sql =
         "INSERT INTO players(uuid,name,balance_units,created_at_s,updated_at_s,seen_at_s) VALUES(?,?,?,?,?,?)";
     try (PreparedStatement ps = c.prepareStatement(sql)) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.setString(2, name);
       ps.setLong(3, 0L);
       ps.setLong(4, now);
@@ -211,7 +312,7 @@ public final class PlayersImpl implements Players {
       } else {
         ps.setLong(3, seenAt);
       }
-      ps.setBytes(4, uuidToBytes(uuid));
+      ps.setBytes(4, Uuids.toBytes(uuid));
       ps.executeUpdate();
     }
   }
@@ -222,7 +323,7 @@ public final class PlayersImpl implements Players {
                 "INSERT INTO player_event_seq(uuid,seq) VALUES(?,1) "
                     + "ON DUPLICATE KEY UPDATE seq=LAST_INSERT_ID(seq+1)");
         Statement last = c.createStatement()) {
-      ps.setBytes(1, uuidToBytes(uuid));
+      ps.setBytes(1, Uuids.toBytes(uuid));
       ps.executeUpdate();
       try (ResultSet rs = last.executeQuery("SELECT LAST_INSERT_ID()")) {
         if (rs.next()) {
@@ -244,19 +345,6 @@ public final class PlayersImpl implements Players {
     long balance = rs.getLong("balance_units");
     Long seen = seenNull ? null : seenRaw;
     return new DbPlayer(uuid, name, created, updated, seen, balance);
-  }
-
-  private static byte[] uuidToBytes(UUID uuid) {
-    long msb = uuid.getMostSignificantBits();
-    long lsb = uuid.getLeastSignificantBits();
-    byte[] out = new byte[16];
-    for (int i = 0; i < 8; i++) {
-      out[i] = (byte) ((msb >>> (8 * (7 - i))) & 0xff);
-    }
-    for (int i = 0; i < 8; i++) {
-      out[8 + i] = (byte) ((lsb >>> (8 * (7 - i))) & 0xff);
-    }
-    return out;
   }
 
   private static UUID bytesToUuid(byte[] data) {
