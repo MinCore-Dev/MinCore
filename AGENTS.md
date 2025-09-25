@@ -540,6 +540,14 @@ FLUSH PRIVILEGES;
 
 `./gradlew clean build` • `./gradlew runServer` • minimal config shown in Part 3.
 
+### 5.3a Permission Gateway (LuckPerms-first)
+
+- **Detection order:** MinCore resolves permissions using LuckPerms (via `LuckPermsProvider` and the cached user data) first, then the Fabric Permissions API when available, and finally vanilla operator levels as the fallback. All lookups should execute on the server thread so LuckPerms user data is already cached.
+- **No hard deps:** Keep LuckPerms and Fabric Permissions API as `compileOnly` dependencies. Ship MinCore without bundling either implementation jar.
+- **Helper API:** Use `dev.mincore.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "mincore.addon.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
+- **Node naming:** Prefix permissions with `mincore.` or your add-on id, e.g. `mincore.admin.jobs.run` or `youraddon.feature.use`. Keep lowercase dot-separated segments.
+- **Op levels:** Level `4` for full admin, `3` for high-trust staff, `2` for moderation, `0` for everyone. Choose the fallback that mirrors the command’s intended audience.
+
 ### 5.4 One‑Shot Smoke Test
 
 1) `/mincore db ping|info`  

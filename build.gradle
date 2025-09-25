@@ -30,6 +30,10 @@ dependencies {
   // Driver is provided externally on disk; compileOnly is fine for IDEs.
   compileOnly "org.mariadb.jdbc:mariadb-java-client:3.4.1"
 
+  // Optional permission gateways.
+  compileOnly "net.luckperms:api:5.4"
+  modCompileOnly "me.lucko:fabric-permissions-api:0.3.1"
+
   // Bundle Hikari inside the mod jar.
   include(implementation("com.zaxxer:HikariCP:5.1.0"))
 

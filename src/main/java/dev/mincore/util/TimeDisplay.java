@@ -82,4 +82,3 @@ public final class TimeDisplay {
     return shortName + " (" + offset + ")";
   }
 }
-

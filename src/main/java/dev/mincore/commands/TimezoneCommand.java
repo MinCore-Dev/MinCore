@@ -77,11 +77,7 @@ public final class TimezoneCommand {
     String sample = TimeDisplay.formatTime(Instant.now(), pref);
     Text header =
         Text.translatable(
-            "mincore.cmd.tz.help",
-            pref.zone().getId(),
-            offset,
-            pref.clock().description(),
-            sample);
+            "mincore.cmd.tz.help", pref.zone().getId(), offset, pref.clock().description(), sample);
     src.sendFeedback(() -> header, false);
     return 1;
   }
@@ -138,8 +134,7 @@ public final class TimezoneCommand {
       String sample = TimeDisplay.formatTime(Instant.now(), pref);
       String label = TimeDisplay.offsetLabel(pref.zone());
       Text msg =
-          Text.translatable(
-              "mincore.cmd.tz.clock.ok", pref.clock().description(), sample, label);
+          Text.translatable("mincore.cmd.tz.clock.ok", pref.clock().description(), sample, label);
       src.sendFeedback(() -> msg, false);
       return 1;
     } catch (IllegalArgumentException e) {

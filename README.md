@@ -62,6 +62,7 @@ MinCore does not include a full gameplay economy, shops, quests, or a web panel.
 - Daily JSONL exports with gzip and checksum files
 - Playtime service with top, me and reset
 - i18n and timezone rendering utilities
+- LuckPerms-first permission helper with Fabric Permissions API and vanilla fallbacks
 - Config Template Writer that generates a complete commented example
 
 ## Requirements

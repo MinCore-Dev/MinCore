@@ -16,15 +16,16 @@ import net.minecraft.server.command.ServerCommandSource;
 /** Helper for resolving/storing timezone overrides. */
 public final class Timezones {
   private static final String ATTR_KEY = "mincore.tz";
-  private static final List<String> TWELVE_HOUR_PREFIXES = List.of(
-      "America/",
-      "Pacific/Honolulu",
-      "Pacific/Midway",
-      "Pacific/Pago_Pago",
-      "Pacific/Rarotonga",
-      "Atlantic/Bermuda",
-      "Atlantic/Stanley",
-      "Atlantic/Faeroe");
+  private static final List<String> TWELVE_HOUR_PREFIXES =
+      List.of(
+          "America/",
+          "Pacific/Honolulu",
+          "Pacific/Midway",
+          "Pacific/Pago_Pago",
+          "Pacific/Rarotonga",
+          "Atlantic/Bermuda",
+          "Atlantic/Stanley",
+          "Atlantic/Faeroe");
 
   private Timezones() {}
 
