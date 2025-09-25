@@ -1,6 +1,6 @@
-# AGENTS.md — MinCore v0.2.0 (Unified & Consistent)
+# AGENTS.md — MinCore v1.0.0 (Unified & Consistent)
 
-This document is a **machine-operable specification** of MinCore v0.2.0 for code agents (e.g., Codex, tool-using LLMs).
+This document is a **machine-operable specification** of MinCore v1.0.0 for code agents (e.g., Codex, tool-using LLMs).
 It **fully encodes** the unified master spec, reorganized into **actionable sections**, **APIs**, **schemas**, **commands**, **rules**, **checklists**, and **step-by-step procedures**. Treat this as the **single source of truth** unless the user explicitly overrides it.
 
 > Scope: Fabric Minecraft server mod named **MinCore** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
@@ -54,7 +54,7 @@ Gameplay content; web UI; poly-DB targets; default PII; heavy schedulers/buses; 
 
 SchemaHelper; Wallets (+idempotency); Ledger (+JSONL mirror); ordered post-commit Events; UTC Scheduler (+backup job); Playtime; I18n/TZ helpers.
 
-### Roadmap (v0.2.0 highlights)
+### Roadmap (v1.0.0 highlights)
 
 Commented JSON5; backup 04:45 UTC; least-priv DB; Config Template Writer; `/timezone`; `/mincore diag`, `/mincore db`, `/mincore ledger`, `/playtime`, `/mincore jobs ...`, `/mincore backup now`; dev standards (Spotless, JavaDoc, error codes), example add-on, smoke test.
 
@@ -544,4 +544,4 @@ See Sections 3.9 and 5.2 for SQL and Docker snippets.
 
 ---
 
-**End of AGENTS.md — MinCore v0.2.0 (Unified & Consistent)**
+**End of AGENTS.md — MinCore v1.0.0 (Unified & Consistent)**

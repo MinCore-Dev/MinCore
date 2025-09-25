@@ -1,6 +1,6 @@
 # MinCore Smoke Test (Ops-Grade)
 
-The script and checklist below exercise the production guarantees described in the v0.2.0 master
+The script and checklist below exercise the production guarantees described in the v1.0.0 master
 spec. Run it against a staging server before upgrades and after significant configuration changes.
 
 ## Prerequisites

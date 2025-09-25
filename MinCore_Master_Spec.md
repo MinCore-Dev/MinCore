@@ -1,6 +1,6 @@
-# MinCore Master Spec (v0.2.0) — Unified & Consistent
+# MinCore Master Spec (v1.0.0) — Unified & Consistent
 
-> This is the consolidated, internally consistent master specification for **MinCore v0.2.0**.  
+> This is the consolidated, internally consistent master specification for **MinCore v1.0.0**.  
 > It resolves prior naming/terminology clashes (e.g., **backup vs export**, **db info vs db status**), aligns commands/APIs across all parts, and improves section flow.  
 > Treat this as the **sole source of truth** unless you explicitly override it.
 
@@ -35,7 +35,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that gives
 - **Playtime**: in‑memory tracker.
 - **I18n + TZ rendering** helpers.
 
-### 1.5 Roadmap Snapshot (v0.2.0 highlights)
+### 1.5 Roadmap Snapshot (v1.0.0 highlights)
 
 - Commented JSON5 config; backups 04:45 UTC; least‑priv DB; **Config Template Writer**.
 - Server TZ default, optional per‑player TZ; **/timezone**.
@@ -505,4 +505,4 @@ Branches (`development`), small PRs, Conventional Commits, PR template, code own
 
 ---
 
-**End of MinCore v0.2.0 — Unified & Consistent Master Spec**
+**End of MinCore v1.0.0 — Unified & Consistent Master Spec**

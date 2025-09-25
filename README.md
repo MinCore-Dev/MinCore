@@ -2,7 +2,7 @@
 
 A small, opinionated core for Fabric Minecraft servers that gives add-on authors production grade primitives. MinCore focuses on database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering. The goal is to help you build add-ons faster with fewer foot guns and more predictable operations.
 
-> Source of truth: **MinCore Master Spec v0.2.0**. Treat that spec as authoritative.
+> Source of truth: **MinCore Master Spec v1.0.0**. Treat that spec as authoritative.
 
 ---
 
