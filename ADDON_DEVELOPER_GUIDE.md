@@ -530,6 +530,22 @@ Provide simple commands that call MinCore. Example, /hello balance <player>
 - If multiple matches, show a short list with UUIDs
 - Then call Wallets.getBalance and render using your i18n
 
+MinCore now ships a LuckPerms-first permission gateway under `dev.mincore.perms.Perms`. Use it at
+the top of every command handler instead of depending on Fabric Permissions yourself.
+
+```java
+if (!Perms.check(player, "youraddon.command.balance", 3)) {
+  player.sendMessage(Text.translatable("youraddon.err.permission"));
+  return 0;
+}
+```
+
+- Run checks on the server thread so LuckPerms user data is loaded.
+- Pick sensible vanilla fallbacks: level `4` for admin-only flows, `3` for high-trust staff, `2`
+  for moderators, `0` for everyone.
+- When running async logic, switch back to the main thread before calling
+  `Perms.checkUUID(server, uuid, node, level)`.
+
 ## Localization and Messages
 
 - Put your locales in assets/<your_mod_id>/lang/en_us.json

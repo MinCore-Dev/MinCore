@@ -7,11 +7,11 @@ import java.util.Locale;
 /** Supported player-facing clock formats. */
 public enum ClockFormat {
   /** Twelve hour clock (2:20 PM). */
-  TWELVE_HOUR("12-hour", DateTimeFormatter.ofPattern("h:mm a"),
-      DateTimeFormatter.ofPattern("h:mm:ss a")),
+  TWELVE_HOUR(
+      "12-hour", DateTimeFormatter.ofPattern("h:mm a"), DateTimeFormatter.ofPattern("h:mm:ss a")),
   /** Twenty four hour clock (14:20). */
-  TWENTY_FOUR_HOUR("24-hour", DateTimeFormatter.ofPattern("HH:mm"),
-      DateTimeFormatter.ofPattern("HH:mm:ss"));
+  TWENTY_FOUR_HOUR(
+      "24-hour", DateTimeFormatter.ofPattern("HH:mm"), DateTimeFormatter.ofPattern("HH:mm:ss"));
 
   private final String description;
   private final DateTimeFormatter shortFormatter;
@@ -46,12 +46,10 @@ public enum ClockFormat {
     }
     String normalized = raw.trim().toLowerCase(Locale.ROOT);
     return switch (normalized) {
-      case "12", "12h", "12hr", "twelve", "twelve_hour", "12-hour", "twelve-hour" ->
-          TWELVE_HOUR;
+      case "12", "12h", "12hr", "twelve", "twelve_hour", "12-hour", "twelve-hour" -> TWELVE_HOUR;
       case "24", "24h", "24hr", "twentyfour", "twenty_four", "24-hour", "twenty-four" ->
           TWENTY_FOUR_HOUR;
       default -> throw new IllegalArgumentException("unknown clock format: " + raw);
     };
   }
 }
-

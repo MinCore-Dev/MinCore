@@ -17,4 +17,3 @@ public record TimePreference(ZoneId zone, ClockFormat clock, String source, long
     }
   }
 }
-
