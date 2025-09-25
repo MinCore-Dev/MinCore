@@ -42,6 +42,9 @@ public enum ErrorCode {
   /** Invalid timezone identifier supplied. */
   INVALID_TZ,
 
+  /** Invalid clock format supplied. */
+  INVALID_CLOCK,
+
   /** Personal timezone overrides disabled by config. */
   OVERRIDES_DISABLED;
 }

@@ -1,4 +1,4 @@
-// MinCore v0.2.0 configuration
+// MinCore v1.0.0 configuration
 {
   core: {
     db: {
@@ -23,6 +23,7 @@
       display: {
         defaultZone: "UTC",
         allowPlayerOverride: false,
+        // When true, auto-detect each joining player's timezone via GeoIP
         autoDetect: false
       }
     },

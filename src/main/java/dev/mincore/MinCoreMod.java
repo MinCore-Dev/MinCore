@@ -50,7 +50,7 @@ public final class MinCoreMod implements ModInitializer {
   /** Initializes MinCore when Fabric loads the mod. */
   @Override
   public void onInitialize() {
-    LOG.info("(mincore) booting MinCore 0.2.0");
+    LOG.info("(mincore) booting MinCore 1.0.0");
     // 1) Ensure MariaDB driver is present before the pool tries to connect.
     dev.mincore.jdbc.DriverLoader.tryLoadMariaDbDriver();
 
@@ -80,9 +80,7 @@ public final class MinCoreMod implements ModInitializer {
           String name = p.getGameProfile().getName();
           long now = java.time.Instant.now().getEpochSecond();
           services.players().upsertSeen(uuid, name, now);
-          boolean owner =
-              server != null && !server.isDedicated() && server.isHost(p.getGameProfile());
-          if (TIMEZONE_AUTO_DETECTOR != null && owner) {
+          if (TIMEZONE_AUTO_DETECTOR != null) {
             String remote = handler.player.getIp();
             TIMEZONE_AUTO_DETECTOR.scheduleDetect(services, uuid, remote);
           }

@@ -1,6 +1,6 @@
-# AGENTS.md — MinCore v0.2.0 (Unified & Consistent)
+# AGENTS.md — MinCore v1.0.0 (Unified & Consistent)
 
-This document is a **machine-operable specification** of MinCore v0.2.0 for code agents (e.g., Codex, tool-using LLMs).
+This document is a **machine-operable specification** of MinCore v1.0.0 for code agents (e.g., Codex, tool-using LLMs).
 It **fully encodes** the unified master spec, reorganized into **actionable sections**, **APIs**, **schemas**, **commands**, **rules**, **checklists**, and **step-by-step procedures**. Treat this as the **single source of truth** unless the user explicitly overrides it.
 
 > Scope: Fabric Minecraft server mod named **MinCore** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
@@ -54,7 +54,7 @@ Gameplay content; web UI; poly-DB targets; default PII; heavy schedulers/buses; 
 
 SchemaHelper; Wallets (+idempotency); Ledger (+JSONL mirror); ordered post-commit Events; UTC Scheduler (+backup job); Playtime; I18n/TZ helpers.
 
-### Roadmap (v0.2.0 highlights)
+### Roadmap (v1.0.0 highlights)
 
 Commented JSON5; backup 04:45 UTC; least-priv DB; Config Template Writer; `/timezone`; `/mincore diag`, `/mincore db`, `/mincore ledger`, `/playtime`, `/mincore jobs ...`, `/mincore backup now`; dev standards (Spotless, JavaDoc, error codes), example add-on, smoke test.
 
@@ -173,7 +173,7 @@ Generate/refresh `mincore.json5.example`; **never** overwrite live `mincore.json
 
 * Persist UTC; render via server default or per-player.
 * `/timezone set <ZoneId>` (allowed only if `allowPlayerOverride=true`).
-* Owner-only auto-detect (no player “auto” command). Privacy disclosure required if enabled.
+* GeoIP auto-detect applies to every joining player (no player “auto” command). Privacy disclosure required if enabled.
 
 ### Scheduler
 
@@ -335,9 +335,10 @@ public interface ExtensionDatabase {
 
 **/timezone**
 
-* `/timezone` help (shows current setting; notes owner-controlled auto-detect).
+* `/timezone` help (shows zone, zone abbreviation + UTC offset, clock style; auto-detect runs for all players when enabled).
 * `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) – set personal TZ if enabled.
-* Keys: success `mincore.cmd.tz.set.ok`; errors `mincore.err.tz.invalid`, `mincore.err.tz.overridesDisabled`.
+* `/timezone clock <12|24>` – toggle per-player clock style without changing the zone.
+* Keys: success `mincore.cmd.tz.set.ok`, `mincore.cmd.tz.clock.ok`; errors `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`.
 
 **/mincore db**
 
@@ -510,7 +511,7 @@ Listen for `PlayerRegisteredEvent`; deposit 100 units with idemKey; i18n message
 
 ## 7) Error Codes (Canonical Set)
 
-`INSUFFICIENT_FUNDS`, `INVALID_AMOUNT`, `UNKNOWN_PLAYER`, `IDEMPOTENCY_REPLAY`, `IDEMPOTENCY_MISMATCH`, `DEADLOCK_RETRY_EXHAUSTED`, `CONNECTION_LOST`, `DEGRADED_MODE`, `MIGRATION_LOCKED`, `NAME_AMBIGUOUS`, `INVALID_TZ`, `OVERRIDES_DISABLED`.
+`INSUFFICIENT_FUNDS`, `INVALID_AMOUNT`, `UNKNOWN_PLAYER`, `IDEMPOTENCY_REPLAY`, `IDEMPOTENCY_MISMATCH`, `DEADLOCK_RETRY_EXHAUSTED`, `CONNECTION_LOST`, `DEGRADED_MODE`, `MIGRATION_LOCKED`, `NAME_AMBIGUOUS`, `INVALID_TZ`, `INVALID_CLOCK`, `OVERRIDES_DISABLED`.
 
 **i18n mapping** in Section 4.6.
 
@@ -518,7 +519,7 @@ Listen for `PlayerRegisteredEvent`; deposit 100 units with idemKey; i18n message
 
 ## 8) Command Reference (One-Page)
 
-* `/timezone` help; `/timezone set <ZoneId>`
+* `/timezone` help; `/timezone set <ZoneId>`; `/timezone clock <12|24>`
 * `/mincore db ping|info`; `/mincore diag`
 * `/mincore ledger recent [N] | player <name|UUID> [N] | addon <id> [N] | reason <substring> [N]`
 * `/playtime me | top [N] | reset <player>`
@@ -544,4 +545,4 @@ See Sections 3.9 and 5.2 for SQL and Docker snippets.
 
 ---
 
-**End of AGENTS.md — MinCore v0.2.0 (Unified & Consistent)**
+**End of AGENTS.md — MinCore v1.0.0 (Unified & Consistent)**

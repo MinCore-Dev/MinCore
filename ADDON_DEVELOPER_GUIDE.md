@@ -1,10 +1,10 @@
 
-# MinCore Add-On Developer Guide (v0.2.0)
+# MinCore Add-On Developer Guide (v1.0.0)
 
 Audience: Java developers building server-side Fabric add-ons that depend on MinCore.  
 Goal: Give you everything you need to build against MinCore correctly on the first try, with clear contracts, examples, and patterns.
 
-> Source of truth is MinCore Master Spec v0.2.0. This guide restates the key parts for add-on authors and adds hands-on examples.
+> Source of truth is MinCore Master Spec v1.0.0. This guide restates the key parts for add-on authors and adds hands-on examples.
 
 ---
 
@@ -85,7 +85,7 @@ plugins {
 }
 
 group = 'dev.yourorg'
-version = '0.1.0'
+version = '1.0.0'
 sourceCompatibility = JavaVersion.VERSION_21
 targetCompatibility = JavaVersion.VERSION_21
 
@@ -102,10 +102,10 @@ dependencies {
 
   // Choose one of the following based on how you obtain MinCore:
   // 1) Local file in your project
-  // modImplementation files("libs/mincore-v0.2.0.jar")
+  // modImplementation files("libs/mincore-v1.0.0.jar")
 
   // 2) Or if published to Maven
-  // modImplementation "dev.mincore:mincore:0.2.0"
+  // modImplementation "dev.mincore:mincore:1.0.0"
 
   // You do not need to add the MariaDB driver to your add-on, the server owner provides it
 }
@@ -133,7 +133,7 @@ Declare a dependency on MinCore so your add-on loads after it.
 {
   "schemaVersion": 1,
   "id": "hello_addon",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "name": "Hello Addon",
   "environment": "server",
   "entrypoints": {
@@ -143,7 +143,7 @@ Declare a dependency on MinCore so your add-on loads after it.
     "fabricloader": ">=0.17.2",
     "minecraft": "1.21.8",
     "fabric-api": "*",
-    "mincore": ">=0.2.0"
+    "mincore": ">=1.0.0"
   }
 }
 ```
@@ -183,7 +183,7 @@ public static void onMain(MinecraftServer server, Runnable r) {
 ### UTC Storage, Timezone Rendering, i18n
 
 - All timestamps in storage are UTC seconds. Rendering for players should respect their timezone.
-- MinCore commands render timestamps in either the server default zone or the player override set by /timezone.
+- MinCore commands render timestamps using each player’s timezone and clock preference (with zone abbreviations + UTC offsets) when `/timezone` is enabled.
 - For your own messages, render times in a consistent zone. If you cannot query a player’s preference, use the server default or UTC and label it clearly.
 
 ## Public API Overview
@@ -593,8 +593,8 @@ No. Stay consistent with MariaDB or MySQL, and reuse MinCore’s pool via Extens
 Can I read the ledger without SQL  
 The write API is provided. For reads, query the core_ledger table using borrowConnection.
 
-How do I render times in a player’s timezone  
-Use your own lookup and Java time APIs, or keep server timezone for simplicity. MinCore commands already render their own outputs correctly.
+How do I render times in a player’s timezone
+Reuse `Timezones.preferences` + `TimeDisplay.formatDateTime` if you want the same zone abbreviation + UTC offset + clock style output as core commands. Otherwise, keep server timezone for simplicity.
 
 Can I schedule cron strings  
 MinCore’s internal jobs use a cron parser. For your add-on, rely on executors and advisory locks, or build your own small parser if needed.
@@ -602,7 +602,7 @@ MinCore’s internal jobs use a cron parser. For your add-on, rely on executors 
 ## Checklist Before Release
 
 - [ ] Gradle builds and runs on Java 21
-- [ ] Declares depends on mincore >= 0.2.0
+- [ ] Declares depends on mincore >= 1.0.0
 - [ ] Migrations wrapped in advisory locks, idempotent DDL verified
 - [ ] Wallet operations use idempotency keys
 - [ ] Commands handle ambiguous names and missing players

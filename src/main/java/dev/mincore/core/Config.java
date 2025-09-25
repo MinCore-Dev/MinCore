@@ -30,7 +30,7 @@ public final class Config {
 
   private static final String TEMPLATE =
       """
-      // MinCore v0.2.0 configuration (JSON5 with comments)
+      // MinCore v1.0.0 configuration (JSON5 with comments)
       // Drop into config/mincore.json5. Environment overrides: MINCORE_DB_HOST|PORT|DATABASE|USER|PASSWORD.
       {
         core: {
