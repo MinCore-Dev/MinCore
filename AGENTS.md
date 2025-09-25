@@ -1,15 +1,17 @@
 # AGENTS.md — MinCore v1.0.0 (Unified & Consistent)
 
-This document is a **machine-operable specification** of MinCore v1.0.0 for code agents (e.g., Codex, tool-using LLMs).
-It **fully encodes** the unified master spec, reorganized into **actionable sections**, **APIs**, **schemas**, **commands**, **rules**, **checklists**, and **step-by-step procedures**. Treat this as the **single source of truth** unless the user explicitly overrides it.
+This document is the machine-operable specification for MinCore v1.0.0. Treat it as the single source of truth unless the user overrides it. It unifies all project requirements, standards, and runbooks so future agents can build core features or add-ons without having to rediscover expectations from the codebase.
 
 > Scope: Fabric Minecraft server mod named **MinCore** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
 
 ---
 
-## 0) Agent Operating Contract
+## Quick Reference for Agents
+
+### 0) Agent Operating Contract
 
 **Primary Objective**
+
 Implement, configure, validate, operate, or extend MinCore according to this document. Prefer **safe, idempotent, ops-first** decisions.
 
 **Never do**
@@ -28,180 +30,300 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 * Use advisory locks for cluster-safe jobs/migrations.
 * Validate config and bounds; fail fast on invalid settings.
 
----
+### 1) Implementation Checklist
 
-## 1) Product, Scope & Compatibility
+* [ ] Off-thread JDBC for all DAO paths.
+* [ ] Post-commit events with per-player sequence ordering.
+* [ ] Idempotent wallet variants with `core_requests` registry and payload hashing.
+* [ ] Guarded SQL for withdraw/transfer (no negative balances).
+* [ ] Ledger DB table + optional JSONL mirror with indexes.
+* [ ] Config validation (bounds + required fields) and JSON5 parsing.
+* [ ] Advisory-locked scheduler jobs (backup, cleanup).
+* [ ] Backup exporter (consistent snapshot, gzip, checksums) + importer (fresh/merge modes).
+* [ ] Error mapping to codes; structured logs; rate-limited warnings.
+* [ ] I18n resource files and per-player TZ rendering when enabled.
 
-### Mission
+### 2) Ops Checklist
 
-Small, opinionated core providing: **DB + migrations, Wallets + Ledger, Events, Scheduler, Playtime, I18n, TZ rendering**, JSONL backup/import.
+* [ ] DB user least-priv; TLS if cross-host.
+* [ ] `session.forceUtc=true`; backups enabled 04:45 UTC; retention configured.
+* [ ] `/mincore db ping|info` OK; `/mincore diag` OK.
+* [ ] `jobs list` shows backup & cleanup; advisory locks tested.
+* [ ] Export and restore tested; checksums verified.
+* [ ] Logs monitored for `CONNECTION_LOST`, `IDEMPOTENCY_*`, deadlocks.
 
-### Non-Goals
+### 3) Add-on Checklist
 
-Gameplay content; web UI; poly-DB targets; default PII; heavy schedulers/buses; analytics (we expose **ledger mirror** for external tools).
+* [ ] Use idempotent wallet APIs for networked flows.
+* [ ] Subscribe to events; dedupe by (player, seq).
+* [ ] Use `ExtensionDatabase.tryAdvisoryLock` for migrations/jobs.
+* [ ] Localize user messages; use server/player TZ render helpers.
+* [ ] Avoid blocking main thread; schedule to async when needed.
 
-### Design Principles
+### 4) Error Codes (Canonical Set)
 
-1. Small core, strong contracts
-2. Ops-first defaults
-3. I18n + TZ everywhere
-4. Idempotent by design
-5. Predictable failure behavior
-6. Zero-surprises migrations
-7. Observability > Guesswork
+`INSUFFICIENT_FUNDS`, `INVALID_AMOUNT`, `UNKNOWN_PLAYER`, `IDEMPOTENCY_REPLAY`, `IDEMPOTENCY_MISMATCH`, `DEADLOCK_RETRY_EXHAUSTED`, `CONNECTION_LOST`, `DEGRADED_MODE`, `MIGRATION_LOCKED`, `NAME_AMBIGUOUS`, `INVALID_TZ`, `INVALID_CLOCK`, `OVERRIDES_DISABLED`.
 
-### Value for Add-ons
+### 5) Command Reference (One-Page)
 
-SchemaHelper; Wallets (+idempotency); Ledger (+JSONL mirror); ordered post-commit Events; UTC Scheduler (+backup job); Playtime; I18n/TZ helpers.
+* `/timezone` help; `/timezone set <ZoneId>`; `/timezone clock <12|24>`
+* `/mincore db ping|info`; `/mincore diag`
+* `/mincore ledger recent [N] | player <name|UUID> [N] | addon <id> [N] | reason <substring> [N]`
+* `/playtime me | top [N] | reset <player>`
+* `/mincore jobs list | run <job>`; `/mincore backup now`
+* Admin-only: `/mincore migrate --check|--apply` • `/mincore export --all [--out <dir>] [--gzip true]` • `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>` • `/mincore doctor [--fk --orphans --counts --analyze --locks]`
 
-### Roadmap (v1.0.0 highlights)
+**Rate-limits:** Player cmds cooldown 2–5s; admin diag token bucket (~cap 3–5, refill 0.2–0.5/s).
 
-Commented JSON5; backup 04:45 UTC; least-priv DB; Config Template Writer; `/timezone`; `/mincore diag`, `/mincore db`, `/mincore ledger`, `/playtime`, `/mincore jobs ...`, `/mincore backup now`; dev standards (Spotless, JavaDoc, error codes), example add-on, smoke test.
+### 6) Data Retention & Integrity Rules
 
-### Compatibility Matrix
+* No auto-prune for `players` or `core_ledger`.
+* `core_requests` pruned by job only; player/ledger data unaffected.
+* All timestamps UTC seconds; store UUIDs as `BINARY(16)`; JSON values valid and ≤ ~8KB.
+* Withdraw/transfer must never permit negative balances; use conditional updates or transactions.
 
-| Area               | Min/Target                             | Notes                                  |
-| ------------------ | -------------------------------------- | -------------------------------------- |
-| Minecraft (Fabric) | 1.20+                                  | Follow repo branch specifics.          |
-| Java               | 21 LTS                                 | Primary toolchain.                     |
-| Loom               | 1.11.x                                 | Match buildscript.                     |
-| DB                 | MariaDB 10.6+ (rec), MySQL 8.0+ (sup)  | `utf8mb4`, InnoDB, `BINARY(16)` UUIDs. |
-| OS/Arch            | Linux x86\_64 primary; ARM64 supported | Windows/macOS for dev.                 |
-| Time               | UTC storage; TZ render                 | No DST in storage.                     |
+### 7) Minimal GRANT & Docker
 
-UUIDs stored as `BINARY(16)`.
-
-Versioning: APIs semver-like, schema idempotent ensure-ops. Security patches may bypass deprecations.
-
-Glossary: Add-on, Services, Wallets, Ledger, Idempotency, SchemaHelper, Scheduler/Job, Playtime, I18n, TZ Rendering, Config Template Writer.
-
----
-
-## 2) Architecture & Persistence
-
-### Runtime Components
-
-* **Services** container: `Players`, `Wallets`, `Attributes`, `CoreEvents`, `ExtensionDatabase`, `Playtime`, `Ledger`.
-* **DB I/O off-thread**, **events post-commit**, **ordered per-player** (no cross-player order).
-
-### Threading Rules
-
-* No JDBC on main thread.
-* Events at-least-once, dedupe by (player, seq).
-* Listeners must hop to main thread to affect world.
-
-### Resilience
-
-* **DEGRADED** mode if DB down: refuse writes, `CONNECTION_LOST`, retry every `runtime.reconnectEveryS`.
-* **withRetry** for deadlocks/timeouts; rate-limit idempotency storm logs.
-
-### Core Schema (DDL excerpts)
-
-`core_schema_version(version, applied_at_s)`
-
-`players(uuid BINARY(16) PK, name, name_lower GENERATED, balance_units BIGINT UNSIGNED DEFAULT 0, created_at_s, updated_at_s, seen_at_s, idx name_lower, idx seen_at_s)`
-
-`player_attributes(owner_uuid BINARY(16) FK→players, attr_key, value_json MEDIUMTEXT, created_at_s, updated_at_s, PK(owner_uuid,attr_key), CHECK JSON_VALID(value_json) AND length≤8192)`
-
-`core_requests(key_hash BINARY(32), scope VARCHAR(64), payload_hash BINARY(32), ok TINYINT, created_at_s, expires_at_s, PK(key_hash,scope), idx expires_at_s)`
-
-`player_event_seq(uuid BINARY(16) PK, seq BIGINT UNSIGNED)`
-
-**Ledger: `core_ledger`**
-`id PK AI, ts_s, addon_id, op, from_uuid?, to_uuid?, amount, reason, ok, code?, seq, idem_scope?, idem_key_hash?, old_units?, new_units?, server_node?, extra_json?`, indexes on ts/addon/op/from/to/reason/seq/idempotencyScope.
-
-### Idempotency (Exact-Once)
-
-Canonical payload = `scope|fromUUID|toUUID|amount|reasonNorm`.
-Flow: insert into `core_requests` → on duplicate check `payload_hash` (mismatch ⇒ `IDEMPOTENCY_MISMATCH`) → perform guarded updates (no negative balance) → mark ok → commit → emit events.
-
-### JSONL Ledger Mirror (jsonl/v1)
-
-One line per ledger entry:
-`{ ts, addon, op, from?, to?, amount, reason, ok, code?, seq?, idemScope?, oldUnits?, newUnits?, extra? }`
-Operators rotate/compress; backups can archive; it’s supplementary (DB is source of truth).
-
-### Indexing
-
-Purposeful indexes: lookups by UUID, name\_lower; time/range queries; idempotency expiry; ledger filters (addon/op/reason/from/to/seq).
+See Sections 3.9 and 5.2 below for SQL and Docker snippets.
 
 ---
 
-## 3) Configuration & Operations
+## Full Project Specification (verbatim master spec)
 
-### Guarantees
+# MinCore Master Spec (v1.0.0) — Unified & Consistent
 
-UTC storage, least-priv DB, advisory-locked jobs, portable JSONL export/import, JSON5 config.
+> This is the consolidated, internally consistent master specification for **MinCore v1.0.0**.  
+> It resolves prior naming/terminology clashes (e.g., **backup vs export**, **db info vs db status**), aligns commands/APIs across all parts, and improves section flow.  
+> Treat this as the **sole source of truth** unless you explicitly override it.
 
-### Config Location & Parsing
+---
 
-`config/mincore.json5` (JSON5).
-`session.forceUtc=true` ⇒ `SET time_zone='+00:00'` on connection acquire.
-Env overrides: `MINCORE_DB_HOST|PORT|DATABASE|USER|PASSWORD`.
+## Part 1 — Product, Scope & Compatibility
 
-### Full Example (JSON5/HOCON-style)
+### 1.1 Mission
+
+MinCore is a **small, opinionated core** for Fabric Minecraft servers that gives add-on authors production‑grade primitives—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—so they can build features faster with **fewer foot‑guns** and consistent operational behavior.
+
+### 1.2 Non‑Goals
+
+- Full gameplay mod (economy rules, shops, quests) — that belongs in add‑ons.
+- Web UI / hosted panel.
+- Cross‑DB abstraction beyond **MariaDB/MySQL**.
+- Default PII collection (e.g., IPs). Optional, explicit, documented only.
+- Replacement for heavy schedulers/message buses.
+- Analytics pipeline (we provide a **ledger mirror** for external tooling).
+
+### 1.3 Design Principles
+
+1) **Small core, strong contracts** • 2) **Ops‑first defaults** • 3) **I18n + TZ everywhere** • 4) **Idempotent by design** • 5) **Predictable failure behavior** • 6) **Zero‑surprises migrations** • 7) **Observability > Guesswork**.
+
+### 1.4 Value Proposition for Add‑on Authors
+
+- **Database**: HikariCP pool + **SchemaHelper** for safe, idempotent DDL (ensure‑table/index/column/check).
+- **Wallets API**: deposit/withdraw/transfer with **idempotency keys** + **ledger**.
+- **Ledger**: DB audit + optional **JSONL mirror**; indexed queries.
+- **Events**: post‑commit, background; **per‑player ordering**.
+- **Scheduler**: cron‑like UTC jobs; built‑in **backup** with retention.
+- **Playtime**: in‑memory tracker.
+- **I18n + TZ rendering** helpers.
+
+### 1.5 Roadmap Snapshot (v1.0.0 highlights)
+
+- Commented JSON5 config; backups 04:45 UTC; least‑priv DB; **Config Template Writer**.
+- Server TZ default, optional per‑player TZ; **/timezone**.
+- Commands: `/mincore diag`, `/mincore db ping|info`, `/mincore ledger …`, `/playtime me|top|reset`, `/mincore jobs list|run`, `/mincore backup now`.
+- Dev standards: JavaDoc, Spotless, error‑code catalogue, example add‑on, smoke test.
+
+### 1.6 Compatibility Matrix
+
+| Area | Min/Target | Notes |
+|---|---|---|
+| **Minecraft (Fabric)** | 1.20+ (Fabric API) | Match repo branch specifics. |
+| **Java** | **21 LTS** | Primary toolchain. |
+| **Fabric Loader/Loom** | Loader compat; **Loom 1.11.x** | Follow buildscript. |
+| **Database** | **MariaDB 10.6+** rec., **MySQL 8.0+** supp. | `utf8mb4`, InnoDB, `BINARY(16)` UUIDs. |
+| **OS/Arch** | Linux x86_64 (primary), ARM64 (supported) | Windows/macOS for dev. |
+| **Time** | UTC storage; TZ‑aware rendering | No DST in storage. |
+
+**UUIDs** stored as `BINARY(16)` for compact, fast indexes.
+
+### 1.7 Versioning & Support
+
+- **APIs** behave semantically (no breaking in patch; minimize in minor).
+- **Migrations** are idempotent ensure‑ops; staged constraints.
+- **Security fixes** may bypass deprecation timelines.
+
+### 1.8 Glossary
+
+Add‑on • Services • Wallets • Ledger • Idempotency • SchemaHelper • Scheduler/Job • Playtime • I18n • TZ Rendering • Config Template Writer.
+
+---
+
+## Part 2 — Architecture & Persistence (MariaDB‑First)
+
+### 2.1 High‑Level Architecture
+
+- **Services** container exposes `Players`, `Wallets`, `Attributes`, `CoreEvents`, `ExtensionDatabase`, `Playtime`, `Ledger`.
+- **All DB I/O off‑thread**; **events post‑commit**; **per‑player ordered**.
+
+### 2.2 Threading & Ordering
+
+- Never block main thread with JDBC.
+- Events: background threads, **at‑least‑once**, ordered per player; add‑ons must dedupe and hop to main thread to touch world.
+
+### 2.3 Resilience
+
+- **DEGRADED mode** when DB down (writes refuse; reconnect every `runtime.reconnectEveryS`).  
+- **withRetry** for deadlocks/timeouts.  
+- **Idem storm** logs are rate‑limited.
+
+### 2.4 Schema (DDL excerpts; rationale)
+
+**`core_schema_version`**, **`players`** (`uuid BINARY(16)`, `name`, `name_lower` generated, `balance_units`, `*_at_s` UTC seconds),  
+**`player_attributes`** (JSON ≤ ~8KB; `JSON_VALID` + length CHECK),  
+**`core_requests`** (idempotency: `key_hash`, `scope`, `payload_hash`, `ok`, `created_at_s`, `expires_at_s`),  
+**`player_event_seq`** (per‑player seq).
+
+**Ledger `core_ledger`** (append‑only): `ts_s`, `addon_id`, `op`, `from_uuid`, `to_uuid`, `amount`, `reason`, `ok`, `code`, `seq`, `idem_scope`, `idem_key_hash`, `old_units`, `new_units`, `server_node`, `extra_json`; indexed on time/addon/op/from/to/reason/seq.
+
+### 2.5 Idempotency (exact‑once)
+
+Canonical payload for hash: `scope | fromUUID | toUUID | amount | reasonNorm`.  
+Flow: insert request → compare on conflict (detect **MISMATCH**) → guarded updates (no negative balance) → mark ok → commit → emit event.
+
+### 2.6 Indexing Strategy
+
+Purposeful indexes on lookups/time windows/idempotency expiry.
+
+### 2.7 JSONL Ledger Mirror
+
+`jsonl/v1` lines with fields: `ts, addon, op, from, to, amount, reason, ok, code, seq?, idemScope?, oldUnits?, newUnits?, extra?`.  
+Operators rotate/compress externally; backups can archive.
+
+### 2.8 Performance Notes
+
+HikariCP tuning, single‑snapshot export, minimal indexes; checksum `.sha256` alongside exports.
+
+### 2.9 Retention
+
+- No auto‑prune for players/ledger.  
+- **core_requests** pruned by job (never touches business data).
+
+### 2.10 Deliverables
+
+ERD/DDL appendix • JSONL line schema • retention cheat‑sheet.
+
+---
+
+## Part 3 — Configuration & Operations (Ops‑First)
+
+### 3.0 Guarantees
+
+UTC storage • least‑priv DB user • advisory‑locked jobs • portable JSONL export/import • verbose JSON5 config.
+
+### 3.1 Config Location & Parsing
+
+`config/mincore.json5` (JSON5 with comments/trailing commas).  
+`session.forceUtc=true` runs `SET time_zone='+00:00'` per pooled connection.
+
+### 3.2 Full Commented Config (example)
 
 ```hocon
 core {
   db {
-    host = "127.0.0.1"; port = 3306; database = "mincore"; user = "mincore"; password = "change-me"
+    host = "127.0.0.1"
+    port = 3306
+    database = "mincore"
+    user = "mincore"
+    password = "change-me"
     tls { enabled = false }
     session { forceUtc = true }
-    pool { maxPoolSize=10; minimumIdle=2; connectionTimeoutMs=10000; idleTimeoutMs=600000; maxLifetimeMs=1700000; startupAttempts=3 }
+    pool {
+      maxPoolSize = 10
+      minimumIdle = 2
+      connectionTimeoutMs = 10000
+      idleTimeoutMs = 600000
+      maxLifetimeMs = 1700000
+      startupAttempts = 3
+    }
   }
   runtime { reconnectEveryS = 10 }
-  time.display { defaultZone="UTC"; allowPlayerOverride=false; autoDetect=false }
-  i18n { defaultLocale="en_US"; enabledLocales=[ "en_US" ]; fallbackLocale="en_US" }
-  jobs {
-    backup { enabled=true; schedule="0 45 4 * * *"; outDir="./backups/mincore"; onMissed="runAtNextStartup"; gzip=true; prune { keepDays=14; keepMax=60 } }
-    cleanup.idempotencySweep { enabled=true; schedule="0 30 4 * * *"; retentionDays=30; batchLimit=5000 }
+  time {
+    display {
+      defaultZone = "UTC"
+      allowPlayerOverride = false
+      autoDetect = false
+    }
   }
-  log { json=false; slowQueryMs=250; level="INFO" }
+  i18n {
+    defaultLocale = "en_US"
+    enabledLocales = [ "en_US" ]
+    fallbackLocale = "en_US"
+  }
+  jobs {
+    backup {
+      enabled = true
+      schedule = "0 45 4 * * *"
+      outDir = "./backups/mincore"
+      onMissed = "runAtNextStartup"
+      gzip = true
+      prune { keepDays = 14, keepMax = 60 }
+    }
+    cleanup.idempotencySweep {
+      enabled = true
+      schedule = "0 30 4 * * *"
+      retentionDays = 30
+      batchLimit = 5000
+    }
+  }
+  log {
+    json = false
+    slowQueryMs = 250
+    level = "INFO"
+  }
 }
 ```
 
-**Validation bounds** (agents enforce in code paths):
+**Env overrides:** `MINCORE_DB_HOST|PORT|DATABASE|USER|PASSWORD`.
 
-* Required: host, database, user, password.
-* Bounds: `maxPoolSize [1,50]`, `minimumIdle ≤ maxPoolSize`, `reconnectEveryS [5,300]`, `retentionDays [1,365]`, `batchLimit [100,100000]`.
+### 3.3 Config Template Writer
 
-### Template Writer
+Generates/updates `mincore.json5.example` with full comments; never overwrites live config.
 
-Generate/refresh `mincore.json5.example`; **never** overwrite live `mincore.json5`.
+### 3.4 Timezones
 
-### Timezones
+UTC storage; server display TZ; optional per‑player `/timezone set <ZoneId>` (if enabled); optional GeoIP auto-detect applies to every joining player when enabled; `/timezone clock <12|24>` lets players pick their clock style.
 
-* Persist UTC; render via server default or per-player.
-* `/timezone set <ZoneId>` (allowed only if `allowPlayerOverride=true`).
-* GeoIP auto-detect applies to every joining player (no player “auto” command). Privacy disclosure required if enabled.
+### 3.5 Localization (i18n)
 
-### Scheduler
+Locales in `assets/mincore/lang/*.json`. Fallbacks; validation task checks missing/mismatched keys/placeholders.
 
-Cron = 6 fields (`sec min hour dom mon dow`) in **UTC**.
-Advisory locks prevent multi-node duplication.
-Log start/finish + counts + durations.
+### 3.6 Scheduler (cron UTC)
 
-### Backups / Import / DB-Native
+6‑field cron; advisory locks to single‑run across nodes; logs start/finish and counts.
 
-* **Built-in Export**: daily at 04:45 UTC; gzip + `.sha256`; consistent snapshot; advisory lock; missed-run policy.
-* **Importer**: `fresh --atomic` (one-shot), `fresh --staging` (chunked, temp tables), `merge --overwrite`; schema version checks; FK fast-path optional.
-* **DB-native**: recommend `mariadb-dump`/`mariabackup`; PITR via binlogs.
+### 3.7 Backups vs DB‑Native
 
-### Observability
+- **Built‑in JSONL export**: daily 04:45 UTC to `outDir`, gzip + `.sha256`, snapshot consistency, advisory lock, missed‑run policy.  
+- **Importer**: modes `fresh --atomic` / `fresh --staging` / `merge --overwrite`; schema‑version checks; optional FK fast‑path.  
+- **DB‑native**: recommend `mariadb-dump`/`mariabackup` for scale + PITR.
 
-`(mincore)`-prefixed logs; error tokens; slow-query WARN; optional JSON log stream; optional metrics.
+### 3.8 Observability
 
-### Security & Privacy
+`(mincore)`‑prefixed logs; error tokens; slow‑query WARNs; optional JSON log stream; optional metrics (JMX/Prometheus).
 
-Least-priv GRANT; secret via env; TLS for cross-host DB; no PII by default; IP→TZ only if enabled and disclosed.
+### 3.9 Security & Privacy
 
-### Runbooks (Commands)
+Least‑priv GRANT; secrets via env; TLS for cross‑host DB; no default PII; IP‑to‑TZ only if enabled and disclosed.
 
-* Export now: `/mincore export --all --out ./backups/mincore --gzip true`
-* Restore: `/mincore restore --mode fresh --atomic --from <dir>` or `--staging`; `--mode merge --overwrite`
-* Validate: row counts + smoke tests + `/mincore doctor --counts --fk`
+### 3.10 Runbooks
 
-Minimal GRANT:
+- **Ad‑hoc export**: `/mincore export --all --out ./backups/mincore --gzip true`  
+- **Restore**: `/mincore restore --mode fresh --atomic --from <dir>` or `--staging`; or `--mode merge --overwrite`.  
+- **DB‑native**: `mariadb-dump` / `mariabackup`; PITR via binlogs.  
+- **Validation**: compare counts, smoke tests, `/mincore doctor --counts --fk`.
+
+**Appendix A — Minimal GRANT**
 
 ```sql
 CREATE USER 'mincore'@'10.0.%' IDENTIFIED BY 'change-me';
@@ -211,9 +333,13 @@ FLUSH PRIVILEGES;
 
 ---
 
-## 4) Public APIs & Commands (Exact Contract)
+## Part 4 — APIs & Commands (Dev Contract)
 
-### Core Accessors
+### 4.1 Guarantees
+
+SemVer intent • off‑thread DB • events: background, AT‑LEAST‑ONCE, ordered per player • timestamps = UTC seconds • currency = minor units (`long`).
+
+### 4.2 Core Entry Points
 
 ```java
 public final class MinCoreApi {
@@ -226,6 +352,9 @@ public final class MinCoreApi {
   public static dev.mincore.api.storage.ExtensionDatabase database();
   public static Ledger ledger();
 }
+```
+
+```java
 public interface Services {
   dev.mincore.api.Players players();
   dev.mincore.api.Wallets wallets();
@@ -238,15 +367,17 @@ public interface Services {
 }
 ```
 
-### Players
+### 4.3 Subsystems
+
+**Players**
 
 ```java
 public interface Players {
   Optional<PlayerRef> byUuid(UUID uuid);
-  Optional<PlayerRef> byName(String name);      // case-insensitive
+  Optional<PlayerRef> byName(String name);
   List<PlayerRef> byNameAll(String name);
   void upsertSeen(UUID uuid, String name, long seenAtS);
-  void iteratePlayers(java.util.function.Consumer<PlayerRef> c); // off-thread
+  void iteratePlayers(java.util.function.Consumer<PlayerRef> consumer);
 }
 public interface PlayerRef {
   UUID uuid(); String name();
@@ -255,7 +386,7 @@ public interface PlayerRef {
 }
 ```
 
-### Wallets (idempotent preferred)
+**Wallets (idempotent variants preferred)**
 
 ```java
 public interface Wallets {
@@ -269,14 +400,7 @@ public interface Wallets {
 }
 ```
 
-**Validation & Errors**
-
-* `amount > 0` required.
-* No negative balances.
-* Error codes (logged & localized):
-  `INSUFFICIENT_FUNDS`, `INVALID_AMOUNT`, `UNKNOWN_PLAYER`, `IDEMPOTENCY_REPLAY`, `IDEMPOTENCY_MISMATCH`, `DEADLOCK_RETRY_EXHAUSTED`, `CONNECTION_LOST`, `DEGRADED_MODE`, `MIGRATION_LOCKED`, `NAME_AMBIGUOUS`.
-
-### Attributes
+**Attributes**
 
 ```java
 public interface Attributes {
@@ -286,7 +410,7 @@ public interface Attributes {
 }
 ```
 
-### Events (v1; post-commit; per-player ordered; at-least-once)
+**Events (v1)**
 
 ```java
 record BalanceChangedEvent(UUID player, long seq, long oldUnits, long newUnits, String reason, int version) {}
@@ -294,7 +418,7 @@ record PlayerRegisteredEvent(UUID player, long seq, String name, int version) {}
 record PlayerSeenUpdatedEvent(UUID player, long seq, String oldName, String newName, long seenAtS, int version) {}
 ```
 
-### Playtime
+**Playtime**
 
 ```java
 public interface Playtime extends AutoCloseable {
@@ -302,15 +426,15 @@ public interface Playtime extends AutoCloseable {
   long seconds(UUID player); void reset(UUID player);
   List<Playtime.Entry> top(int limit);
   Set<UUID> onlinePlayers();
-  static String human(long seconds);
+  static String human(long seconds) { /* impl */ }
   record Entry(UUID player, long seconds) {
-    public long secondsNonNegative();
-    public String playerString();
+    public long secondsNonNegative(){ return Math.max(0, seconds); }
+    public String playerString(){ /* resolve */ return ""; }
   }
 }
 ```
 
-### Ledger
+**Ledger**
 
 ```java
 public interface Ledger {
@@ -320,7 +444,7 @@ public interface Ledger {
 }
 ```
 
-### ExtensionDatabase
+**ExtensionDatabase**
 
 ```java
 public interface ExtensionDatabase {
@@ -331,75 +455,75 @@ public interface ExtensionDatabase {
 }
 ```
 
-### Commands (Player/Admin)
+### 4.4 Commands
 
 **/timezone**
+- `/timezone` — help (shows zone, timezone label with abbreviation + UTC offset, clock style, sample time).
+- `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) — set personal TZ if enabled.
+- `/timezone clock <12|24>` — toggle per-player clock style.
+Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`; Success: `mincore.cmd.tz.set.ok`, `mincore.cmd.tz.clock.ok`.
 
-* `/timezone` help (shows zone, zone abbreviation + UTC offset, clock style; auto-detect runs for all players when enabled).
-* `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) – set personal TZ if enabled.
-* `/timezone clock <12|24>` – toggle per-player clock style without changing the zone.
-* Keys: success `mincore.cmd.tz.set.ok`, `mincore.cmd.tz.clock.ok`; errors `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`.
+**/mincore db**  
+- `/mincore db ping` — driver/server versions, RTT. (`mincore.cmd.db.ping.ok|fail`)
+- `/mincore db info` — pool stats, URL host/port (masked), TLS, isolation. (`mincore.cmd.db.info.*`)
+- `/mincore diag` — ping + schema version + advisory lock check. (`mincore.cmd.diag.ok|fail`)
 
-**/mincore db**
+**/mincore ledger**  
+- `recent [N]`, `player <name|UUID> [N]`, `addon <id> [N]`, `reason <substring> [N]`.  
+Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
 
-* `ping` (RTT + versions) — `mincore.cmd.db.ping.ok|fail`
-* `info` (pool + URL host/port masked + TLS + isolation) — `mincore.cmd.db.info.*`
-* `/mincore diag` (ping + schema version + advisory lock test) — `mincore.cmd.diag.ok|fail`
+**/playtime**  
+- `me`, `top [N]`, `reset <player>` (admin). Keys: `mincore.cmd.pt.*`.
 
-**/mincore ledger**
+**Jobs & backup**  
+- `/mincore jobs list`, `/mincore jobs run <job>`  
+- `/mincore backup now` (manual JSONL export with current config)
 
-* `recent [N]`, `player <name|UUID> [N]`, `addon <id> [N]`, `reason <substring> [N]`
-* Output in viewer TZ. Keys: `mincore.cmd.ledger.header|line|none`.
+**Admin‑only (extended)**  
+- `/mincore migrate --check|--apply`  
+- `/mincore export --all [--out <dir>] [--gzip true]`  
+- `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>`  
+- `/mincore doctor [--fk --orphans --counts --analyze --locks]`
 
-**/playtime**
+### 4.5 Rate‑Limiting
 
-* `me`, `top [N]`, `reset <player>` (admin). Keys: `mincore.cmd.pt.*`.
+- Player cmds: cooldown 2–5s.  
+- Admin diag: token bucket (cap ~3–5, refill ~0.2–0.5/s).
 
-**Jobs & backup**
+### 4.6 Error Catalogue → i18n Keys
 
-* `/mincore jobs list`, `/mincore jobs run <job>`
-* `/mincore backup now`
+| Code | i18n key |
+|---|---|
+| INSUFFICIENT_FUNDS | `mincore.err.economy.insufficient` |
+| INVALID_AMOUNT | `mincore.err.economy.invalid` |
+| UNKNOWN_PLAYER | `mincore.err.player.unknown` |
+| IDEMPOTENCY_REPLAY | `mincore.err.idem.replay` |
+| IDEMPOTENCY_MISMATCH | `mincore.err.idem.mismatch` |
+| DEADLOCK_RETRY_EXHAUSTED | `mincore.err.db.deadlock` |
+| CONNECTION_LOST | `mincore.err.db.unavailable` |
+| DEGRADED_MODE | `mincore.err.db.degraded` |
+| MIGRATION_LOCKED | `mincore.err.migrate.locked` |
+| NAME_AMBIGUOUS | `mincore.err.player.ambiguous` |
+| INVALID_TZ | `mincore.err.tz.invalid` |
+| INVALID_CLOCK | `mincore.err.tz.clockInvalid` |
+| OVERRIDES_DISABLED | `mincore.err.tz.overridesDisabled` |
 
-**Admin-only extended**
+### 4.7 Output Examples
 
-* `/mincore migrate --check|--apply`
-* `/mincore export --all [--out <dir>] [--gzip true]`
-* `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>`
-* `/mincore doctor [--fk --orphans --counts --analyze --locks]`
-
-### Rate-Limiting
-
-* Player commands: cooldown 2–5s.
-* Admin diag: token bucket (cap 3–5, refill 0.2–0.5/s).
-
-### Error Catalogue → i18n Keys
-
-| Code                       | i18n key                         |
-| -------------------------- | -------------------------------- |
-| INSUFFICIENT\_FUNDS        | mincore.err.economy.insufficient |
-| INVALID\_AMOUNT            | mincore.err.economy.invalid      |
-| UNKNOWN\_PLAYER            | mincore.err.player.unknown       |
-| IDEMPOTENCY\_REPLAY        | mincore.err.idem.replay          |
-| IDEMPOTENCY\_MISMATCH      | mincore.err.idem.mismatch        |
-| DEADLOCK\_RETRY\_EXHAUSTED | mincore.err.db.deadlock          |
-| CONNECTION\_LOST           | mincore.err.db.unavailable       |
-| DEGRADED\_MODE             | mincore.err.db.degraded          |
-| MIGRATION\_LOCKED          | mincore.err.migrate.locked       |
-| NAME\_AMBIGUOUS            | mincore.err.player.ambiguous     |
-| INVALID\_TZ                | mincore.err.tz.invalid           |
-| OVERRIDES\_DISABLED        | mincore.err.tz.overridesDisabled |
+- `/timezone` help, `/mincore db ping`, `/mincore ledger recent`, `/playtime top N` — localized; timestamps in viewer TZ with zone abbreviations + UTC offsets + clock style.
 
 ---
 
-## 5) Developer Guide & Tooling
+## Part 5 — Developer Guide, Standards & Tooling
 
-### Toolchain & Layout
+### 5.1 Toolchain & Layout
 
-Java 21; Gradle 8.1.4+; Loom 1.11.x; MariaDB driver 3.4.x.
-Artifacts: `mincore` (core) + `mincore-jdbc` (driver shim); ship as bundle JAR.
-Paths: config `config/mincore.json5`, backups `./backups/mincore`, optional logs `logs/mincore.jsonl`.
+- Java 21, Gradle 8.1.4+, Loom 1.11.x, MariaDB driver 3.4.x.  
+- Artifacts: `mincore` (core), `mincore-jdbc` (driver shim); ship as **bundle JAR**.  
+- Paths: config `config/mincore.json5`, backups `./backups/mincore`, optional logs `logs/mincore.jsonl`.  
+- Env overrides supported for DB creds.
 
-### Local MariaDB (Docker)
+### 5.2 Local MariaDB (Docker)
 
 ```bash
 docker run --name mincore-mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=devroot -d mariadb:11
@@ -412,137 +536,67 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON mincor
 FLUSH PRIVILEGES;
 ```
 
-### Build & Run
+### 5.3 Build & Run
 
-`./gradlew clean build` → JAR(s); `./gradlew runServer` for dev. Minimal config from Part 3.
+`./gradlew clean build` • `./gradlew runServer` • minimal config shown in Part 3.
 
-### One-Shot Smoke Test
+### 5.4 One‑Shot Smoke Test
 
-1. `/mincore db ping|info`
-2. Two players; deposit; transfer with idemKey; repeat transfer (expect `IDEMPOTENCY_REPLAY` no-op).
-3. `/mincore ledger recent` shows entries; events fired.
-4. `/mincore export --all --out ./backups/mincore --gzip true`
-5. Cleanup; `/mincore doctor --counts --fk`
+1) `/mincore db ping|info`  
+2) Create 2 players; deposit; transfer with idemKey; repeat transfer (expect **REPLAY** no‑op).  
+3) `/mincore ledger recent` shows entries; events fired.  
+4) `/mincore export --all --out ./backups/mincore --gzip true`  
+5) Cleanup; `/mincore doctor --counts --fk`.
 
-### Testing Strategy
+### 5.5 Testing Strategy
 
-* Unit: normalization, error-code mapping, rate-limit logic.
-* Integration: real MariaDB; contention; idempotency replay/mismatch; retention sweep.
-* CI: DB service; env secrets; artifacts (e.g., backups).
+- Unit: normalization, codes, rate‑limit.  
+- Integration: real MariaDB; contention; idempotency replay/mismatch; retention sweep.  
+- CI: DB service; env‑based secrets; artifacts.
 
-### Style, Exceptions, JavaDoc
+### 5.6 Style, Exceptions, JavaDoc
 
-* Spotless + Google Java Style; zero warnings.
-* Map exceptions to codes; no raw SQL to public API.
-* JavaDoc all public APIs; document invariants and usage.
+- Spotless + Google Java Style; 0 warnings.  
+- Map exceptions → codes; don’t leak raw SQL.  
+- **JavaDoc on all public APIs**; clear invariants; examples when useful.
 
-### Localization Workflow (i18n)
+### 5.7 Localization Workflow
 
-* Keys in `assets/mincore/lang/*.json` (e.g., `en_us.json`).
-* Consistent naming and placeholders.
-* Validation task for missing/mismatched keys.
-* Translator notes in Markdown.
+- Keys under `assets/mincore/lang/*.json` (e.g., `en_us.json`).  
+- Consistent naming; placeholders; validation task for missing/mismatched keys; translator notes in Markdown.
 
-### Release Engineering
+### 5.8 Release Engineering
 
-* SemVer intent (API+schema).
-* Publish DDL + commented config example per release.
-* Pre-release: tests green; smoke test; migrate up (empty & non-empty DB); export+restore verification.
+- SemVer intent (API+schema).  
+- Ship DDL + commented config example.  
+- Pre‑release: tests green, smoke test, migrate up on empty/non‑empty DB, export+restore verification.
 
-### Backward-Compat & Deprecations
+### 5.9 Backward‑Compat & Deprecations
 
-* `@Deprecated` + JavaDoc + rate-limited warnings; keep ≥1 minor.
-* Schema changes additive in minors; destructive only in majors.
-* Transitional config flags for behavior changes when needed.
+- `@Deprecated` + JavaDoc + rate‑limited warn; keep ≥1 minor.  
+- Schema additive in minors; destructive only in majors.  
+- Transitional flags for behavior changes when needed.
 
-### Example Add-On (“Hello Ledger”)
+### 5.10 Example Add‑On (“Hello Ledger”)
 
-Listen for `PlayerRegisteredEvent`; deposit 100 units with idemKey; i18n message. Shows idempotency, i18n, TZ, event handling.
+Sketch: listen for `PlayerRegisteredEvent`; deposit 100 units with idemKey; i18n message to player. Shows best practices (idempotency, i18n, TZ, event handling).
 
-### Contributor Workflow
+### 5.11 Contributor Workflow
 
-* Branches (`development`), small PRs, Conventional Commits, PR template, ownership for sensitive areas, no secrets in repo, TLS guidance.
+Branches (`development`), small PRs, Conventional Commits, PR template, code ownership for sensitive parts, no secrets in repo, TLS guidance.
 
-### Ops-Grade Smoke Test (Extended)
+### 5.12 Ops‑Grade Smoke Test (Extended)
 
-* `/mincore migrate --apply`, `/mincore db info`
-* Players + deposit/transfer/replay
-* Export verify; cleanup; `/mincore doctor --counts --fk`
+- `/mincore migrate --apply`, `/mincore db info`  
+- 2 players, deposit/transfer + replay test  
+- `/mincore export …` → verify files  
+- Cleanup via restore fresh/atomic or truncation  
+- `/mincore doctor --counts --fk`
 
-### Deliverables (“Done”)
+### 5.13 Deliverables (“Done”)
 
-* `CONTRIBUTING.md`, style guide, example add-on, smoke test script, updated DDL/config example per release.
-
----
-
-## 6) Agent Checklists
-
-### 6.1 Implementation Checklist
-
-* [ ] Off-thread JDBC for all DAO paths.
-* [ ] Post-commit events with per-player sequence ordering.
-* [ ] Idempotent wallet variants with `core_requests` registry and payload hashing.
-* [ ] Guarded SQL for withdraw/transfer (no negative balances).
-* [ ] Ledger DB table + optional JSONL mirror with indexes.
-* [ ] Config validation (bounds + required fields) and JSON5 parsing.
-* [ ] Advisory-locked scheduler jobs (backup, cleanup).
-* [ ] Backup exporter (consistent snapshot, gzip, checksums) + importer (fresh/merge modes).
-* [ ] Error mapping to codes; structured logs; rate-limited warnings.
-* [ ] I18n resource files and per-player TZ rendering when enabled.
-
-### 6.2 Ops Checklist
-
-* [ ] DB user least-priv; TLS if cross-host.
-* [ ] `session.forceUtc=true`; backups enabled 04:45 UTC; retention configured.
-* [ ] `/mincore db ping|info` OK; `/mincore diag` OK.
-* [ ] `jobs list` shows backup & cleanup; advisory locks tested.
-* [ ] Export and restore tested; checksums verified.
-* [ ] Logs monitored for `CONNECTION_LOST`, `IDEMPOTENCY_*`, deadlocks.
-
-### 6.3 Add-on Checklist
-
-* [ ] Use idempotent wallet APIs for networked flows.
-* [ ] Subscribe to events; dedupe by (player, seq).
-* [ ] Use `ExtensionDatabase.tryAdvisoryLock` for migrations/jobs.
-* [ ] Localize user messages; use server/player TZ render helpers.
-* [ ] Avoid blocking main thread; schedule to async when needed.
+- **CONTRIBUTING.md**, style guide, example add‑on, smoke test script, updated DDL/config example per release.
 
 ---
 
-## 7) Error Codes (Canonical Set)
-
-`INSUFFICIENT_FUNDS`, `INVALID_AMOUNT`, `UNKNOWN_PLAYER`, `IDEMPOTENCY_REPLAY`, `IDEMPOTENCY_MISMATCH`, `DEADLOCK_RETRY_EXHAUSTED`, `CONNECTION_LOST`, `DEGRADED_MODE`, `MIGRATION_LOCKED`, `NAME_AMBIGUOUS`, `INVALID_TZ`, `INVALID_CLOCK`, `OVERRIDES_DISABLED`.
-
-**i18n mapping** in Section 4.6.
-
----
-
-## 8) Command Reference (One-Page)
-
-* `/timezone` help; `/timezone set <ZoneId>`; `/timezone clock <12|24>`
-* `/mincore db ping|info`; `/mincore diag`
-* `/mincore ledger recent [N] | player <name|UUID> [N] | addon <id> [N] | reason <substring> [N]`
-* `/playtime me | top [N] | reset <player>`
-* `/mincore jobs list | run <job>`; `/mincore backup now`
-* Admin-only: `/mincore migrate --check|--apply` • `/mincore export --all [--out <dir>] [--gzip true]` • `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>` • `/mincore doctor [--fk --orphans --counts --analyze --locks]`
-
-**Rate-limits:** Player cmds cooldown 2–5s; admin diag token bucket (\~cap 3–5, refill 0.2–0.5/s).
-
----
-
-## 9) Data Retention & Integrity Rules
-
-* No auto-prune for `players` or `core_ledger`.
-* `core_requests` pruned by job only; player/ledger data unaffected.
-* All timestamps UTC seconds; store UUIDs as `BINARY(16)`; JSON values valid and ≤ \~8KB.
-* Withdraw/transfer must never permit negative balances; use conditional updates or transactions.
-
----
-
-## 10) Appendix: Minimal GRANT & Docker
-
-See Sections 3.9 and 5.2 for SQL and Docker snippets.
-
----
-
-**End of AGENTS.md — MinCore v1.0.0 (Unified & Consistent)**
+**End of MinCore v1.0.0 — Unified & Consistent Master Spec**
