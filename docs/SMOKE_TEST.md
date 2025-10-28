@@ -29,11 +29,11 @@ export MINCORE_RCON_PASSWORD=change-me
    * Join with Player A, run `/playtime me` (should show a few seconds).
    * Run `/mincore ledger recent 5` and confirm the ledger header prints.
 3. **Wallet operations**
-   * Run `wallet deposit` via console or add-on to give Player A 1,000 units (use idempotent API
-     with a unique key).
-   * Transfer 250 units from Player A to Player B twice with the same idempotency key – the second
-     invocation should return an `IDEMPOTENCY_REPLAY` code and the ledger should not duplicate the
-     transfer.
+   * Run `wallet deposit` via console or the built-in wallet module APIs to give Player A 1,000 units (use an idempotent
+     key).
+   * Transfer 250 units from Player A to Player B twice with the same idempotency key – the second invocation should return an
+     `IDEMPOTENCY_REPLAY` code and the ledger should not duplicate the transfer (if the ledger module is disabled, expect a
+     no-op write with success feedback only).
 4. **Scheduler verification**
    * `/mincore jobs list` – ensure `backup` and `cleanup.idempotencySweep` are present with sane
      next-run timestamps.

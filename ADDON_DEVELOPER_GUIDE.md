@@ -52,16 +52,18 @@ Goal: Give you everything you need to build against MinCore correctly on the fir
 
 ## What MinCore Provides
 
-MinCore is a small core that gives you production-grade primitives so you can build features faster and safer.
+MinCore is a small core that gives you production-grade primitives so you can build features faster and safer. As of the bundle-everything release, every first-party module ships inside the single MinCore jar—server owners toggle optional pieces via configuration instead of mixing and matching separate add-on jars.
 
 - Database access using a managed HikariCP pool, with ExtensionDatabase to borrow connections and do safe retries.
-- Wallets API with deposit, withdraw, and transfer. Built-in idempotency keys and durable ledger.
+- Wallets API with deposit, withdraw, and transfer. Built-in idempotency keys and durable ledger that can be disabled per server.
 - Events that fire after commit on background threads. At least once delivery. Per player ordering.
 - Scheduler and jobs for backups and cleanup. You can also schedule your own tasks using the provided executor patterns.
 - Player playtime tracking in memory, with query and reset helpers.
 - i18n and timezone aware rendering across MinCore commands. You can add your own localization for your add-on.
 
 MinCore does not implement gameplay rules. You implement those in your add-on using these core services.
+
+Previous releases sometimes shipped optional first-party add-ons (for example, a ledger writer) as separate jars. Those have been folded into the bundled modules listed above. If you encounter documentation or code referring to "packaged add-ons", treat them as historical—server owners now rely on the configuration toggles described below.
 
 ## Compatibility and Requirements
 
@@ -71,6 +73,24 @@ MinCore does not implement gameplay rules. You implement those in your add-on us
 - MariaDB 10.6 or newer recommended. MySQL 8.0 or newer supported
 - Character set utf8mb4 and InnoDB tables
 - MinCore jar available on the server and on your dev classpath
+
+## Built-in modules and server toggles
+
+MinCore exposes module-level switches in `config/mincore.json5`. Server owners manage features by setting these flags; make sure your add-on handles the disabled states gracefully.
+
+| Module | Default | Toggle(s) | Developer guidance |
+| ------ | ------- | --------- | ------------------ |
+| Core runtime (DB, migrations, wallet engine, events) | Enabled | Always on | Assume these facilities exist. Failure implies a misconfigured server. |
+| Ledger persistence | Enabled | `core.ledger.enabled` (primary table); `core.ledger.file.enabled` (JSONL mirror) | Ledger API calls are safe even when disabled—they become no-ops. Avoid assuming persistence for auditing unless you validate the setting or expose your own storage. |
+| Backup exporter | Enabled | `core.jobs.backup.enabled` | If you depend on scheduled exports (e.g., to read JSONL artefacts), document that requirement and probe job status via `/mincore jobs list`. |
+| Idempotency sweep | Enabled | `core.jobs.cleanup.idempotencySweep.enabled` | Disabling sweeps may grow the idempotency registry. Handle `IDEMPOTENCY_*` errors defensively. |
+| Playtime tracker | Enabled | Always on | Bundled into the core; should always be available. |
+| Timezone services | Enabled | `core.time.display.allowPlayerOverride`, `core.time.display.autoDetect` | Respect the player override flag—APIs still exist but `/timezone set` may be unavailable. |
+| i18n bundle | Enabled | `core.i18n.enabledLocales` | Only rely on locales listed in the config. Provide fallbacks if your add-on ships extra translations. |
+
+External extensions: If you build companion mods that hook into MinCore, treat the bundled modules as shared infrastructure. Use the APIs provided (`MinCoreApi.wallets()`, `MinCoreApi.ledger()`, `MinCoreApi.events()`, etc.) and do not attempt to repack or shade them—everything you need is already on the classpath. When a module is disabled, the API will either be absent (never true for public entry points) or will no-op/log accordingly. Feature-detect by reading configuration (when you have file access) or by calling the API and checking for benign behaviour.
+
+Packaging expectations: Publish only your own add-on jar. Do not redistribute the legacy MinCore add-on bundles; they no longer exist. Declare a dependency on the core (`"depends": { "mincore": ">=1.0.0" }`) and document any module-level requirements so server operators can keep those modules enabled.
 
 ## Project Scaffold
 

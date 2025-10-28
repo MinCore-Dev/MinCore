@@ -48,22 +48,23 @@ A small, opinionated core for Fabric Minecraft servers that gives add-on authors
 
 ## What is MinCore
 
-MinCore is a server side Fabric mod that provides production grade building blocks for other mods. It offers a JDBC backed persistence layer with safe migrations, a wallet API with idempotency, an append only ledger, a small job scheduler, playtime tracking, i18n, and timezone helpers. The core is small. The contracts are strong.
+MinCore is a server side Fabric mod that provides production grade building blocks for other mods. It ships as a single "bundle-everything" jar that includes all first-party modules—database/migrations, wallet + ledger, scheduler/jobs, playtime tracking, timezone helpers, i18n, backup/export/import, and operator tooling. Server owners flip those modules on or off with configuration switches instead of juggling separate add-on jars. The core is small. The contracts are strong.
 
-MinCore does not include a full gameplay economy, shops, quests, or a web panel. Those live in add-ons that depend on MinCore.
+MinCore does not include a full gameplay economy, shops, quests, or a web panel. Build those as integrations or companion mods that sit on top of the bundled modules.
 
 ## Features
 
-- MariaDB first persistence via HikariCP
+- MariaDB first persistence via HikariCP (always on)
 - SchemaHelper that performs ensure table, ensure column, ensure index, and safe check constraints
-- Wallets API with idempotent deposit, withdraw, transfer and a durable ledger
+- Wallets API with idempotent deposit, withdraw, transfer and a durable ledger module that can be disabled when persistence is not desired
 - Post commit events with at least once delivery and per player ordering guarantees
-- Scheduler with cron like jobs in UTC
-- Daily JSONL exports with gzip and checksum files
-- Playtime service with top, me and reset
-- i18n and timezone rendering utilities
+- Scheduler with cron like jobs in UTC and configurable job toggles (backup, cleanup, custom extensions)
+- Daily JSONL exports with gzip and checksum files controlled by the backup module switches
+- Playtime service with top, me and reset endpoints bundled in the core
+- i18n and timezone rendering utilities, including optional player overrides and GeoIP auto-detect
 - LuckPerms-first permission helper with Fabric Permissions API and vanilla fallbacks
-- Config Template Writer that generates a complete commented example
+- Config Template Writer that generates a complete commented example plus module toggle cheatsheet
+- Single bundle shipping every first-party module; no extra add-on jars to install
 
 ## Requirements
 
@@ -117,7 +118,7 @@ Edit `config/mincore.json5`. Example with comments is generated for you. You can
 - `MINCORE_DB_USER`
 - `MINCORE_DB_PASSWORD`
 
-Keep `session.forceUtc = true`. This sets the session time zone to UTC on every pooled connection.
+Keep `session.forceUtc = true`. This sets the session time zone to UTC on every pooled connection. Use this step to decide which bundled modules stay enabled—disable the ledger if you only need wallets in memory, toggle the backup or cleanup jobs, and decide whether timezone overrides or GeoIP auto-detect should be available to players.
 
 ### 6. First run smoke test
 
@@ -126,7 +127,7 @@ Start the server. Run these in game or on the server console as an operator.
 1. `/mincore db ping`
 2. `/mincore db info`
 3. `/mincore diag`
-4. Create two test players or use two accounts. Use wallet operations from an add-on or a test command, then check `/mincore ledger recent`
+4. Create two test players or use two accounts. Use wallet operations via the built-in wallet module (for example with a simple test command or script), then check `/mincore ledger recent`
 5. `/playtime me` and `/playtime top 10`
 
 If all commands respond as expected, the core is healthy.
@@ -138,6 +139,20 @@ By default, a JSONL backup job runs daily at 04:45 UTC and writes to `./backups/
 ## Configuration Reference
 
 Config file location: `config/mincore.json5`
+
+### Module toggles at a glance
+
+| Module | Purpose | Default | Toggle(s) |
+| ------ | ------- | ------- | --------- |
+| Core runtime (DB, migrations, wallet engine, events) | Fundamental plumbing used by all other modules | Enabled | Always on |
+| Ledger persistence | Durable append-only ledger for wallet changes and custom log entries | Enabled | `core.ledger.enabled` (false disables table writes); optional JSONL mirror via `core.ledger.file.enabled` |
+| Backup exporter | Scheduled JSONL backups with gzip + checksum | Enabled | `core.jobs.backup.enabled` |
+| Idempotency sweep | TTL cleanup for the wallet request registry | Enabled | `core.jobs.cleanup.idempotencySweep.enabled` |
+| Playtime tracker | In-memory tracking with `/playtime` commands | Enabled | Always on (lightweight, cannot be disabled) |
+| Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `core.time.display.allowPlayerOverride`, `core.time.display.autoDetect` |
+| i18n bundle | Locale loading/rendering | Enabled | Ensure `core.i18n.enabledLocales` lists allowed locales; remove extras to limit availability |
+
+All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable).
 
 ```hocon
 core {
