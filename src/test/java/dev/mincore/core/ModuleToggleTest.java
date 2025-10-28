@@ -49,7 +49,7 @@ final class ModuleToggleTest {
   }
 
   @Test
-  void bootWithoutLedger() throws Exception {
+  void ledgerDisabledKeepsHandleAndSkipsWrites() throws Exception {
     Config config = withModules(baseConfig(), modules ->
         new Config.Modules(
             new Config.Ledger(false, modules.ledger().retentionDays(), modules.ledger().jsonlMirror()),
@@ -57,9 +57,15 @@ final class ModuleToggleTest {
             modules.timezone(),
             modules.playtime()));
     try (TestHarness harness = new TestHarness(config)) {
-      harness.start(allModules(config));
-      org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(LedgerModule.ID));
-      org.junit.jupiter.api.Assertions.assertNull(MinCoreApi.ledger());
+      harness.start(Set.of(LedgerModule.ID));
+      org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(LedgerModule.ID));
+      var ledger = MinCoreApi.ledger();
+      org.junit.jupiter.api.Assertions.assertNotNull(ledger);
+      ledger.log("test", "noop", null, null, 1L, "disabled", true, null, null, null, null);
+      boolean exists =
+          org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+              () -> harness.services().database().schema().tableExists("core_ledger"));
+      org.junit.jupiter.api.Assertions.assertFalse(exists);
     }
   }
 
@@ -193,6 +199,10 @@ final class ModuleToggleTest {
 
     void start(Set<String> modules) {
       manager.start(modules);
+    }
+
+    Services services() {
+      return services;
     }
 
     @Override

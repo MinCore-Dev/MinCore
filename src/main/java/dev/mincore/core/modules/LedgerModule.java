@@ -4,13 +4,10 @@ package dev.mincore.core.modules;
 import dev.mincore.api.Ledger;
 import dev.mincore.core.Config;
 import dev.mincore.core.LedgerImpl;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Optional ledger subsystem module. */
 public final class LedgerModule implements MinCoreModule {
   public static final String ID = "ledger";
-  private static final Logger LOG = LoggerFactory.getLogger("mincore");
 
   private LedgerImpl ledger;
 
@@ -22,11 +19,6 @@ public final class LedgerModule implements MinCoreModule {
   @Override
   public void start(ModuleContext context) throws Exception {
     Config cfg = context.config();
-    if (!cfg.modules().ledger().enabled()) {
-      LOG.info("(mincore) ledger module skipped by configuration");
-      context.publishLedger(null);
-      return;
-    }
     ledger = LedgerImpl.install(context.services(), cfg);
     context.publishLedger(ledger);
   }
@@ -35,13 +27,11 @@ public final class LedgerModule implements MinCoreModule {
   public void stop(ModuleContext context) throws Exception {
     LedgerImpl local = this.ledger;
     this.ledger = null;
-    if (local != null) {
-      try {
+    try {
+      if (local != null) {
         local.close();
-      } finally {
-        context.publishLedger(null);
       }
-    } else {
+    } finally {
       context.publishLedger(null);
     }
   }
