@@ -13,8 +13,10 @@ import dev.mincore.api.events.CoreEvents;
 import dev.mincore.api.storage.ExtensionDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import dev.mincore.util.Uuids;
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -29,6 +31,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.time.Instant;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -107,6 +110,59 @@ final class BackupCycleTest {
     } finally {
       services.shutdown();
       deleteRecursively(backupDir);
+    }
+  }
+
+  @Test
+  void restoreAllowsLedgerWithoutAddonField() throws Exception {
+    Path snapshot = Files.createTempFile("mincore-ledger-compat", ".jsonl");
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+
+    try {
+      Migrations.apply(services);
+      truncateAllTables();
+
+      try (BufferedWriter writer = Files.newBufferedWriter(snapshot, StandardCharsets.UTF_8)) {
+        String header =
+            """
+                {"version":"jsonl/v1","generatedAt":"%s","defaultZone":"UTC","schemaVersion":%d}"""
+                .formatted(Instant.now().toString(), Migrations.currentVersion())
+                .strip();
+        String ledger =
+            """
+                {"table":"core_ledger","ts":1234,"module":"legacy-module","op":"deposit","from":"","to":"00000000-0000-0000-0000-000000000001","amount":100,"reason":"legacy","ok":true,"code":"","seq":1,"idemScope":"","idemKey":"","oldUnits":null,"newUnits":null,"serverNode":"","extra":null}"""
+                .strip();
+
+        writer.write(header);
+        writer.newLine();
+        writer.write(ledger);
+        writer.newLine();
+      }
+
+      BackupImporter.Result result =
+          BackupImporter.restore(
+              services,
+              snapshot,
+              BackupImporter.Mode.FRESH,
+              BackupImporter.FreshStrategy.ATOMIC,
+              false,
+              false);
+
+      assertEquals(0L, result.players());
+      assertEquals(0L, result.attributes());
+      assertEquals(0L, result.eventSeq());
+      assertEquals(1L, result.ledger());
+
+      List<LedgerRow> ledgerRows = readLedger();
+      assertEquals(1, ledgerRows.size());
+      LedgerRow row = ledgerRows.get(0);
+      assertEquals("legacy-module", row.module());
+      assertEquals(1234L, row.ts());
+      assertEquals(100L, row.amount());
+    } finally {
+      services.shutdown();
+      Files.deleteIfExists(snapshot);
     }
   }
 
@@ -259,6 +315,19 @@ final class BackupCycleTest {
       }
 
       c.commit();
+    }
+  }
+
+  private static void truncateAllTables() throws SQLException {
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+        Statement st = c.createStatement()) {
+      st.executeUpdate("DELETE FROM core_ledger");
+      st.executeUpdate("DELETE FROM player_attributes");
+      st.executeUpdate("DELETE FROM player_event_seq");
+      st.executeUpdate("DELETE FROM players");
+      st.executeUpdate("DELETE FROM core_requests");
     }
   }
 
