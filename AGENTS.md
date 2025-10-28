@@ -1,6 +1,6 @@
 # AGENTS.md — MinCore v1.0.0 (Unified & Consistent)
 
-This document is the machine-operable specification for MinCore v1.0.0. Treat it as the single source of truth unless the user overrides it. It unifies all project requirements, standards, and runbooks so future agents can build core features or add-ons without having to rediscover expectations from the codebase.
+This document is the machine-operable specification for MinCore v1.0.0. Treat it as the single source of truth unless the user overrides it. It unifies all project requirements, standards, and runbooks so future agents can build and maintain MinCore's built-in modules without having to rediscover expectations from the codebase.
 
 > Scope: Fabric Minecraft server mod named **MinCore** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
 
@@ -52,13 +52,15 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 * [ ] Export and restore tested; checksums verified.
 * [ ] Logs monitored for `CONNECTION_LOST`, `IDEMPOTENCY_*`, deadlocks.
 
-### 3) Extension Checklist
+### 3) Module Operations Checklist
 
-* [ ] Use idempotent wallet APIs for networked flows.
-* [ ] Subscribe to events; dedupe by (player, seq).
-* [ ] Use `ExtensionDatabase.tryAdvisoryLock` for migrations/jobs.
+* [ ] Honor module enable/disable toggles; provide explicit no-op behavior when disabled.
+* [ ] Use idempotent wallet APIs for module-initiated network flows.
+* [ ] Subscribe to core events responsibly; dedupe by (player, seq) when reacting.
+* [ ] Use `ExtensionDatabase.tryAdvisoryLock` (module-owned migrations/jobs) or the module-specific wrapper.
 * [ ] Localize user messages; use server/player TZ render helpers.
-* [ ] Avoid blocking main thread; schedule to async when needed.
+* [ ] Avoid blocking main thread; schedule async work when needed.
+* [ ] Emit structured health metrics and surface degradations via `/mincore diag`.
 
 ### 4) Error Codes (Canonical Set)
 
@@ -106,7 +108,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 
 ### 1.2 Non‑Goals
 
-- Full gameplay mod (economy rules, shops, quests) — that belongs in add‑ons.
+- Full gameplay mod (economy rules, shops, quests) — out of scope for built-in modules.
 - Web UI / hosted panel.
 - Cross‑DB abstraction beyond **MariaDB/MySQL**.
 - Default PII collection (e.g., IPs). Optional, explicit, documented only.
@@ -125,7 +127,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 - **Events module**: post‑commit, background dispatch with **per‑player ordering** so dependent modules stay in sync.
 - **Scheduler module**: cron‑like UTC jobs driving **backup** and retention workflows that can be flipped off while leaving APIs callable.
 - **Playtime module**: in‑memory tracker that exposes counters regardless of toggle state (disabled = fixed zeroes).
-- **Localization + Timezone module**: helpers for I18n, timezone rendering, and optional GeoIP auto‑detect that reduce boilerplate for downstream extensions.
+- **Localization + Timezone module**: helpers for I18n, timezone rendering, and optional GeoIP auto‑detect that reduce boilerplate for downstream operator workflows and automation.
 
 ### 1.5 Bundled Modules & Toggles
 
@@ -143,7 +145,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 - Commented JSON5 config; backups 04:45 UTC; least‑priv DB; **Config Template Writer**.
 - Server TZ default, optional per‑player TZ; **/timezone**.
 - Commands: `/mincore diag`, `/mincore db ping|info`, `/mincore ledger …`, `/playtime me|top|reset`, `/mincore jobs list|run`, `/mincore backup now`.
-- Dev standards: JavaDoc, Spotless, error‑code catalogue, example extension workflows, smoke test.
+- Dev standards: JavaDoc, Spotless, error‑code catalogue, module maintenance workflows, smoke test.
 
 ### 1.7 Compatibility Matrix
 
@@ -166,7 +168,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 
 ### 1.9 Glossary
 
-Add‑on • Services • Wallets • Ledger • Idempotency • SchemaHelper • Scheduler/Job • Playtime • I18n • TZ Rendering • Config Template Writer.
+Module • Services • Wallets • Ledger • Idempotency • SchemaHelper • Scheduler/Job • Playtime • I18n • TZ Rendering • Config Template Writer.
 
 ---
 
@@ -180,7 +182,7 @@ Add‑on • Services • Wallets • Ledger • Idempotency • SchemaHelper �
 ### 2.2 Threading & Ordering
 
 - Never block main thread with JDBC.
-- Events: background threads, **at‑least‑once**, ordered per player; add‑ons must dedupe and hop to main thread to touch world.
+- Events: background threads, **at‑least‑once**, ordered per player; modules must dedupe and hop to main thread to touch world.
 
 ### 2.3 Resilience
 
@@ -555,8 +557,8 @@ FLUSH PRIVILEGES;
 
 - **Detection order:** MinCore resolves permissions using LuckPerms (via `LuckPermsProvider` and the cached user data) first, then the Fabric Permissions API when available, and finally vanilla operator levels as the fallback. All lookups should execute on the server thread so LuckPerms user data is already cached.
 - **No hard deps:** Keep LuckPerms and Fabric Permissions API as `compileOnly` dependencies. Ship MinCore without bundling either implementation jar.
-- **Helper API:** Use `dev.mincore.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "mincore.addon.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
-- **Node naming:** Prefix permissions with `mincore.` or your add-on id, e.g. `mincore.admin.jobs.run` or `youraddon.feature.use`. Keep lowercase dot-separated segments.
+- **Helper API:** Use `dev.mincore.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "mincore.module.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
+- **Node naming:** Prefix permissions with `mincore.` or your module identifier, e.g. `mincore.admin.jobs.run` or `mincore.playtime.viewer.toggle`. Keep lowercase dot-separated segments.
 - **Op levels:** Level `4` for full admin, `3` for high-trust staff, `2` for moderation, `0` for everyone. Choose the fallback that mirrors the command’s intended audience.
 
 ### 5.4 One‑Shot Smoke Test
@@ -596,9 +598,15 @@ FLUSH PRIVILEGES;
 - Schema additive in minors; destructive only in majors.  
 - Transitional flags for behavior changes when needed.
 
-### 5.10 Example Add‑On (“Hello Ledger”)
+### 5.10 Module Lifecycle & No‑Op Expectations
 
-Sketch: listen for `PlayerRegisteredEvent`; deposit 100 units with idemKey; i18n message to player. Shows best practices (idempotency, i18n, TZ, event handling).
+All built-in modules must support three phases: **bootstrap**, **active**, and **disabled**.
+
+1. **Bootstrap** — Register config schema, commands, scheduled jobs, and database components. Validate configuration before enabling stateful behavior.
+2. **Active** — Execute business logic with full telemetry (structured logs, metrics). Respect advisory locks around long-running jobs and ensure event handlers are idempotent.
+3. **Disabled** — Commands should report module-disabled messages, scheduled jobs must unschedule or short-circuit, and services should return safe defaults or no-ops without throwing.
+
+When toggles change at runtime, transition gracefully: flush pending tasks, release locks, and guarantee repeated enable/disable cycles remain safe. Surface module state through `/mincore diag` and expose health signals so operators know whether a module is dormant, degraded, or healthy.
 
 ### 5.11 Contributor Workflow
 
@@ -614,7 +622,7 @@ Branches (`development`), small PRs, Conventional Commits, PR template, code own
 
 ### 5.13 Deliverables (“Done”)
 
-- **CONTRIBUTING.md**, style guide, example extension workflow, smoke test script, updated DDL/config example per release.
+- **CONTRIBUTING.md**, style guide, module maintenance workflow, smoke test script, updated DDL/config example per release.
 
 ---
 
