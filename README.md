@@ -145,16 +145,55 @@ Config file location: `config/mincore.json5`
 | Module | Purpose | Default | Toggle(s) |
 | ------ | ------- | ------- | --------- |
 | Core runtime (DB, migrations, wallet engine, events) | Fundamental plumbing used by all other modules | Enabled | Always on |
-| Ledger persistence | Durable append-only ledger for wallet changes and custom log entries | Enabled | `core.ledger.enabled` (false disables table writes); optional JSONL mirror via `core.ledger.file.enabled` |
-| Backup exporter | Scheduled JSONL backups with gzip + checksum | Enabled | `core.jobs.backup.enabled` |
-| Idempotency sweep | TTL cleanup for the wallet request registry | Enabled | `core.jobs.cleanup.idempotencySweep.enabled` |
-| Playtime tracker | In-memory tracking with `/playtime` commands | Enabled | Always on (lightweight, cannot be disabled) |
-| Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `core.time.display.allowPlayerOverride`, `core.time.display.autoDetect` |
+| Ledger persistence | Durable append-only ledger for wallet changes and custom log entries | Enabled | `modules.ledger.enabled`; optional JSONL mirror via `modules.ledger.file.enabled` |
+| Backup exporter | Scheduled JSONL backups with gzip + checksum | Enabled | `modules.scheduler.enabled` must remain `true`; toggle executions with `modules.scheduler.jobs.backup.enabled` |
+| Idempotency sweep | TTL cleanup for the wallet request registry | Enabled | `modules.scheduler.jobs.cleanup.idempotencySweep.enabled` (requires `modules.scheduler.enabled`) |
+| Playtime tracker | In-memory tracking with `/playtime` commands | Enabled | `modules.playtime.enabled` |
+| Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `modules.timezone.enabled`; GeoIP lookup via `modules.timezone.autoDetect.enabled` + `modules.timezone.autoDetect.database` |
 | i18n bundle | Locale loading/rendering | Enabled | Ensure `core.i18n.enabledLocales` lists allowed locales; remove extras to limit availability |
 
-All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable).
+All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules { ... }` block in `mincore.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path).
 
 ```hocon
+modules {
+  ledger {
+    enabled = true
+    retentionDays = 0
+    file {
+      enabled = false
+      path = "./logs/mincore-ledger.jsonl"
+    }
+  }
+  scheduler {
+    enabled = true
+    jobs {
+      backup {
+        enabled = true
+        schedule = "0 45 4 * * *"
+        outDir = "./backups/mincore"
+        onMissed = "runAtNextStartup"
+        gzip = true
+        prune { keepDays = 14, keepMax = 60 }
+      }
+      cleanup {
+        idempotencySweep {
+          enabled = true
+          schedule = "0 30 4 * * *"
+          retentionDays = 30
+          batchLimit = 5000
+        }
+      }
+    }
+  }
+  timezone {
+    enabled = true
+    autoDetect {
+      enabled = false
+      database = "./config/mincore.geoip.mmdb"
+    }
+  }
+  playtime { enabled = true }
+}
 core {
   db {
     host = "127.0.0.1"
@@ -178,29 +217,12 @@ core {
     display {
       defaultZone = "UTC"
       allowPlayerOverride = false
-      autoDetect = false
     }
   }
   i18n {
     defaultLocale = "en_US"
     enabledLocales = [ "en_US" ]
     fallbackLocale = "en_US"
-  }
-  jobs {
-    backup {
-      enabled = true
-      schedule = "0 45 4 * * *"
-      outDir = "./backups/mincore"
-      onMissed = "runAtNextStartup"
-      gzip = true
-      prune { keepDays = 14, keepMax = 60 }
-    }
-    cleanup.idempotencySweep {
-      enabled = true
-      schedule = "0 30 4 * * *"
-      retentionDays = 30
-      batchLimit = 5000
-    }
   }
   log {
     json = false
@@ -213,8 +235,9 @@ core {
 Notes
 
 - Set `allowPlayerOverride = true` to allow `/timezone set <ZoneId>` for players
-- `autoDetect = true` will detect each joining player’s timezone when GeoIP data is present
+- Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically
 - Keep `forceUtc = true` so storage is consistent
+- If you disable `modules.scheduler.enabled`, also set every job under `modules.scheduler.jobs` to `enabled = false`
 
 ## Commands
 

@@ -81,11 +81,11 @@ MinCore exposes module-level switches in `config/mincore.json5`. Server owners m
 | Module | Default | Toggle(s) | Developer guidance |
 | ------ | ------- | --------- | ------------------ |
 | Core runtime (DB, migrations, wallet engine, events) | Enabled | Always on | Assume these facilities exist. Failure implies a misconfigured server. |
-| Ledger persistence | Enabled | `core.ledger.enabled` (primary table); `core.ledger.file.enabled` (JSONL mirror) | Ledger API calls are safe even when disabled—they become no-ops. Avoid assuming persistence for auditing unless you validate the setting or expose your own storage. |
-| Backup exporter | Enabled | `core.jobs.backup.enabled` | If you depend on scheduled exports (e.g., to read JSONL artefacts), document that requirement and probe job status via `/mincore jobs list`. |
-| Idempotency sweep | Enabled | `core.jobs.cleanup.idempotencySweep.enabled` | Disabling sweeps may grow the idempotency registry. Handle `IDEMPOTENCY_*` errors defensively. |
-| Playtime tracker | Enabled | Always on | Bundled into the core; should always be available. |
-| Timezone services | Enabled | `core.time.display.allowPlayerOverride`, `core.time.display.autoDetect` | Respect the player override flag—APIs still exist but `/timezone set` may be unavailable. |
+| Ledger persistence | Enabled | `modules.ledger.enabled` (primary table); `modules.ledger.file.enabled` (JSONL mirror) | Ledger API calls are safe even when disabled—they become no-ops. Avoid assuming persistence for auditing unless you validate the setting or expose your own storage. |
+| Backup exporter | Enabled | `modules.scheduler.enabled` plus `modules.scheduler.jobs.backup.enabled` | If you depend on scheduled exports (e.g., to read JSONL artefacts), document that requirement and probe job status via `/mincore jobs list`. |
+| Idempotency sweep | Enabled | `modules.scheduler.jobs.cleanup.idempotencySweep.enabled` (requires `modules.scheduler.enabled`) | Disabling sweeps may grow the idempotency registry. Handle `IDEMPOTENCY_*` errors defensively. |
+| Playtime tracker | Enabled | `modules.playtime.enabled` | Bundled into the core; disable only if your add-on can operate without `/playtime`. |
+| Timezone services | Enabled | `modules.timezone.enabled`; GeoIP via `modules.timezone.autoDetect.enabled` | Respect the player override flag—APIs still exist but `/timezone set` may be unavailable. |
 | i18n bundle | Enabled | `core.i18n.enabledLocales` | Only rely on locales listed in the config. Provide fallbacks if your add-on ships extra translations. |
 
 External extensions: If you build companion mods that hook into MinCore, treat the bundled modules as shared infrastructure. Use the APIs provided (`MinCoreApi.wallets()`, `MinCoreApi.ledger()`, `MinCoreApi.events()`, etc.) and do not attempt to repack or shade them—everything you need is already on the classpath. When a module is disabled, the API will either be absent (never true for public entry points) or will no-op/log accordingly. Feature-detect by reading configuration (when you have file access) or by calling the API and checking for benign behaviour.

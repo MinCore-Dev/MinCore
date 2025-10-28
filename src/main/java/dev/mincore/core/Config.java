@@ -23,7 +23,7 @@ import java.util.Objects;
  *   <li>Writes a commented template on first boot.
  *   <li>Emits a {@code mincore.json5.example} snapshot for ops tooling.
  *   <li>Supports environment overrides for the DB connection ({@code MINCORE_DB_*}).
- *   <li>Parses i18n, timezone, scheduler, and logging blocks.
+ *   <li>Parses module toggles plus i18n, timezone, scheduler, and logging blocks.
  * </ul>
  */
 public final class Config {
@@ -33,6 +33,45 @@ public final class Config {
       // MinCore v1.0.0 configuration (JSON5 with comments)
       // Drop into config/mincore.json5. Environment overrides: MINCORE_DB_HOST|PORT|DATABASE|USER|PASSWORD.
       {
+        modules: {
+          ledger: {
+            enabled: true,
+            retentionDays: 0,
+            file: {
+              enabled: false,
+              path: "./logs/mincore-ledger.jsonl"
+            }
+          },
+          scheduler: {
+            enabled: true,
+            jobs: {
+              backup: {
+                enabled: true,
+                schedule: "0 45 4 * * *",
+                outDir: "./backups/mincore",
+                onMissed: "runAtNextStartup",
+                gzip: true,
+                prune: { keepDays: 14, keepMax: 60 }
+              },
+              cleanup: {
+                idempotencySweep: {
+                  enabled: true,
+                  schedule: "0 30 4 * * *",
+                  retentionDays: 30,
+                  batchLimit: 5000
+                }
+              }
+            }
+          },
+          timezone: {
+            enabled: true,
+            autoDetect: {
+              enabled: false,
+              database: "./config/mincore.geoip.mmdb"
+            }
+          },
+          playtime: { enabled: true }
+        },
         core: {
           db: {
             host: "127.0.0.1",
@@ -55,40 +94,13 @@ public final class Config {
           time: {
             display: {
               defaultZone: "UTC",
-              allowPlayerOverride: false,
-              autoDetect: false
+              allowPlayerOverride: false
             }
           },
           i18n: {
             defaultLocale: "en_US",
             enabledLocales: [ "en_US" ],
             fallbackLocale: "en_US"
-          },
-          ledger: {
-            enabled: true,
-            retentionDays: 0,
-            file: {
-              enabled: false,
-              path: "./logs/mincore-ledger.jsonl"
-            }
-          },
-          jobs: {
-            backup: {
-              enabled: true,
-              schedule: "0 45 4 * * *",
-              outDir: "./backups/mincore",
-              onMissed: "runAtNextStartup",
-              gzip: true,
-              prune: { keepDays: 14, keepMax: 60 }
-            },
-            cleanup: {
-              idempotencySweep: {
-                enabled: true,
-                schedule: "0 30 4 * * *",
-                retentionDays: 30,
-                batchLimit: 5000
-              }
-            }
           },
           log: {
             json: false,
@@ -103,17 +115,15 @@ public final class Config {
   private final Runtime runtime;
   private final Time time;
   private final I18n i18n;
-  private final Ledger ledger;
-  private final Jobs jobs;
+  private final Modules modules;
   private final Log log;
 
-  private Config(Db db, Runtime runtime, Time time, I18n i18n, Ledger ledger, Jobs jobs, Log log) {
+  private Config(Db db, Runtime runtime, Time time, I18n i18n, Modules modules, Log log) {
     this.db = db;
     this.runtime = runtime;
     this.time = time;
     this.i18n = i18n;
-    this.ledger = ledger;
-    this.jobs = jobs;
+    this.modules = modules;
     this.log = log;
   }
 
@@ -154,12 +164,21 @@ public final class Config {
   }
 
   /**
+   * Module configuration.
+   *
+   * @return structured module toggles and settings
+   */
+  public Modules modules() {
+    return modules;
+  }
+
+  /**
    * Ledger configuration.
    *
    * @return ledger configuration block
    */
   public Ledger ledger() {
-    return ledger;
+    return modules.ledger();
   }
 
   /**
@@ -168,7 +187,7 @@ public final class Config {
    * @return job scheduling block
    */
   public Jobs jobs() {
-    return jobs;
+    return modules.scheduler().jobs();
   }
 
   /**
@@ -186,7 +205,7 @@ public final class Config {
    * @return {@code true} if the ledger subsystem should initialize
    */
   public boolean ledgerEnabled() {
-    return ledger.enabled();
+    return modules.ledger().enabled();
   }
 
   /**
@@ -220,12 +239,18 @@ public final class Config {
       Db db = parseDb(optObject(core, "db"));
       Runtime runtime = parseRuntime(optObject(core, "runtime"));
       Time time = parseTime(optObject(core, "time"));
+      Modules modules =
+          parseModules(optObject(root, "modules"), time.display().autoDetect());
+      time =
+          new Time(
+              new Display(
+                  time.display().defaultZone(),
+                  time.display().allowPlayerOverride(),
+                  modules.timezone().autoDetect().enabled()));
       I18n i18n = parseI18n(optObject(core, "i18n"));
-      Ledger ledger = parseLedger(optObject(core, "ledger"));
-      Jobs jobs = parseJobs(optObject(core, "jobs"));
       Log log = parseLog(optObject(core, "log"));
 
-      Config config = new Config(db, runtime, time, i18n, ledger, jobs, log);
+      Config config = new Config(db, runtime, time, i18n, modules, log);
       validate(config);
       return config;
     } catch (IOException e) {
@@ -302,6 +327,38 @@ public final class Config {
     return new Time(new Display(zoneId, allowOverride, autoDetect));
   }
 
+  private static Modules parseModules(JsonObject modules, boolean defaultAutoDetect) {
+    Ledger ledger = parseLedger(optObject(modules, "ledger"));
+    SchedulerModule scheduler = parseScheduler(optObject(modules, "scheduler"));
+    TimezoneModule timezone = parseTimezone(optObject(modules, "timezone"), defaultAutoDetect);
+    PlaytimeModule playtime = parsePlaytime(optObject(modules, "playtime"));
+    return new Modules(ledger, scheduler, timezone, playtime);
+  }
+
+  private static SchedulerModule parseScheduler(JsonObject scheduler) {
+    boolean enabled = scheduler == null || optBoolean(scheduler, "enabled", true);
+    JsonObject jobsObj = scheduler != null ? optObject(scheduler, "jobs") : null;
+    Jobs jobs = parseJobs(jobsObj);
+    return new SchedulerModule(enabled, jobs);
+  }
+
+  private static TimezoneModule parseTimezone(JsonObject timezone, boolean defaultAutoDetect) {
+    boolean enabled = timezone == null || optBoolean(timezone, "enabled", true);
+    JsonObject autoObj = timezone != null ? optObject(timezone, "autoDetect") : null;
+    boolean autoEnabled =
+        autoObj != null ? optBoolean(autoObj, "enabled", defaultAutoDetect) : defaultAutoDetect;
+    String database =
+        autoObj != null
+            ? optString(autoObj, "database", "./config/mincore.geoip.mmdb")
+            : "./config/mincore.geoip.mmdb";
+    return new TimezoneModule(enabled, new AutoDetect(autoEnabled, database));
+  }
+
+  private static PlaytimeModule parsePlaytime(JsonObject playtime) {
+    boolean enabled = playtime == null || optBoolean(playtime, "enabled", true);
+    return new PlaytimeModule(enabled);
+  }
+
   private static I18n parseI18n(JsonObject i18n) {
     if (i18n == null) {
       return new I18n(
@@ -340,7 +397,8 @@ public final class Config {
     if (jobs == null) {
       return new Jobs(
           new Backup(
-              false, "0 45 4 * * *", "./backups/mincore", OnMissed.SKIP, true, new Prune(14, 60)),
+              true, "0 45 4 * * *", "./backups/mincore", OnMissed.RUN_AT_NEXT_STARTUP, true,
+              new Prune(14, 60)),
           new Cleanup(new IdempotencySweep(true, "0 30 4 * * *", 30, 5000)));
     }
     JsonObject backupObj = optObject(jobs, "backup");
@@ -415,8 +473,7 @@ public final class Config {
     validateRuntime(cfg.runtime());
     validateTime(cfg.time());
     validateI18n(cfg.i18n());
-    validateLedger(cfg.ledger());
-    validateJobs(cfg.jobs());
+    validateModules(cfg.modules(), cfg.time());
     validateLog(cfg.log());
   }
 
@@ -510,6 +567,51 @@ public final class Config {
     String fallbackCode = i18n.fallbackLocale().toLanguageTag().replace('-', '_');
     if (i18n.enabledLocales().stream().noneMatch(l -> l.equalsIgnoreCase(fallbackCode))) {
       throw new IllegalStateException("core.i18n.enabledLocales must include fallbackLocale");
+    }
+  }
+
+  private static void validateModules(Modules modules, Time time) {
+    if (modules == null) {
+      throw new IllegalStateException("modules block missing");
+    }
+    if (modules.ledger() == null) {
+      throw new IllegalStateException("modules.ledger block missing");
+    }
+    if (modules.scheduler() == null) {
+      throw new IllegalStateException("modules.scheduler block missing");
+    }
+    if (modules.timezone() == null) {
+      throw new IllegalStateException("modules.timezone block missing");
+    }
+    if (modules.timezone().autoDetect() == null) {
+      throw new IllegalStateException("modules.timezone.autoDetect block missing");
+    }
+    if (modules.playtime() == null) {
+      throw new IllegalStateException("modules.playtime block missing");
+    }
+    validateLedger(modules.ledger());
+    validateJobs(modules.scheduler().jobs());
+    if (!modules.scheduler().enabled()) {
+      boolean backupEnabled = modules.scheduler().jobs().backup().enabled();
+      boolean cleanupEnabled = modules.scheduler().jobs().cleanup().idempotencySweep().enabled();
+      if (backupEnabled || cleanupEnabled) {
+        throw new IllegalStateException(
+            "modules.scheduler.enabled=false requires all jobs to be disabled");
+      }
+    }
+    if (modules.timezone().autoDetect().enabled()) {
+      if (!modules.timezone().enabled()) {
+        throw new IllegalStateException(
+            "modules.timezone.autoDetect.enabled requires modules.timezone.enabled=true");
+      }
+      requireNonBlank(
+          modules.timezone().autoDetect().databasePath(), "modules.timezone.autoDetect.database");
+      ensureValidPath(
+          modules.timezone().autoDetect().databasePath(), "modules.timezone.autoDetect.database");
+    }
+    if (!modules.timezone().enabled() && time.display().autoDetect()) {
+      throw new IllegalStateException(
+          "modules.timezone.enabled=false requires core.time.display.autoDetect=false");
     }
   }
 
@@ -679,6 +781,48 @@ public final class Config {
    * @param fallbackLocale locale used when a translation key is missing
    */
   public record I18n(Locale defaultLocale, List<String> enabledLocales, Locale fallbackLocale) {}
+
+  /**
+   * Module toggles and advanced settings.
+   *
+   * @param ledger ledger subsystem configuration
+   * @param scheduler scheduler module controlling job wiring
+   * @param timezone timezone command + auto-detection controls
+   * @param playtime playtime command toggle
+   */
+  public record Modules(
+      Ledger ledger, SchedulerModule scheduler, TimezoneModule timezone, PlaytimeModule playtime) {}
+
+  /**
+   * Scheduler module wrapper.
+   *
+   * @param enabled whether background jobs should be scheduled
+   * @param jobs nested job configuration
+   */
+  public record SchedulerModule(boolean enabled, Jobs jobs) {}
+
+  /**
+   * Timezone module options.
+   *
+   * @param enabled whether timezone commands should register
+   * @param autoDetect optional owner-controlled auto-detection settings
+   */
+  public record TimezoneModule(boolean enabled, AutoDetect autoDetect) {}
+
+  /**
+   * Timezone auto-detection settings.
+   *
+   * @param enabled whether lookups should be attempted on player join
+   * @param databasePath path to the MaxMind GeoIP database
+   */
+  public record AutoDetect(boolean enabled, String databasePath) {}
+
+  /**
+   * Playtime module toggle.
+   *
+   * @param enabled whether the playtime command should register
+   */
+  public record PlaytimeModule(boolean enabled) {}
 
   /**
    * Ledger options.

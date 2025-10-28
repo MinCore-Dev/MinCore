@@ -39,11 +39,24 @@ public final class TimezoneAutoDetector implements AutoCloseable {
    * @return optional detector that can perform lookups when present
    */
   public static Optional<TimezoneAutoDetector> create(Config cfg) {
-    if (cfg == null || !cfg.time().display().autoDetect()) {
+    if (cfg == null) {
       return Optional.empty();
     }
 
-    Path dbPath = DEFAULT_DB_PATH;
+    Config.TimezoneModule tzModule = cfg.modules().timezone();
+    if (tzModule == null || !tzModule.enabled()) {
+      return Optional.empty();
+    }
+
+    Config.AutoDetect autoCfg = tzModule.autoDetect();
+    if (autoCfg == null || !autoCfg.enabled() || !cfg.time().display().autoDetect()) {
+      return Optional.empty();
+    }
+
+    Path dbPath =
+        autoCfg.databasePath() != null && !autoCfg.databasePath().isBlank()
+            ? Path.of(autoCfg.databasePath())
+            : DEFAULT_DB_PATH;
     if (!Files.exists(dbPath)) {
       LOG.warn(
           "(mincore) timezone auto-detect disabled: GeoIP database not found at {} (download GeoLite2 and place it there)",
