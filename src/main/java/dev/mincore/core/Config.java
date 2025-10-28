@@ -239,8 +239,9 @@ public final class Config {
       Db db = parseDb(optObject(core, "db"));
       Runtime runtime = parseRuntime(optObject(core, "runtime"));
       Time time = parseTime(optObject(core, "time"));
-      Modules modules =
-          parseModules(optObject(root, "modules"), time.display().autoDetect());
+      ModulesParseResult modulesResult =
+          parseModules(optObject(root, "modules"), core, time.display().autoDetect());
+      Modules modules = modulesResult.modules();
       time =
           new Time(
               new Display(
@@ -251,7 +252,7 @@ public final class Config {
       Log log = parseLog(optObject(core, "log"));
 
       Config config = new Config(db, runtime, time, i18n, modules, log);
-      validate(config);
+      validate(config, modulesResult.modulesProvided(), modulesResult.legacyMapped());
       return config;
     } catch (IOException e) {
       throw new RuntimeException("Failed to read config: " + path, e);
@@ -327,12 +328,31 @@ public final class Config {
     return new Time(new Display(zoneId, allowOverride, autoDetect));
   }
 
-  private static Modules parseModules(JsonObject modules, boolean defaultAutoDetect) {
-    Ledger ledger = parseLedger(optObject(modules, "ledger"));
-    SchedulerModule scheduler = parseScheduler(optObject(modules, "scheduler"));
-    TimezoneModule timezone = parseTimezone(optObject(modules, "timezone"), defaultAutoDetect);
-    PlaytimeModule playtime = parsePlaytime(optObject(modules, "playtime"));
-    return new Modules(ledger, scheduler, timezone, playtime);
+  private static ModulesParseResult parseModules(
+      JsonObject modules, JsonObject core, boolean defaultAutoDetect) {
+    if (modules != null) {
+      Ledger ledger = parseLedger(optObject(modules, "ledger"));
+      SchedulerModule scheduler = parseScheduler(optObject(modules, "scheduler"));
+      TimezoneModule timezone = parseTimezone(optObject(modules, "timezone"), defaultAutoDetect);
+      PlaytimeModule playtime = parsePlaytime(optObject(modules, "playtime"));
+      return new ModulesParseResult(
+          new Modules(ledger, scheduler, timezone, playtime), true, false);
+    }
+
+    JsonObject legacyLedger = optObject(core, "ledger");
+    JsonObject legacyJobs = optObject(core, "jobs");
+    if (legacyLedger == null && legacyJobs == null) {
+      throw new IllegalStateException(
+          "modules block missing; add modules{} or legacy core.ledger/core.jobs{} values");
+    }
+
+    Ledger ledger = parseLedger(legacyLedger);
+    Jobs jobs = parseJobs(legacyJobs);
+    SchedulerModule scheduler = new SchedulerModule(true, jobs);
+    TimezoneModule timezone = parseTimezone(null, defaultAutoDetect);
+    PlaytimeModule playtime = parsePlaytime(null);
+    return new ModulesParseResult(
+        new Modules(ledger, scheduler, timezone, playtime), false, true);
   }
 
   private static SchedulerModule parseScheduler(JsonObject scheduler) {
@@ -468,12 +488,12 @@ public final class Config {
     return Locale.forLanguageTag(code.replace('_', '-'));
   }
 
-  private static void validate(Config cfg) {
+  private static void validate(Config cfg, boolean modulesProvided, boolean legacyMapped) {
     validateDb(cfg.db());
     validateRuntime(cfg.runtime());
     validateTime(cfg.time());
     validateI18n(cfg.i18n());
-    validateModules(cfg.modules(), cfg.time());
+    validateModules(cfg.modules(), cfg.time(), modulesProvided, legacyMapped);
     validateLog(cfg.log());
   }
 
@@ -570,7 +590,12 @@ public final class Config {
     }
   }
 
-  private static void validateModules(Modules modules, Time time) {
+  private static void validateModules(
+      Modules modules, Time time, boolean modulesProvided, boolean legacyMapped) {
+    if (!modulesProvided && !legacyMapped) {
+      throw new IllegalStateException(
+          "modules block missing; add modules{} or legacy core.ledger/core.jobs{} values");
+    }
     if (modules == null) {
       throw new IllegalStateException("modules block missing");
     }
@@ -614,6 +639,8 @@ public final class Config {
           "modules.timezone.enabled=false requires core.time.display.autoDetect=false");
     }
   }
+
+  private record ModulesParseResult(Modules modules, boolean modulesProvided, boolean legacyMapped) {}
 
   private static void validateLedger(Ledger ledger) {
     if (ledger.retentionDays() < 0) {
