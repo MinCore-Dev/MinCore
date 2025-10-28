@@ -400,9 +400,9 @@ public final class Config {
 
   private static Ledger parseLedger(JsonObject ledger) {
     if (ledger == null) {
-      return new Ledger(false, 0, new JsonlMirror(false, "./logs/mincore-ledger.jsonl"));
+      return new Ledger(true, 0, new JsonlMirror(false, "./logs/mincore-ledger.jsonl"));
     }
-    boolean enabled = optBoolean(ledger, "enabled", false);
+    boolean enabled = optBoolean(ledger, "enabled", true);
     int retention = optInt(ledger, "retentionDays", 0);
     JsonObject file = optObject(ledger, "file");
     boolean jsonl = file != null && optBoolean(file, "enabled", false);
