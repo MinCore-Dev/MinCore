@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -21,8 +20,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Coordinates module lifecycle and exposes active module state. Modules are started in dependency
- * order and stopped in reverse.
+ * Coordinates module lifecycle and exposes active module state. Modules are started in the order
+ * they are requested and stopped in reverse.
  */
 public final class ModuleManager implements AutoCloseable, ModuleStateView {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
@@ -49,14 +48,10 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     }
     Objects.requireNonNull(requested, "requested");
 
-    List<String> ordered = resolveOrder(requested);
     Deque<MinCoreModule> startedModules = new ArrayDeque<>();
     try {
-      for (String id : ordered) {
-        MinCoreModule module = modules.get(id);
-        if (module == null) {
-          throw new IllegalStateException("Module not registered: " + id);
-        }
+      for (String id : requested) {
+        MinCoreModule module = modules.computeIfAbsent(id, this::newModuleInstance);
         module.start(context);
         active.add(id);
         startOrder.add(module);
@@ -82,58 +77,6 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
 
   private void publishLedger(Ledger ledger) {
     MinCoreApi.publishLedger(ledger);
-  }
-
-  private List<String> resolveOrder(Set<String> requested) {
-    Set<String> requestedCopy = new LinkedHashSet<>();
-    for (String id : requested) {
-      if (!ModuleRegistry.has(id)) {
-        throw new IllegalArgumentException("Unknown module id: " + id);
-      }
-      modules.computeIfAbsent(id, this::newModuleInstance);
-      requestedCopy.add(id);
-    }
-
-    List<String> order = new ArrayList<>();
-    Set<String> visiting = new HashSet<>();
-    Set<String> visited = new HashSet<>();
-    for (String id : requestedCopy) {
-      visit(id, requestedCopy, visiting, visited, order);
-    }
-    return order;
-  }
-
-  private void visit(
-      String id,
-      Set<String> requested,
-      Set<String> visiting,
-      Set<String> visited,
-      List<String> order) {
-    if (visited.contains(id)) {
-      return;
-    }
-    if (!requested.contains(id)) {
-      return;
-    }
-    if (!modules.containsKey(id)) {
-      modules.computeIfAbsent(id, this::newModuleInstance);
-    }
-    if (!visiting.add(id)) {
-      throw new IllegalStateException("Module dependency cycle detected at " + id);
-    }
-    MinCoreModule module = modules.get(id);
-    for (String dep : module.requires()) {
-      if (!requested.contains(dep)) {
-        throw new IllegalStateException(
-            "Module '" + id + "' requires missing module '" + dep + "'");
-      }
-      visit(dep, requested, visiting, visited, order);
-    }
-    visiting.remove(id);
-    visited.add(id);
-    if (!order.contains(id)) {
-      order.add(id);
-    }
   }
 
   private MinCoreModule newModuleInstance(String id) {
