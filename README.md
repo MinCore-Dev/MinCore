@@ -118,7 +118,7 @@ Edit `config/mincore.json5`. Example with comments is generated for you. You can
 - `MINCORE_DB_USER`
 - `MINCORE_DB_PASSWORD`
 
-Keep `session.forceUtc: true`. This sets the session time zone to UTC on every pooled connection. Use this step to decide which bundled modules stay enabled—disable the ledger if you only need wallets in memory, toggle the backup or cleanup jobs, and decide whether timezone overrides or GeoIP auto-detect should be available to players. If you plan to enable GeoIP auto-detect, set `core.time.display.allowPlayerOverride: true` first; turning on `modules.timezone.autoDetect.enabled` also requires `core.time.display.autoDetect: true`, and the validator will abort startup with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides remain disabled.
+Keep `session.forceUtc: true`. This sets the session time zone to UTC on every pooled connection. Use this step to decide which bundled modules stay enabled—disable the ledger if you only need wallets in memory, toggle the backup or cleanup jobs, and decide whether timezone overrides or GeoIP auto-detect should be available to players. If you plan to enable GeoIP auto-detect, set `core.time.display.allowPlayerOverride: true` before flipping `modules.timezone.autoDetect.enabled`; doing so automatically turns on the matching `core.time.display.autoDetect` flag. Operators migrating older configs should only keep the legacy `core.time.display.autoDetect` toggle if they need to override that default for compatibility.
 
 ### 6. First run smoke test
 
@@ -238,7 +238,7 @@ All modules ship in the single MinCore jar. Disabling a module removes its stora
 Notes
 
 - Set `allowPlayerOverride: true` to allow `/timezone set <ZoneId>` for players
-- Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically. Remember to flip `core.time.display.allowPlayerOverride: true` beforehand; enabling GeoIP auto-detect goes hand-in-hand with `core.time.display.autoDetect: true`, and validation stops the server with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides stay disabled.
+- Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically. Enabling the module sets `core.time.display.autoDetect: true` for you—just confirm `core.time.display.allowPlayerOverride: true` first. Keep the legacy `core.time.display.autoDetect` toggle only if you are migrating an older config that still needs it.
 - Keep `forceUtc: true` so storage is consistent
 - If you disable `modules.scheduler.enabled`, also set every job under `modules.scheduler.jobs` to `enabled: false`
 
