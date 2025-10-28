@@ -118,7 +118,7 @@ Edit `config/mincore.json5`. Example with comments is generated for you. You can
 - `MINCORE_DB_USER`
 - `MINCORE_DB_PASSWORD`
 
-Keep `session.forceUtc = true`. This sets the session time zone to UTC on every pooled connection. Use this step to decide which bundled modules stay enabled—disable the ledger if you only need wallets in memory, toggle the backup or cleanup jobs, and decide whether timezone overrides or GeoIP auto-detect should be available to players. If you plan to enable GeoIP auto-detect, set `core.time.display.allowPlayerOverride = true` first; turning on `modules.timezone.autoDetect.enabled` also requires `core.time.display.autoDetect = true`, and the validator will abort startup with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides remain disabled.
+Keep `session.forceUtc: true`. This sets the session time zone to UTC on every pooled connection. Use this step to decide which bundled modules stay enabled—disable the ledger if you only need wallets in memory, toggle the backup or cleanup jobs, and decide whether timezone overrides or GeoIP auto-detect should be available to players. If you plan to enable GeoIP auto-detect, set `core.time.display.allowPlayerOverride: true` first; turning on `modules.timezone.autoDetect.enabled` also requires `core.time.display.autoDetect: true`, and the validator will abort startup with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides remain disabled.
 
 ### 6. First run smoke test
 
@@ -152,92 +152,94 @@ Config file location: `config/mincore.json5`
 | Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `modules.timezone.enabled`; GeoIP lookup via `modules.timezone.autoDetect.enabled` + `modules.timezone.autoDetect.database` |
 | i18n bundle | Locale loading/rendering | Enabled | Ensure `core.i18n.enabledLocales` lists allowed locales; remove extras to limit availability |
 
-All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules { ... }` block in `mincore.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path).
+All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules: { ... }` block in `mincore.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path).
 
-```hocon
-modules {
-  ledger {
-    enabled = true
-    retentionDays = 0
-    file {
-      enabled = false
-      path = "./logs/mincore-ledger.jsonl"
-    }
-  }
-  scheduler {
-    enabled = true
-    jobs {
-      backup {
-        enabled = true
-        schedule = "0 45 4 * * *"
-        outDir = "./backups/mincore"
-        onMissed = "runAtNextStartup"
-        gzip = true
-        prune { keepDays = 14, keepMax = 60 }
+```json5
+{
+  modules: {
+    ledger: {
+      enabled: true,
+      retentionDays: 0,
+      file: {
+        enabled: false,
+        path: "./logs/mincore-ledger.jsonl"
       }
-      cleanup {
-        idempotencySweep {
-          enabled = true
-          schedule = "0 30 4 * * *"
-          retentionDays = 30
-          batchLimit = 5000
+    },
+    scheduler: {
+      enabled: true,
+      jobs: {
+        backup: {
+          enabled: true,
+          schedule: "0 45 4 * * *",
+          outDir: "./backups/mincore",
+          onMissed: "runAtNextStartup",
+          gzip: true,
+          prune: { keepDays: 14, keepMax: 60 }
+        },
+        cleanup: {
+          idempotencySweep: {
+            enabled: true,
+            schedule: "0 30 4 * * *",
+            retentionDays: 30,
+            batchLimit: 5000
+          }
         }
       }
+    },
+    timezone: {
+      enabled: true,
+      autoDetect: {
+        enabled: false,
+        database: "./config/mincore.geoip.mmdb"
+      }
+    },
+    playtime: { enabled: true }
+  },
+  core: {
+    db: {
+      host: "127.0.0.1",
+      port: 3306,
+      database: "mincore",
+      user: "mincore",
+      password: "change-me",
+      tls: { enabled: false },
+      session: { forceUtc: true },
+      pool: {
+        maxPoolSize: 10,
+        minimumIdle: 2,
+        connectionTimeoutMs: 10000,
+        idleTimeoutMs: 600000,
+        maxLifetimeMs: 1700000,
+        startupAttempts: 3
+      }
+    },
+    runtime: { reconnectEveryS: 10 },
+    time: {
+      display: {
+        defaultZone: "UTC",
+        allowPlayerOverride: false
+      }
+    },
+    i18n: {
+      defaultLocale: "en_US",
+      enabledLocales: [ "en_US" ],
+      fallbackLocale: "en_US"
+    },
+    log: {
+      json: false,
+      slowQueryMs: 250,
+      level: "INFO"
     }
-  }
-  timezone {
-    enabled = true
-    autoDetect {
-      enabled = false
-      database = "./config/mincore.geoip.mmdb"
-    }
-  }
-  playtime { enabled = true }
-}
-core {
-  db {
-    host = "127.0.0.1"
-    port = 3306
-    database = "mincore"
-    user = "mincore"
-    password = "change-me"
-    tls { enabled = false }
-    session { forceUtc = true }
-    pool {
-      maxPoolSize = 10
-      minimumIdle = 2
-      connectionTimeoutMs = 10000
-      idleTimeoutMs = 600000
-      maxLifetimeMs = 1700000
-      startupAttempts = 3
-    }
-  }
-  runtime { reconnectEveryS = 10 }
-  time {
-    display {
-      defaultZone = "UTC"
-      allowPlayerOverride = false
-    }
-  }
-  i18n {
-    defaultLocale = "en_US"
-    enabledLocales = [ "en_US" ]
-    fallbackLocale = "en_US"
-  }
-  log {
-    json = false
-    slowQueryMs = 250
-    level = "INFO"
   }
 }
 ```
 
 Notes
 
-- Set `allowPlayerOverride = true` to allow `/timezone set <ZoneId>` for players
-- Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically. Remember to flip `core.time.display.allowPlayerOverride = true` beforehand; enabling GeoIP auto-detect goes hand-in-hand with `core.time.display.autoDetect = true`, and validation stops the server with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides stay disabled.
-- Keep `forceUtc = true` so storage is consistent
-- If you disable `modules.scheduler.enabled`, also set every job under `modules.scheduler.jobs` to `enabled = false`
+- Set `allowPlayerOverride: true` to allow `/timezone set <ZoneId>` for players
+- Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically. Remember to flip `core.time.display.allowPlayerOverride: true` beforehand; enabling GeoIP auto-detect goes hand-in-hand with `core.time.display.autoDetect: true`, and validation stops the server with `core.time.display.autoDetect requires allowPlayerOverride=true` if overrides stay disabled.
+- Keep `forceUtc: true` so storage is consistent
+- If you disable `modules.scheduler.enabled`, also set every job under `modules.scheduler.jobs` to `enabled: false`
 
 ## Commands
 
@@ -414,7 +416,7 @@ Open issues and small focused pull requests. Do not commit secrets. Use code own
 ## Troubleshooting
 
 - **Cannot connect to DB** check host, port, firewall, and credentials. Verify the DB driver jar is present
-- **Wrong time zone rendering** check that `session.forceUtc = true` and that your server default zone and player overrides are configured correctly
+- **Wrong time zone rendering** check that `session.forceUtc: true` and that your server default zone and player overrides are configured correctly
 - **Backups did not run** check the scheduler configuration and server clock. Run `/mincore jobs list` and `/mincore jobs run backup`
 - **Idempotency conflicts** if you see replay or mismatch errors, confirm your add-on uses stable idempotency keys that include scope and normalized payload details
 - **Large ledger table** set `retentionDays` to a positive number to enable truncation of very old entries or rely on external archival
