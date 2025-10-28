@@ -16,7 +16,8 @@ import dev.mincore.api.storage.ExtensionDatabase;
  *       #publishLedger(Ledger)}.
  * </ol>
  *
- * <p>Add-ons should treat these as read-only. Core is responsible for wiring.
+ * <p>Bundled modules and operator automation should treat these as read-only handles. Core is
+ * responsible for wiring.
  */
 public final class MinCoreApi {
   private static dev.mincore.core.Services services;
@@ -41,7 +42,8 @@ public final class MinCoreApi {
    * Publish the ledger singleton after the database is ready and migrations have applied.
    *
    * <p>During normal startup core passes a fully initialized, non-null ledger—even when
-   * persistence is disabled—so add-ons can continue to enqueue entries that will be no-ops.
+   * persistence is disabled—so bundled modules and automation can continue to enqueue entries that
+   * will be no-ops.
    * During shutdown (including module stop) core publishes {@code null} to clear the handle and
    * signal that the ledger is no longer available.
    *
@@ -89,9 +91,9 @@ public final class MinCoreApi {
   }
 
   /**
-   * Gets the shared database helpers exposed to add-ons.
+   * Gets the shared database helpers used by bundled modules and operator automation.
    *
-   * @return shared database helpers for add-ons
+   * @return shared database helpers for modules and automation
    */
   public static ExtensionDatabase database() {
     return services.database();

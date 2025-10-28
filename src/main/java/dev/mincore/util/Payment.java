@@ -12,8 +12,8 @@ import java.util.UUID;
  * one-shot transfer helper.
  *
  * <p>These helpers are intentionally lightweight and avoid any direct database access; they operate
- * in terms of the public {@link Wallets} API. Use them inside add-ons to reduce boilerplate around
- * consistent reason strings and idempotent operations.
+ * in terms of the public {@link Wallets} API. Use them inside bundled modules or operator automation
+ * to reduce boilerplate around consistent reason strings and idempotent operations.
  */
 public final class Payment {
   private Payment() {}
@@ -42,7 +42,7 @@ public final class Payment {
   }
 
   /**
-   * Builds a deterministic idempotency key for a money movement within an add-on scope.
+   * Builds a deterministic idempotency key for a money movement within a module scope.
    *
    * <p>This returns a stable, human-readable composite string in the form:
    *
@@ -53,7 +53,7 @@ public final class Payment {
    * <p>If you need a fixed-length token for storage or privacy, hash the result with {@link
    * #sha256(String)} and store the digest instead.
    *
-   * @param scope add-on scope namespace (for example, {@code "shop:buy"})
+   * @param scope module scope namespace (for example, {@code "economy:buy"})
    * @param from payer UUID (nullable; replaced by the zero-UUID when null)
    * @param to payee UUID (nullable; replaced by the zero-UUID when null)
    * @param amount amount in smallest currency units
