@@ -52,7 +52,7 @@ export MINCORE_RCON_PASSWORD=change-me
 6. **Doctor**
    * `/mincore doctor --counts --fk` – confirm reported counts match expectations and no FK issues.
 7. **Timezone & I18n**
-   * If you plan to enable GeoIP auto-detect during this run, confirm `core.time.display.allowPlayerOverride = true` first; otherwise flipping `modules.timezone.autoDetect.enabled` will fail validation with `core.time.display.autoDetect requires allowPlayerOverride=true`.
+   * If you plan to enable GeoIP auto-detect during this run, confirm `core.time.display.allowPlayerOverride = true` first. Enabling `modules.timezone.autoDetect.enabled` now turns on `core.time.display.autoDetect` automatically, so no extra toggle is required—keep the legacy flag only when migrating an older config that still depends on it.
    * If overrides are enabled, run `/timezone set Europe/Berlin` as a player and ensure success.
    * Toggle `/timezone clock 12` and `/timezone clock 24` to confirm the clock format updates and feedback shows the zone abbreviation + UTC offset label.
    * Toggle JSON logging and ensure locale messages render correctly in your configured language.
