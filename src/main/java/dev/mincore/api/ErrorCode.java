@@ -5,8 +5,8 @@ package dev.mincore.api;
  * Canonical error/result codes produced by MinCore subsystems.
  *
  * <p>These codes map 1:1 with the catalogue defined in the master specification and are used for
- * ledger rows, admin feedback, and localization keys. Add-ons may surface them to players or
- * operators to explain why an operation failed.
+ * ledger rows, admin feedback, and localization keys. Modules or the core surface them to players
+ * and operators to explain why an operation failed.
  */
 public enum ErrorCode {
   /** Wallet balance would become negative. */
