@@ -447,7 +447,7 @@ public final class BackupImporter {
 
   private static String moduleField(JsonObject obj) throws SQLException {
     if (obj.has("addon") && !obj.get("addon").isJsonNull()) {
-      throw new SQLException("snapshot ledger entry uses deprecated addon field");
+      throw new SQLException("snapshot ledger entry contains unexpected module addon field");
     }
     String module = stringOrNull(obj, "module");
     if (module == null) {
