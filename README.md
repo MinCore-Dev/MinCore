@@ -217,7 +217,8 @@ All modules ship in the single MinCore jar. Disabling a module removes its stora
     time: {
       display: {
         defaultZone: "UTC",
-        allowPlayerOverride: false
+        allowPlayerOverride: false,
+        autoDetect: false
       }
     },
     i18n: {
