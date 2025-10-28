@@ -152,7 +152,7 @@ final class ConfigCompatibilityTest {
                 time: {
                   display: {
                     defaultZone: \"UTC\",
-                    allowPlayerOverride: false,
+                    allowPlayerOverride: true,
                     autoDetect: true
                   }
                 },
