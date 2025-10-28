@@ -58,7 +58,7 @@ MinCore does not include a full gameplay economy, shops, quests, or a web panel.
 - SchemaHelper that performs ensure table, ensure column, ensure index, and safe check constraints
 - Wallets API with idempotent deposit, withdraw, transfer and a durable ledger module that can be disabled when persistence is not desired
 - Post commit events with at least once delivery and per player ordering guarantees
-- Scheduler with cron like jobs in UTC and configurable job toggles (backup, cleanup, custom extensions)
+- Scheduler with cron like jobs in UTC and configurable toggles for the bundled backup and cleanup runs from the built-in modules
 - Daily JSONL exports with gzip and checksum files controlled by the backup module switches
 - Playtime service with top, me and reset endpoints bundled in the core
 - i18n and timezone rendering utilities, including optional player overrides and GeoIP auto-detect
@@ -352,7 +352,7 @@ Provide a local MariaDB as shown earlier. The mod will create the schema automat
 
 ### Module API overview
 
-All bundled modules call into the shared `MinCoreApi` so their behavior stays consistent whether you invoke a command or let a scheduled job run. Operators who automate maintenance (for example with scripting mods or console bridges) can reuse the same entry points:
+All bundled modules call into the shared `MinCoreApi` so their behavior stays consistent whether you invoke a command or let a scheduled job run. There are no external add-on jars to wire up—the scheduler, backup, cleanup, and other module jobs all live inside the core mod. Operators who automate maintenance (for example with scripting mods or console bridges) can reuse the same entry points:
 
 ```java
 var wallets = MinCoreApi.wallets();
