@@ -422,9 +422,10 @@ public final class Config {
           new Cleanup(new IdempotencySweep(true, "0 30 4 * * *", 30, 5000)));
     }
     JsonObject backupObj = optObject(jobs, "backup");
+    boolean backupEnabled = backupObj == null || optBoolean(backupObj, "enabled", true);
     Backup backup =
         new Backup(
-            backupObj != null && optBoolean(backupObj, "enabled", false),
+            backupEnabled,
             backupObj != null ? optString(backupObj, "schedule", "0 45 4 * * *") : "0 45 4 * * *",
             backupObj != null
                 ? optString(backupObj, "outDir", "./backups/mincore")
