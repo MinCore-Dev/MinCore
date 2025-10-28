@@ -35,6 +35,7 @@
       autoDetect: {
         enabled: false,
         // Toggle via modules.timezone.autoDetect.enabled and point to the GeoIP database path below.
+        // Reminder: set core.time.display.allowPlayerOverride = true before enabling this or validation will fail.
         database: "./config/mincore.geoip.mmdb"
       }
     },
