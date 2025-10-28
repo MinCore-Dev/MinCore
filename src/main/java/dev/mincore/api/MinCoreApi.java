@@ -40,10 +40,13 @@ public final class MinCoreApi {
   /**
    * Publish the ledger singleton after the database is ready and migrations have applied.
    *
-   * <p>Core must always provide a concrete ledger handle—even when persistence is disabled—so
-   * add-ons can continue to enqueue entries that will be no-ops.
+   * <p>During normal startup core passes a fully initialized, non-null ledger—even when
+   * persistence is disabled—so add-ons can continue to enqueue entries that will be no-ops.
+   * During shutdown (including module stop) core publishes {@code null} to clear the handle and
+   * signal that the ledger is no longer available.
    *
-   * @param l initialized ledger implementation (never {@code null} once bootstrapped)
+   * @param l initialized ledger implementation, or {@code null} when core is clearing the
+   *     published handle while shutting down
    */
   public static void publishLedger(Ledger l) {
     ledger = l;
@@ -106,12 +109,13 @@ public final class MinCoreApi {
   /**
    * Gets the published ledger singleton.
    *
-   * <p>After {@link #bootstrap(dev.mincore.core.Services)} and {@link #publishLedger(Ledger)}
-   * complete, this accessor always returns a non-null handle—even when ledger persistence is
-   * disabled in configuration. The only times a {@code null} can be observed are before
-   * bootstrap finishes or after core shutdown.
+   * <p>After {@link #bootstrap(dev.mincore.core.Services)} and the initial
+   * {@link #publishLedger(Ledger)} call complete, this accessor returns a non-null handle—even when
+   * ledger persistence is disabled in configuration. Core republishes {@code null} when the ledger
+   * module stops or during shutdown to indicate the handle has been cleared.
    *
-   * @return the ledger instance, or {@code null} before bootstrap or after shutdown
+   * @return the ledger instance, or {@code null} before bootstrap completes or once shutdown/module
+   *     stop begins
    */
   public static Ledger ledger() {
     return ledger;
