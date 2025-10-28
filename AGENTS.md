@@ -52,7 +52,7 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 * [ ] Export and restore tested; checksums verified.
 * [ ] Logs monitored for `CONNECTION_LOST`, `IDEMPOTENCY_*`, deadlocks.
 
-### 3) Add-on Checklist
+### 3) Extension Checklist
 
 * [ ] Use idempotent wallet APIs for networked flows.
 * [ ] Subscribe to events; dedupe by (player, seq).
@@ -102,7 +102,7 @@ See Sections 3.9 and 5.2 below for SQL and Docker snippets.
 
 ### 1.1 Mission
 
-MinCore is a **small, opinionated core** for Fabric Minecraft servers that gives add-on authors production‑grade primitives—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—so they can build features faster with **fewer foot‑guns** and consistent operational behavior.
+MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships as a single jar containing first‑party modules—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—each controlled by configuration toggles so operators can right‑size the surface area without losing API stability. The mission is to keep those modules cohesive, ops‑friendly, and always invokable (no‑op when disabled) so servers get consistent behavior whether a feature is active or parked.
 
 ### 1.2 Non‑Goals
 
@@ -117,24 +117,35 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that gives
 
 1) **Small core, strong contracts** • 2) **Ops‑first defaults** • 3) **I18n + TZ everywhere** • 4) **Idempotent by design** • 5) **Predictable failure behavior** • 6) **Zero‑surprises migrations** • 7) **Observability > Guesswork**.
 
-### 1.4 Value Proposition for Add‑on Authors
+### 1.4 Value Proposition of the Bundled Modules
 
-- **Database**: HikariCP pool + **SchemaHelper** for safe, idempotent DDL (ensure‑table/index/column/check).
-- **Wallets API**: deposit/withdraw/transfer with **idempotency keys** + **ledger**.
-- **Ledger**: DB audit + optional **JSONL mirror**; indexed queries.
-- **Events**: post‑commit, background; **per‑player ordering**.
-- **Scheduler**: cron‑like UTC jobs; built‑in **backup** with retention.
-- **Playtime**: in‑memory tracker.
-- **I18n + TZ rendering** helpers.
+- **Single deployment artifact** with per‑module toggles—operators disable features they do not need without chasing separate jars.
+- **Database** foundation shared by every module: HikariCP pool + **SchemaHelper** for safe, idempotent DDL (ensure‑table/index/column/check).
+- **Wallets + Ledger module**: deposit/withdraw/transfer with **idempotency keys**, persisted ledger, and optional **JSONL mirror** even when the ledger output is paused.
+- **Events module**: post‑commit, background dispatch with **per‑player ordering** so dependent modules stay in sync.
+- **Scheduler module**: cron‑like UTC jobs driving **backup** and retention workflows that can be flipped off while leaving APIs callable.
+- **Playtime module**: in‑memory tracker that exposes counters regardless of toggle state (disabled = fixed zeroes).
+- **Localization + Timezone module**: helpers for I18n, timezone rendering, and optional GeoIP auto‑detect that reduce boilerplate for downstream extensions.
 
-### 1.5 Roadmap Snapshot (v1.0.0 highlights)
+### 1.5 Bundled Modules & Toggles
+
+| Module | Primary Config Toggle | Notes & Disabled Behavior |
+|---|---|---|
+| Ledger | `modules.ledger.enabled` | Controls ledger persistence and JSONL mirroring. When disabled, wallet APIs still accept calls; ledger writes become no‑ops and readers receive empty/placeholder responses rather than failures. |
+| Scheduler | `modules.scheduler.enabled` (with nested job toggles such as `modules.scheduler.jobs.backup.enabled`) | Disables background job execution while keeping scheduling APIs, job metadata, and command surfaces callable. Jobs report a disabled status when invoked directly. |
+| Timezone & I18n | `modules.timezone.enabled`, `modules.timezone.autoDetect.enabled` | Governs timezone customization and optional GeoIP detection. When disabled, helpers fall back to the server default zone and retain method contracts. |
+| Playtime | `modules.playtime.enabled` | Stops accruing playtime metrics but continues to serve API calls (always returning zero durations/counters). |
+
+> **Contributor rule:** Adding a new module means defining an explicit config toggle, documenting the disabled behavior, and ensuring every exposed API remains callable (no‑op instead of exception) when the toggle is `false`.
+
+### 1.6 Roadmap Snapshot (v1.0.0 highlights)
 
 - Commented JSON5 config; backups 04:45 UTC; least‑priv DB; **Config Template Writer**.
 - Server TZ default, optional per‑player TZ; **/timezone**.
 - Commands: `/mincore diag`, `/mincore db ping|info`, `/mincore ledger …`, `/playtime me|top|reset`, `/mincore jobs list|run`, `/mincore backup now`.
-- Dev standards: JavaDoc, Spotless, error‑code catalogue, example add‑on, smoke test.
+- Dev standards: JavaDoc, Spotless, error‑code catalogue, example extension workflows, smoke test.
 
-### 1.6 Compatibility Matrix
+### 1.7 Compatibility Matrix
 
 | Area | Min/Target | Notes |
 |---|---|---|
@@ -147,13 +158,13 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that gives
 
 **UUIDs** stored as `BINARY(16)` for compact, fast indexes.
 
-### 1.7 Versioning & Support
+### 1.8 Versioning & Support
 
 - **APIs** behave semantically (no breaking in patch; minimize in minor).
 - **Migrations** are idempotent ensure‑ops; staged constraints.
 - **Security fixes** may bypass deprecation timelines.
 
-### 1.8 Glossary
+### 1.9 Glossary
 
 Add‑on • Services • Wallets • Ledger • Idempotency • SchemaHelper • Scheduler/Job • Playtime • I18n • TZ Rendering • Config Template Writer.
 
@@ -603,7 +614,7 @@ Branches (`development`), small PRs, Conventional Commits, PR template, code own
 
 ### 5.13 Deliverables (“Done”)
 
-- **CONTRIBUTING.md**, style guide, example add‑on, smoke test script, updated DDL/config example per release.
+- **CONTRIBUTING.md**, style guide, example extension workflow, smoke test script, updated DDL/config example per release.
 
 ---
 
