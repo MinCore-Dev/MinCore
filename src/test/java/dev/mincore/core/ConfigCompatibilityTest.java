@@ -182,6 +182,60 @@ final class ConfigCompatibilityTest {
   }
 
   @Test
+  void backupDefaultsToEnabledWhenToggleMissing() throws Exception {
+    Path configFile = tempDir.resolve("backup-default-enabled.json5");
+    Files.writeString(
+        configFile,
+        """
+            {
+              modules: {
+                scheduler: {
+                  enabled: true,
+                  jobs: {
+                    backup: {
+                      schedule: \"0 0 6 * * *\",
+                      outDir: \"./backups/silent-default\"
+                    }
+                  }
+                }
+              },
+              core: {
+                db: {
+                  host: \"127.0.0.1\",
+                  port: 3306,
+                  database: \"defaults\",
+                  user: \"mincore\",
+                  password: \"change-me\"
+                },
+                runtime: { reconnectEveryS: 5 },
+                time: {
+                  display: {
+                    defaultZone: \"UTC\",
+                    allowPlayerOverride: false,
+                    autoDetect: false
+                  }
+                },
+                i18n: {
+                  defaultLocale: \"en_US\",
+                  enabledLocales: [ \"en_US\" ],
+                  fallbackLocale: \"en_US\"
+                },
+                log: { json: false, slowQueryMs: 250, level: \"INFO\" }
+              }
+            }
+            """,
+        StandardCharsets.UTF_8);
+
+    Config config = Config.loadOrWriteDefault(configFile);
+
+    assertTrue(config.modules().scheduler().jobs().backup().enabled());
+    assertEquals(
+        "0 0 6 * * *", config.modules().scheduler().jobs().backup().schedule());
+    assertEquals(
+        "./backups/silent-default", config.modules().scheduler().jobs().backup().outDir());
+  }
+
+  @Test
   void ledgerDefaultsToEnabledWhenToggleMissing() throws Exception {
     Path configFile = tempDir.resolve("ledger-default.json5");
     Files.writeString(
@@ -193,7 +247,24 @@ final class ConfigCompatibilityTest {
                   retentionDays: 5,
                   file: { path: \"./logs/default-ledger.jsonl\" }
                 },
-                scheduler: { enabled: false }
+                scheduler: {
+                  enabled: false,
+                  jobs: {
+                    backup: {
+                      enabled: false,
+                      schedule: \"0 45 4 * * *\",
+                      outDir: \"./backups/mincore\"
+                    },
+                    cleanup: {
+                      idempotencySweep: {
+                        enabled: false,
+                        schedule: \"0 30 4 * * *\",
+                        retentionDays: 30,
+                        batchLimit: 5000
+                      }
+                    }
+                  }
+                }
               },
               core: {
                 db: {
