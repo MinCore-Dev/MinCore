@@ -94,7 +94,8 @@ public final class Config {
           time: {
             display: {
               defaultZone: "UTC",
-              allowPlayerOverride: false
+              allowPlayerOverride: false,
+              autoDetect: false
             }
           },
           i18n: {
