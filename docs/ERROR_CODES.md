@@ -1,6 +1,6 @@
 # MinCore Error Code Catalogue
 
-MinCore surfaces canonical `ErrorCode` values across wallet operations, admin commands, and logs.
+MinCore surfaces canonical `ErrorCode` values across the bundled wallet module, admin commands, and logs.
 Use this table to map failures to localisation keys and recommended operator actions.
 
 | Code | i18n Key | Typical Source | Operator Guidance |
