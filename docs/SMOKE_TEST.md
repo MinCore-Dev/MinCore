@@ -25,16 +25,21 @@ export MINCORE_RCON_PASSWORD=change-me
    * `/mincore db ping`
    * `/mincore db info`
    * `/mincore diag`
-2. **Player bootstrap**
+2. **Player bootstrap** *(requires `modules.playtime.enabled` = `true`; skip otherwise and confirm the flag before expecting the
+   command responses — the automated script does not cover this step, so note the configuration state explicitly when you skip
+   it)*
    * Join with Player A, run `/playtime me` (should show a few seconds).
-   * Run `/mincore ledger recent 5` and confirm the ledger header prints.
-3. **Wallet operations**
+   * Run `/mincore ledger recent 5` and confirm the ledger header prints *(skip if `modules.ledger.enabled` = `false` and log
+     that the module is intentionally disabled before continuing).* 
+3. **Wallet operations** *(requires `modules.ledger.enabled` = `true`; if the ledger module is disabled, skip these ledger checks
+   and verify the configuration flag before expecting ledger output — the automated script will emit the same guidance)*
    * Run `wallet deposit` via console or the built-in wallet module APIs to give Player A 1,000 units (use an idempotent
      key).
    * Transfer 250 units from Player A to Player B twice with the same idempotency key – the second invocation should return an
      `IDEMPOTENCY_REPLAY` code and the ledger should not duplicate the transfer (if the ledger module is disabled, expect a
      no-op write with success feedback only).
-4. **Scheduler verification**
+4. **Scheduler verification** *(requires `modules.scheduler.enabled` = `true`; when disabled, skip these checks and confirm the
+   configuration flag — `scripts/smoke-test.sh` emits the same reminder)*
    * `/mincore jobs list` – ensure `backup` and `cleanup.idempotencySweep` are present with sane
      next-run timestamps.
    * `/mincore jobs run backup` – confirm the job queues.
