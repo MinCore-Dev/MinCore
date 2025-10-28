@@ -6,8 +6,8 @@ import java.util.UUID;
 /**
  * Lightweight in-process event bus surface for core events.
  *
- * <p>Handlers run in-process on the server thread that fires them. Add-ons should keep handlers
- * short and resilient.
+ * <p>Handlers run in-process on the server thread that fires them. Modules should keep handlers
+ * short, resilient, and mindful of server-thread constraints.
  */
 public interface CoreEvents {
   /**
