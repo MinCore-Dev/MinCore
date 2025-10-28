@@ -72,9 +72,8 @@ public final class MinCoreMod implements ModInitializer {
 
     // 5) Modules (optional subsystems)
     var requested = new LinkedHashSet<String>();
-    if (cfg.modules().ledger().enabled()) {
-      requested.add(LedgerModule.ID);
-    }
+    // Ledger module always starts so the API exposes a no-op handle when persistence is disabled.
+    requested.add(LedgerModule.ID);
     if (cfg.modules().timezone().enabled()) {
       requested.add(TimezoneModule.ID);
     }

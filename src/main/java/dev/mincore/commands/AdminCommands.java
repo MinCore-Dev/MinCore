@@ -126,7 +126,9 @@ public final class AdminCommands {
               .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
           root.then(doctor);
 
-          if (modules != null && modules.isActive(LEDGER_MODULE_ID)) {
+          Config cfg = MinCoreMod.config();
+          boolean ledgerEnabled = cfg != null && cfg.modules().ledger().enabled();
+          if (ledgerEnabled && modules != null && modules.isActive(LEDGER_MODULE_ID)) {
             LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
             ledger.then(
                 CommandManager.literal("recent")
