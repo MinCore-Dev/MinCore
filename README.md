@@ -1,6 +1,6 @@
 # MinCore
 
-A small, opinionated core for Fabric Minecraft servers that ships every first-party capability as built-in modules server owners toggle on or off. MinCore bundles database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering so operators can right-size the surface area without juggling extra jars. Add-on authors still get production-grade primitives and predictable operations atop that cohesive foundation.
+A small, opinionated core for Fabric Minecraft servers that ships every first-party capability as built-in modules server owners toggle on or off. MinCore bundles database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering so operators can right-size the surface area without juggling extra jars. The focus is on operators who want a cohesive, production-grade toolkit without stitching together extra downloads.
 
 > Source of truth: **MinCore Master Spec v1.0.0**. Treat that spec as authoritative.
 
@@ -34,9 +34,9 @@ A small, opinionated core for Fabric Minecraft servers that ships every first-pa
   - [Project layout and toolchain](#project-layout-and-toolchain)
   - [Build and test](#build-and-test)
   - [Run a dev server](#run-a-dev-server)
-  - [API quickstart for add-ons](#api-quickstart-for-add-ons)
-  - [Database access for add-ons](#database-access-for-add-ons)
-  - [Events and ordering](#events-and-ordering)
+  - [Module API overview](#module-api-overview)
+  - [Database maintenance tasks](#database-maintenance-tasks)
+  - [Event flow and ordering](#event-flow-and-ordering)
   - [Localization](#localization)
   - [Style and quality](#style-and-quality)
   - [Contributing](#contributing)
@@ -48,9 +48,9 @@ A small, opinionated core for Fabric Minecraft servers that ships every first-pa
 
 ## What is MinCore
 
-MinCore is a server side Fabric mod that provides production grade building blocks for other mods. It ships as a single "bundle-everything" jar that includes all first-party modules—database/migrations, wallet + ledger, scheduler/jobs, playtime tracking, timezone helpers, i18n, backup/export/import, and operator tooling. Server owners flip those modules on or off with configuration switches instead of juggling separate add-on jars. The core is small. The contracts are strong.
+MinCore is a server side Fabric mod that provides production grade modules designed to work together out of the box. It ships as a single "bundle-everything" jar that includes all first-party modules—database/migrations, wallet + ledger, scheduler/jobs, playtime tracking, timezone helpers, i18n, backup/export/import, and operator tooling. Server owners flip those modules on or off with configuration switches instead of juggling separate downloads. The core is small. The contracts are strong.
 
-MinCore does not include a full gameplay economy, shops, quests, or a web panel. Build those as integrations or companion mods that sit on top of the bundled modules.
+MinCore does not include a full gameplay economy, shops, quests, or a web panel. Pair it with whichever gameplay mods or datapacks you prefer.
 
 ## Features
 
@@ -64,7 +64,7 @@ MinCore does not include a full gameplay economy, shops, quests, or a web panel.
 - i18n and timezone rendering utilities, including optional player overrides and GeoIP auto-detect
 - LuckPerms-first permission helper with Fabric Permissions API and vanilla fallbacks
 - Config Template Writer that generates a complete commented example plus module toggle cheatsheet
-- Single bundle shipping every first-party module; no extra add-on jars to install
+- Single bundle shipping every first-party module; no extra jars to install
 
 ## Requirements
 
@@ -127,7 +127,7 @@ Start the server. Run these in game or on the server console as an operator.
 1. `/mincore db ping`
 2. `/mincore db info`
 3. `/mincore diag`
-4. Create two test players or use two accounts. Use wallet operations via the built-in wallet module (for example with a simple test command or script), then check `/mincore ledger recent` *(only when `modules.ledger.enabled` is `true`; if the module is disabled, note that configuration choice and skip so the missing command output isn't mistaken for a failure).*
+4. Create two test players or use two accounts. Use wallet operations via the built-in wallet module (for example with the scripted utilities described in [Module API overview](#module-api-overview)), then check `/mincore ledger recent` *(only when `modules.ledger.enabled` is `true`; if the module is disabled, note that configuration choice and skip so the missing command output isn't mistaken for a failure).*
 5. `/playtime me` and `/playtime top 10`
 
 If all commands respond as expected, the core is healthy.
@@ -268,7 +268,7 @@ Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz
 
 - `/mincore ledger recent [N]`
 - `/mincore ledger player <name|uuid> [N]`
-- `/mincore ledger addon <id> [N]`
+- `/mincore ledger addon <id> [N]` *(filters by the module identifier recorded with each entry; bundled modules include their own identifier when logging)*
 - `/mincore ledger reason <substring> [N]`
 
 Timestamps render in viewer time zone. Outputs use i18n keys such as `mincore.cmd.ledger.header` and `mincore.cmd.ledger.line`.
@@ -350,42 +350,26 @@ Run tests and style checks. The project uses Spotless and Google Java Style. Kee
 
 Provide a local MariaDB as shown earlier. The mod will create the schema automatically on first start.
 
-### API quickstart for add-ons
+### Module API overview
 
-Get the services
+All bundled modules call into the shared `MinCoreApi` so their behavior stays consistent whether you invoke a command or let a scheduled job run. Operators who automate maintenance (for example with scripting mods or console bridges) can reuse the same entry points:
 
 ```java
 var wallets = MinCoreApi.wallets();
-var players = MinCoreApi.players();
-var attrs   = MinCoreApi.attributes();
-var db      = MinCoreApi.database();
-var events  = MinCoreApi.events();
 var ledger  = MinCoreApi.ledger();
-```
 
-Perform an idempotent deposit
-
-```java
 var playerId = someUuid;
 boolean ok = wallets.deposit(playerId, 500, "welcome_bonus", "idem:welcome:player:" + playerId);
 if (ok) {
-  ledger.log("hello-addon", "bonus", null, playerId, 500, "welcome_bonus", true, "OK", "welcome", "idem:welcome:player:" + playerId, "{}");
+  ledger.log("core.setup", "bonus", null, playerId, 500, "welcome_bonus", true, "OK", "welcome", "idem:welcome:player:" + playerId, "{}");
 }
 ```
 
-Listen to events
+This mirrors the pattern MinCore uses internally when a built-in module posts an initial balance or reconciles a ledger entry. The idempotency key ensures repeated runs from automation or retries remain safe, and the ledger log gives operators a durable audit trail.
 
-```java
-events.subscribe(ev -> {
-  if (ev instanceof BalanceChangedEvent b) {
-    // hop to main thread if you need to touch the world
-  }
-});
-```
+### Database maintenance tasks
 
-### Database access for add-ons
-
-Borrow a connection with retries and advisory locks
+Built-in diagnostics rely on the shared database pool exposed via `MinCoreApi.database()`. When you need to run a manual statement—such as validating a data fix from `/mincore doctor`—borrow a connection and let the helper handle retries and advisory locks:
 
 ```java
 try (var conn = MinCoreApi.database().borrowConnection()) {
@@ -393,11 +377,11 @@ try (var conn = MinCoreApi.database().borrowConnection()) {
 }
 ```
 
-Use `withRetry` helpers for deadlocks and timeouts that are safe to retry.
+Use the `withRetry` helpers for deadlocks and timeouts that are safe to retry so your manual interventions match MinCore’s operational posture.
 
-### Events and ordering
+### Event flow and ordering
 
-Events are delivered off thread after commit. Delivery is at least once and ordered per player. Always deduplicate with idempotency keys when side effects matter. Hop to the main thread for Bukkit or Fabric world interactions.
+Events are delivered off thread after commit. Delivery is at least once and ordered per player. Built-in modules deduplicate with idempotency keys when side effects matter, and operators should follow the same approach for any scripted automations. Hop to the main thread before interacting with the world.
 
 ### Localization
 
@@ -419,7 +403,7 @@ Open issues and small focused pull requests. Do not commit secrets. Use code own
 - **Cannot connect to DB** check host, port, firewall, and credentials. Verify the DB driver jar is present
 - **Wrong time zone rendering** check that `session.forceUtc: true` and that your server default zone and player overrides are configured correctly
 - **Backups did not run** check the scheduler configuration and server clock. Run `/mincore jobs list` and `/mincore jobs run backup`
-- **Idempotency conflicts** if you see replay or mismatch errors, confirm your add-on uses stable idempotency keys that include scope and normalized payload details
+- **Idempotency conflicts** if you see replay or mismatch errors, confirm the triggering module or automation uses stable idempotency keys that include scope and normalized payload details
 - **Large ledger table** set `retentionDays` to a positive number to enable truncation of very old entries or rely on external archival
 
 ## FAQ
@@ -430,8 +414,8 @@ No. MinCore targets MariaDB and MySQL only.
 **Can I run without adding a JDBC driver jar**  
 No. You must provide `mariadb-java-client` on the classpath or inside `mods`.
 
-**Does MinCore include a shop or economy rules**  
-No. Those belong in add-ons that use the Wallets and Ledger APIs.
+**Does MinCore include a shop or economy rules**
+No. Pair MinCore with whichever gameplay mod or datapack you prefer for those features.
 
 **Will this work on ARM**  
 Yes. Java 21 ARM builds and MariaDB ARM images are supported.
