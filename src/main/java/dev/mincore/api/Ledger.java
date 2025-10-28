@@ -4,12 +4,13 @@ package dev.mincore.api;
 import java.util.UUID;
 
 /**
- * Public, minimal facade for writing ledger entries from bundled modules or operator automation.
+ * Public, minimal facade for writing ledger entries from bundled modules or operator automation
+ * maintained by server operators.
  *
  * <p>The core also logs its own economy mutations (via {@code BalanceChangedEvent}) automatically.
  * Modules and automation routines may call {@link #log(String, String, UUID, UUID, long, String,
  * boolean, String, String, String, String)} to record their own domain events (shop orders, taxes,
- * rewards, etc.).
+ * rewards, etc.) without building direct database integrations.
  *
  * <h2>Stability</h2>
  *
@@ -22,8 +23,8 @@ public interface Ledger {
    * Append a ledger entry.
    *
    * @param moduleId module identifier, e.g. {@code "core.ledger"}; bundled modules log their own
-   *     identifiers while operator automation may supply a stable workflow id (required,
-   *     {@literal <=} 64)
+   *     identifiers while operator automation or server-run jobs may supply a stable workflow id
+   *     (required, {@literal <=} 64)
    * @param op short operation name, e.g. {@code "buy"}, {@code "refund"} (required, {@literal <=}
    *     32)
    * @param from payer UUID or {@code null} if none

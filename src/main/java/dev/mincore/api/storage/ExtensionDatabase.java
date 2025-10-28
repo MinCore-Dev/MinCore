@@ -5,10 +5,11 @@ import java.sql.Connection;
 import java.sql.SQLException;
 
 /**
- * Shared database helpers available to bundled modules and operator automation.
+ * Shared database helpers available to bundled modules and operator automation maintained by server
+ * staff.
  *
- * <p>Lets MinCore modules and automation borrow connections, use advisory locks, or run actions
- * with retry.
+ * <p>Lets MinCore modules and automation borrow connections, use advisory locks, or run actions with
+ * retry without shipping their own pool management.
  */
 public interface ExtensionDatabase {
   /**

@@ -2,7 +2,7 @@
 package dev.mincore.core;
 
 /**
- * Service locator for all MinCore subsystems.
+ * Service locator for all MinCore subsystems used by built-in modules and server operators.
  *
  * <p>Implementations are created once at server boot and exposed to bundled modules and operator
  * automation through {@code dev.mincore.api.MinCoreApi}. Each accessor returns a singleton owned by
@@ -40,10 +40,10 @@ public interface Services {
   dev.mincore.api.events.CoreEvents events();
 
   /**
-   * Shared database helpers for bundled modules and automation (schema utilities, safe statements,
-   * etc.).
+   * Shared database helpers for bundled modules and operator automation (schema utilities, safe
+   * statements, etc.).
    *
-   * @return the extension database helper singleton
+   * @return the shared module database helper singleton
    */
   dev.mincore.api.storage.ExtensionDatabase database();
 

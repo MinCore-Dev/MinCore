@@ -13,7 +13,8 @@ import java.util.UUID;
  *
  * <p>These helpers are intentionally lightweight and avoid any direct database access; they operate
  * in terms of the public {@link Wallets} API. Use them inside bundled modules or operator automation
- * to reduce boilerplate around consistent reason strings and idempotent operations.
+ * maintained by server staff to reduce boilerplate around consistent reason strings and idempotent
+ * operations.
  */
 public final class Payment {
   private Payment() {}
