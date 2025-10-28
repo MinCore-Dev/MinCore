@@ -36,8 +36,8 @@ import org.slf4j.LoggerFactory;
  *   <li>Listen to {@link BalanceChangedEvent} and persist a compact audit line (module
  *       {@code core.ledger},
  *       op {@code balance}).
- *   <li>Expose a {@link Ledger} implementation for bundled modules and operator automation to
- *       record operations with optional idempotency.
+ *   <li>Expose a {@link Ledger} implementation for bundled modules and operator automation run by
+ *       server staff to record operations with optional idempotency.
  *   <li>Perform periodic TTL cleanup when {@link Config.Ledger#retentionDays()} is positive.
  * </ul>
  *
@@ -271,7 +271,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     }
   }
 
-  // ===== Public API used by bundled modules and automation via MinCoreApi.ledger() =====
+  // ===== Public API used by bundled modules and operator automation via MinCoreApi.ledger() =====
 
   /**
    * Append a new ledger entry.

@@ -5,7 +5,8 @@ import dev.mincore.api.events.CoreEvents;
 import dev.mincore.api.storage.ExtensionDatabase;
 
 /**
- * Static accessors for MinCore singletons (players, wallets, attributes, events, database, ledger).
+ * Static accessors for MinCore singletons (players, wallets, attributes, events, database, ledger)
+ * consumed by built-in modules and server operators.
  *
  * <p><strong>Lifecycle</strong>
  *
