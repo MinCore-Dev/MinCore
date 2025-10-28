@@ -74,10 +74,10 @@ run "mincore diag"
 if [[ $(get_module_enabled scheduler) == "true" ]]; then
   run "mincore jobs list"
   run "mincore jobs run backup"
+  run "mincore backup now"
 else
-  echo "[mincore-smoke] Skipping scheduler checks (modules.scheduler.enabled=false)"
+  echo "[mincore-smoke] Skipping scheduler checks and backup command (modules.scheduler.enabled=false)"
 fi
-run "mincore backup now"
 if [[ $(get_module_enabled ledger) == "true" ]]; then
   run "mincore ledger recent 5"
 else
