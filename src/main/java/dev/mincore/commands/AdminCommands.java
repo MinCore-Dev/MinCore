@@ -182,26 +182,6 @@ public final class AdminCommands {
                                         StringArgumentType.getString(ctx, "moduleId"),
                                         10))));
             ledger.then(
-                CommandManager.literal("addon")
-                    .then(
-                        CommandManager.argument("moduleId", StringArgumentType.string())
-                            .then(
-                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(
-                                        ctx ->
-                                            cmdLedgerByModule(
-                                                ctx.getSource(),
-                                                services,
-                                                StringArgumentType.getString(ctx, "moduleId"),
-                                                IntegerArgumentType.getInteger(ctx, "limit"))))
-                            .executes(
-                                ctx ->
-                                    cmdLedgerByModule(
-                                        ctx.getSource(),
-                                        services,
-                                        StringArgumentType.getString(ctx, "moduleId"),
-                                        10))));
-            ledger.then(
                 CommandManager.literal("reason")
                     .then(
                         CommandManager.argument("substring", StringArgumentType.string())

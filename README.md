@@ -275,10 +275,6 @@ Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz
 - `/mincore ledger module <id> [N]` *(filters by the module identifier recorded with each entry; bundled modules include their own identifier when logging)*
 - `/mincore ledger reason <substring> [N]`
 
-The legacy `/mincore ledger addon` alias now maps to the module filter. Schema migrations rename
-`core_ledger.addon_id` to `core_ledger.module_id`; run the bundled migrator (`/mincore migrate
---apply`) to apply the rename before upgrading backups or imports.
-
 Timestamps render in viewer time zone. Outputs use i18n keys such as `mincore.cmd.ledger.header` and `mincore.cmd.ledger.line`.
 
 ### Jobs and backups
