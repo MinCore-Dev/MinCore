@@ -180,4 +180,52 @@ final class ConfigCompatibilityTest {
     assertEquals(
         "./config/timezones.mmdb", config.modules().timezone().autoDetect().databasePath());
   }
+
+  @Test
+  void ledgerDefaultsToEnabledWhenToggleMissing() throws Exception {
+    Path configFile = tempDir.resolve("ledger-default.json5");
+    Files.writeString(
+        configFile,
+        """
+            {
+              modules: {
+                ledger: {
+                  retentionDays: 5,
+                  file: { path: \"./logs/default-ledger.jsonl\" }
+                },
+                scheduler: { enabled: false }
+              },
+              core: {
+                db: {
+                  host: \"127.0.0.1\",
+                  port: 3306,
+                  database: \"defaults\",
+                  user: \"mincore\",
+                  password: \"change-me\"
+                },
+                runtime: { reconnectEveryS: 5 },
+                time: {
+                  display: {
+                    defaultZone: \"UTC\",
+                    allowPlayerOverride: false,
+                    autoDetect: false
+                  }
+                },
+                i18n: {
+                  defaultLocale: \"en_US\",
+                  enabledLocales: [ \"en_US\" ],
+                  fallbackLocale: \"en_US\"
+                },
+                log: { json: false, slowQueryMs: 250, level: \"INFO\" }
+              }
+            }
+            """,
+        StandardCharsets.UTF_8);
+
+    Config config = Config.loadOrWriteDefault(configFile);
+
+    assertTrue(config.modules().ledger().enabled());
+    assertEquals(5, config.modules().ledger().retentionDays());
+    assertEquals("./logs/default-ledger.jsonl", config.modules().ledger().jsonlMirror().path());
+  }
 }
