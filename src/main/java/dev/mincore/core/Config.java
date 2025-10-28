@@ -644,41 +644,42 @@ public final class Config {
 
   private static void validateLedger(Ledger ledger) {
     if (ledger.retentionDays() < 0) {
-      throw new IllegalStateException("core.ledger.retentionDays must be >= 0");
+      throw new IllegalStateException("modules.ledger.retentionDays must be >= 0");
     }
     if (ledger.jsonlMirror().enabled()) {
-      requireNonBlank(ledger.jsonlMirror().path(), "core.ledger.file.path");
-      ensureValidPath(ledger.jsonlMirror().path(), "core.ledger.file.path");
+      requireNonBlank(ledger.jsonlMirror().path(), "modules.ledger.file.path");
+      ensureValidPath(ledger.jsonlMirror().path(), "modules.ledger.file.path");
     }
   }
 
   private static void validateJobs(Jobs jobs) {
-    requireNonBlank(jobs.backup().schedule(), "core.jobs.backup.schedule");
-    requireNonBlank(jobs.backup().outDir(), "core.jobs.backup.outDir");
-    ensureValidPath(jobs.backup().outDir(), "core.jobs.backup.outDir");
-    validateCron(jobs.backup().schedule(), "core.jobs.backup.schedule");
+    requireNonBlank(jobs.backup().schedule(), "modules.scheduler.jobs.backup.schedule");
+    requireNonBlank(jobs.backup().outDir(), "modules.scheduler.jobs.backup.outDir");
+    ensureValidPath(jobs.backup().outDir(), "modules.scheduler.jobs.backup.outDir");
+    validateCron(jobs.backup().schedule(), "modules.scheduler.jobs.backup.schedule");
     if (jobs.backup().prune().keepDays() < 0) {
-      throw new IllegalStateException("core.jobs.backup.prune.keepDays must be >= 0");
+      throw new IllegalStateException("modules.scheduler.jobs.backup.prune.keepDays must be >= 0");
     }
     if (jobs.backup().prune().keepMax() < 1) {
-      throw new IllegalStateException("core.jobs.backup.prune.keepMax must be >= 1");
+      throw new IllegalStateException("modules.scheduler.jobs.backup.prune.keepMax must be >= 1");
     }
     if (jobs.backup().prune().keepDays() > 3650) {
-      throw new IllegalStateException("core.jobs.backup.prune.keepDays must be <= 3650");
+      throw new IllegalStateException("modules.scheduler.jobs.backup.prune.keepDays must be <= 3650");
     }
     if (jobs.backup().prune().keepMax() > 1000) {
-      throw new IllegalStateException("core.jobs.backup.prune.keepMax must be <= 1000");
+      throw new IllegalStateException("modules.scheduler.jobs.backup.prune.keepMax must be <= 1000");
     }
     if (jobs.cleanup().idempotencySweep().retentionDays() < 0) {
       throw new IllegalStateException(
-          "core.jobs.cleanup.idempotencySweep.retentionDays must be >= 0");
+          "modules.scheduler.jobs.cleanup.idempotencySweep.retentionDays must be >= 0");
     }
     if (jobs.cleanup().idempotencySweep().batchLimit() < 1) {
-      throw new IllegalStateException("core.jobs.cleanup.idempotencySweep.batchLimit must be >= 1");
+      throw new IllegalStateException(
+          "modules.scheduler.jobs.cleanup.idempotencySweep.batchLimit must be >= 1");
     }
     validateCron(
         jobs.cleanup().idempotencySweep().schedule(),
-        "core.jobs.cleanup.idempotencySweep.schedule");
+        "modules.scheduler.jobs.cleanup.idempotencySweep.schedule");
   }
 
   private static void validateLog(Log log) {
