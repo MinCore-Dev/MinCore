@@ -2,9 +2,7 @@
 package dev.mincore.core;
 
 import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -141,10 +139,6 @@ public final class Migrations {
       throw new RuntimeException("Migration failed", e);
     }
 
-    if (!renameLedgerModuleColumn(services)) {
-      allSucceeded = false;
-    }
-
     if (!allSucceeded) {
       LOG.warn("(mincore) migrations completed with errors; schema version unchanged");
       return;
@@ -179,56 +173,4 @@ public final class Migrations {
     }
   }
 
-  private static boolean renameLedgerModuleColumn(Services services) {
-    try (Connection c = services.database().borrowConnection()) {
-      DatabaseMetaData meta = c.getMetaData();
-      boolean hasAddon = hasColumn(meta, "core_ledger", "addon_id");
-      boolean hasModule = hasColumn(meta, "core_ledger", "module_id");
-      if (hasAddon && !hasModule) {
-        try (Statement st = c.createStatement()) {
-          st.execute("ALTER TABLE core_ledger CHANGE addon_id module_id VARCHAR(64) NOT NULL");
-        }
-      }
-
-      boolean hasOldIndex = hasIndex(meta, "core_ledger", "idx_core_ledger_addon");
-      boolean hasNewIndex = hasIndex(meta, "core_ledger", "idx_core_ledger_module");
-      if (hasOldIndex && !hasNewIndex) {
-        try (Statement st = c.createStatement()) {
-          st.execute(
-              "ALTER TABLE core_ledger RENAME INDEX idx_core_ledger_addon TO idx_core_ledger_module");
-        } catch (SQLException rename) {
-          try (Statement st = c.createStatement()) {
-            st.execute("ALTER TABLE core_ledger DROP INDEX idx_core_ledger_addon");
-            st.execute("ALTER TABLE core_ledger ADD INDEX idx_core_ledger_module (module_id)");
-          }
-        }
-      }
-      return true;
-    } catch (SQLException e) {
-      LOG.warn(
-          "(mincore) migration: failed to rename core_ledger.addon_id to module_id; continuing",
-          e);
-      return false;
-    }
-  }
-
-  private static boolean hasColumn(DatabaseMetaData meta, String table, String column)
-      throws SQLException {
-    try (ResultSet rs = meta.getColumns(null, null, table, column)) {
-      return rs.next();
-    }
-  }
-
-  private static boolean hasIndex(DatabaseMetaData meta, String table, String index)
-      throws SQLException {
-    try (ResultSet rs = meta.getIndexInfo(null, null, table, false, false)) {
-      while (rs.next()) {
-        String name = rs.getString("INDEX_NAME");
-        if (name != null && name.equalsIgnoreCase(index)) {
-          return true;
-        }
-      }
-      return false;
-    }
-  }
 }

@@ -445,10 +445,13 @@ public final class BackupImporter {
     return value.isEmpty() ? null : value;
   }
 
-  private static String moduleField(JsonObject obj) {
+  private static String moduleField(JsonObject obj) throws SQLException {
+    if (obj.has("addon") && !obj.get("addon").isJsonNull()) {
+      throw new SQLException("snapshot ledger entry uses deprecated addon field");
+    }
     String module = stringOrNull(obj, "module");
     if (module == null) {
-      module = stringOrNull(obj, "addon");
+      throw new SQLException("snapshot missing ledger module identifier");
     }
     return module;
   }
@@ -568,7 +571,8 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       insertLedger.setLong(1, longOrZero(obj, "ts"));
-      insertLedger.setString(2, Objects.requireNonNullElse(moduleField(obj), ""));
+      String module = moduleField(obj);
+      insertLedger.setString(2, module);
       insertLedger.setString(3, Objects.requireNonNullElse(stringOrNull(obj, "op"), ""));
       byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
@@ -813,7 +817,8 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       insertLedger.setLong(1, longOrZero(obj, "ts"));
-      insertLedger.setString(2, Objects.requireNonNullElse(moduleField(obj), ""));
+      String module = moduleField(obj);
+      insertLedger.setString(2, module);
       insertLedger.setString(3, Objects.requireNonNullElse(stringOrNull(obj, "op"), ""));
       byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
@@ -976,7 +981,7 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       long ts = longOrZero(obj, "ts");
-      String module = Objects.requireNonNullElse(moduleField(obj), "");
+      String module = moduleField(obj);
       String op = Objects.requireNonNullElse(stringOrNull(obj, "op"), "");
       long seq = longOrZero(obj, "seq");
       String reason = Objects.requireNonNullElse(stringOrNull(obj, "reason"), "");
