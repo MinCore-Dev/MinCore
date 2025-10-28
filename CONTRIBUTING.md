@@ -49,6 +49,7 @@ Before submitting a pull request:
 
 * Include server logs around the failure with `(mincore)` tags.
 * Provide schema version, Minecraft/Fabric versions, and MariaDB server version.
-* Describe the steps to reproduce, including any add-ons interacting with MinCore APIs.
+* Describe the steps to reproduce, including relevant module toggles or other
+  mods interacting with MinCore APIs.
 
 Thank you for helping us keep MinCore reliable and operator-friendly!

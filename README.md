@@ -2,6 +2,10 @@
 
 A small, opinionated core for Fabric Minecraft servers that ships every first-party capability as built-in modules server owners toggle on or off. MinCore bundles database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering so operators can right-size the surface area without juggling extra jars. The focus is on operators who want a cohesive, production-grade toolkit without stitching together extra downloads.
 
+> **Note:** MinCore no longer distributes or supports external add-ons. All
+> functionality lives inside the bundled modules maintained in this
+> repository.
+
 > Source of truth: **MinCore Master Spec v1.0.0**. Treat that spec as authoritative.
 
 ---
