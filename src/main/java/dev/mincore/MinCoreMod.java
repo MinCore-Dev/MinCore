@@ -3,17 +3,19 @@ package dev.mincore;
 
 import dev.mincore.api.MinCoreApi;
 import dev.mincore.commands.AdminCommands;
-import dev.mincore.commands.PlaytimeCommand;
-import dev.mincore.commands.TimezoneCommand;
 import dev.mincore.core.Config;
 import dev.mincore.core.CoreServices;
-import dev.mincore.core.LedgerImpl;
 import dev.mincore.core.Migrations;
-import dev.mincore.core.Scheduler;
 import dev.mincore.core.SchemaVerifier;
 import dev.mincore.core.Services;
-import dev.mincore.util.TimezoneAutoDetector;
+import dev.mincore.core.modules.LedgerModule;
+import dev.mincore.core.modules.ModuleManager;
+import dev.mincore.core.modules.PlaytimeModule;
+import dev.mincore.core.modules.SchedulerModule;
+import dev.mincore.core.modules.TimezoneAutoModule;
+import dev.mincore.core.modules.TimezoneModule;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.UUID;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -42,7 +44,7 @@ public final class MinCoreMod implements ModInitializer {
 
   private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
   private static Config CONFIG;
-  private static TimezoneAutoDetector TIMEZONE_AUTO_DETECTOR;
+  private static ModuleManager MODULES;
 
   /** Public no-arg constructor for Fabric. */
   public MinCoreMod() {}
@@ -59,7 +61,7 @@ public final class MinCoreMod implements ModInitializer {
     Config cfg = Config.loadOrWriteDefault(cfgPath);
     CONFIG = cfg;
     Services services = CoreServices.start(cfg);
-    TIMEZONE_AUTO_DETECTOR = TimezoneAutoDetector.create(cfg).orElse(null);
+    MODULES = new ModuleManager(cfg, services);
 
     // 3) DDL (idempotent; safe to run every boot)
     Migrations.apply(services);
@@ -68,9 +70,24 @@ public final class MinCoreMod implements ModInitializer {
     // 4) Publish services to API
     MinCoreApi.bootstrap(services);
 
-    // 5) Ledger (optional per config) then publish to API
-    LedgerImpl ledger = LedgerImpl.install(services, cfg);
-    MinCoreApi.publishLedger(ledger);
+    // 5) Modules (optional subsystems)
+    var requested = new LinkedHashSet<String>();
+    if (cfg.modules().ledger().enabled()) {
+      requested.add(LedgerModule.ID);
+    }
+    if (cfg.modules().timezone().enabled()) {
+      requested.add(TimezoneModule.ID);
+    }
+    if (cfg.modules().timezone().autoDetect().enabled() && cfg.time().display().autoDetect()) {
+      requested.add(TimezoneAutoModule.ID);
+    }
+    if (cfg.modules().playtime().enabled()) {
+      requested.add(PlaytimeModule.ID);
+    }
+    if (cfg.modules().scheduler().enabled()) {
+      requested.add(SchedulerModule.ID);
+    }
+    MODULES.start(requested);
 
     // 6) Ensure player account exists on join
     ServerPlayConnectionEvents.JOIN.register(
@@ -80,35 +97,18 @@ public final class MinCoreMod implements ModInitializer {
           String name = p.getGameProfile().getName();
           long now = java.time.Instant.now().getEpochSecond();
           services.players().upsertSeen(uuid, name, now);
-          if (TIMEZONE_AUTO_DETECTOR != null) {
-            String remote = handler.player.getIp();
-            TIMEZONE_AUTO_DETECTOR.scheduleDetect(services, uuid, remote);
-          }
         });
 
     // 7) Admin commands (db diag + ledger peek)
-    AdminCommands.register(services);
+    AdminCommands.register(services, MODULES);
 
-    // Player-facing commands
-    if (cfg.modules().timezone().enabled()) {
-      TimezoneCommand.register(services);
-    } else {
-      LOG.info("(mincore) timezone command disabled by config");
-    }
-    if (cfg.modules().playtime().enabled()) {
-      PlaytimeCommand.register(services);
-    } else {
-      LOG.info("(mincore) playtime command disabled by config");
-    }
-
-    // 8) Scheduler hooks (backups, sweeps, etc.)
-    Scheduler.install(services, cfg);
-    // 9) Graceful shutdown
+    // 8) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
         server -> {
           try {
-            if (TIMEZONE_AUTO_DETECTOR != null) {
-              TIMEZONE_AUTO_DETECTOR.close();
+            if (MODULES != null) {
+              MODULES.close();
+              MODULES = null;
             }
             services.shutdown();
           } catch (Exception e) {
