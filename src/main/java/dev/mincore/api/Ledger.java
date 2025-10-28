@@ -20,7 +20,9 @@ public interface Ledger {
   /**
    * Append a ledger entry.
    *
-   * @param addonId add-on identifier, e.g. {@code "shop"} (required, {@literal <=} 64)
+   * @param moduleId module identifier, e.g. {@code "core.ledger"}; bundled modules log their own
+   *     identifiers while third-party add-ons may continue to supply their stable add-on id
+   *     (required, {@literal <=} 64)
    * @param op short operation name, e.g. {@code "buy"}, {@code "refund"} (required, {@literal <=}
    *     32)
    * @param from payer UUID or {@code null} if none
@@ -37,7 +39,7 @@ public interface Ledger {
    * @param extraJson optional additional JSON payload (free-form, small). May be {@code null}
    */
   void log(
-      String addonId,
+      String moduleId,
       String op,
       UUID from,
       UUID to,

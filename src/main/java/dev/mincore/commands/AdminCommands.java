@@ -162,24 +162,44 @@ public final class AdminCommands {
                                         StringArgumentType.getString(ctx, "target"),
                                         10))));
             ledger.then(
-                CommandManager.literal("addon")
+                CommandManager.literal("module")
                     .then(
-                        CommandManager.argument("addonId", StringArgumentType.string())
+                        CommandManager.argument("moduleId", StringArgumentType.string())
                             .then(
                                 CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
                                     .executes(
                                         ctx ->
-                                            cmdLedgerByAddon(
+                                            cmdLedgerByModule(
                                                 ctx.getSource(),
                                                 services,
-                                                StringArgumentType.getString(ctx, "addonId"),
+                                                StringArgumentType.getString(ctx, "moduleId"),
                                                 IntegerArgumentType.getInteger(ctx, "limit"))))
                             .executes(
                                 ctx ->
-                                    cmdLedgerByAddon(
+                                    cmdLedgerByModule(
                                         ctx.getSource(),
                                         services,
-                                        StringArgumentType.getString(ctx, "addonId"),
+                                        StringArgumentType.getString(ctx, "moduleId"),
+                                        10))));
+            ledger.then(
+                CommandManager.literal("addon")
+                    .then(
+                        CommandManager.argument("moduleId", StringArgumentType.string())
+                            .then(
+                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(
+                                        ctx ->
+                                            cmdLedgerByModule(
+                                                ctx.getSource(),
+                                                services,
+                                                StringArgumentType.getString(ctx, "moduleId"),
+                                                IntegerArgumentType.getInteger(ctx, "limit"))))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByModule(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "moduleId"),
                                         10))));
             ledger.then(
                 CommandManager.literal("reason")
@@ -817,7 +837,7 @@ public final class AdminCommands {
       return 0;
     }
     final String sql =
-        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
             + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger ORDER BY id DESC LIMIT ?";
     return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, Math.min(200, limit))));
@@ -837,7 +857,7 @@ public final class AdminCommands {
     }
     final UUID u = resolved;
     final String sql =
-        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
             + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger WHERE from_uuid = ? OR to_uuid = ? ORDER BY id DESC LIMIT ?";
     return printLedger(
@@ -852,24 +872,24 @@ public final class AdminCommands {
         });
   }
 
-  private static int cmdLedgerByAddon(
+  private static int cmdLedgerByModule(
       final ServerCommandSource src,
       final Services services,
-      final String addonId,
+      final String moduleId,
       final int limit) {
     if (!ensureLedgerEnabled(src)) {
       return 0;
     }
     final String sql =
-        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
             + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE addon_id = ? ORDER BY id DESC LIMIT ?";
+            + "FROM core_ledger WHERE module_id = ? ORDER BY id DESC LIMIT ?";
     return printLedger(
         src,
         services,
         sql,
         ps -> {
-          ps.setString(1, addonId);
+          ps.setString(1, moduleId);
           ps.setInt(2, Math.max(1, Math.min(200, limit)));
         });
   }
@@ -883,7 +903,7 @@ public final class AdminCommands {
       return 0;
     }
     final String sql =
-        "SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
+        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
             + " idem_scope, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger WHERE reason LIKE ? ORDER BY id DESC LIMIT ?";
     return printLedger(
@@ -980,7 +1000,7 @@ public final class AdminCommands {
                   "mincore.cmd.ledger.line",
                   row.id(),
                   when,
-                  row.addon(),
+                  row.module(),
                   row.op(),
                   row.amount(),
                   row.ok(),
@@ -1170,7 +1190,7 @@ public final class AdminCommands {
   private record LedgerRow(
       long id,
       long ts,
-      String addon,
+      String module,
       String op,
       UUID from,
       UUID to,

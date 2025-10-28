@@ -187,11 +187,11 @@ final class BackupCycleTest {
       try (PreparedStatement ps =
           c.prepareStatement(
               "INSERT INTO core_ledger("
-                  + "ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
+                  + "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
                   + "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) "
                   + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"); ) {
         ps.setLong(1, 3_000L);
-        ps.setString(2, "test-addon");
+        ps.setString(2, "test-module");
         ps.setString(3, "deposit");
         ps.setBytes(4, null);
         ps.setBytes(5, Uuids.toBytes(alpha));
@@ -209,7 +209,7 @@ final class BackupCycleTest {
         ps.executeUpdate();
 
         ps.setLong(1, 3_600L);
-        ps.setString(2, "test-addon");
+        ps.setString(2, "test-module");
         ps.setString(3, "transfer");
         ps.setBytes(4, Uuids.toBytes(alpha));
         ps.setBytes(5, Uuids.toBytes(bravo));
@@ -346,9 +346,9 @@ final class BackupCycleTest {
 
   private static List<LedgerRow> readLedger() throws SQLException {
     final String sql =
-        "SELECT ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
+        "SELECT ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
             + "idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger ORDER BY ts_s, seq, addon_id";
+            + "FROM core_ledger ORDER BY ts_s, seq, module_id";
     try (Connection c =
             DriverManager.getConnection(
                 jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
@@ -359,7 +359,7 @@ final class BackupCycleTest {
         rows.add(
             new LedgerRow(
                 rs.getLong("ts_s"),
-                rs.getString("addon_id"),
+                rs.getString("module_id"),
                 rs.getString("op"),
                 uuid(rs.getBytes("from_uuid")),
                 uuid(rs.getBytes("to_uuid")),
@@ -428,7 +428,7 @@ final class BackupCycleTest {
 
   private record LedgerRow(
       long ts,
-      String addon,
+      String module,
       String op,
       UUID from,
       UUID to,

@@ -445,6 +445,14 @@ public final class BackupImporter {
     return value.isEmpty() ? null : value;
   }
 
+  private static String moduleField(JsonObject obj) {
+    String module = stringOrNull(obj, "module");
+    if (module == null) {
+      module = stringOrNull(obj, "addon");
+    }
+    return module;
+  }
+
   private static long longOrZero(JsonObject obj, String key) {
     if (!obj.has(key) || obj.get(key).isJsonNull()) {
       return 0L;
@@ -516,7 +524,7 @@ public final class BackupImporter {
       this.insertLedger =
           c.prepareStatement(
               "INSERT INTO core_ledger("
-                  + "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
+                  + "ts_s,module_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
                   + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       this.insertSeq = c.prepareStatement("INSERT INTO player_event_seq(uuid,seq) VALUES(?,?)");
@@ -560,7 +568,7 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       insertLedger.setLong(1, longOrZero(obj, "ts"));
-      insertLedger.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "addon"), ""));
+      insertLedger.setString(2, Objects.requireNonNullElse(moduleField(obj), ""));
       insertLedger.setString(3, Objects.requireNonNullElse(stringOrNull(obj, "op"), ""));
       byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
@@ -704,7 +712,7 @@ public final class BackupImporter {
           c,
           ledger,
           "core_ledger",
-          "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json");
+          "ts_s,module_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json");
     }
 
     void cleanupQuietly(Connection c) {
@@ -760,7 +768,7 @@ public final class BackupImporter {
           c.prepareStatement(
               "INSERT INTO "
                   + ident(tables.ledger())
-                  + "(ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
+                  + "(ts_s,module_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
                   + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       this.insertSeq =
@@ -805,7 +813,7 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       insertLedger.setLong(1, longOrZero(obj, "ts"));
-      insertLedger.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "addon"), ""));
+      insertLedger.setString(2, Objects.requireNonNullElse(moduleField(obj), ""));
       insertLedger.setString(3, Objects.requireNonNullElse(stringOrNull(obj, "op"), ""));
       byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
@@ -915,15 +923,15 @@ public final class BackupImporter {
       this.insertLedger =
           c.prepareStatement(
               "INSERT INTO core_ledger("
-                  + "ts_s,addon_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
+                  + "ts_s,module_id,op,from_uuid,to_uuid,amount,reason,ok,code,seq,"
                   + "idem_scope,idem_key_hash,old_units,new_units,server_node,extra_json) "
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       this.existsLedger =
           c.prepareStatement(
-              "SELECT id FROM core_ledger WHERE ts_s=? AND addon_id=? AND op=? AND seq=? AND reason=? LIMIT 1");
+              "SELECT id FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=? LIMIT 1");
       this.deleteLedger =
           c.prepareStatement(
-              "DELETE FROM core_ledger WHERE ts_s=? AND addon_id=? AND op=? AND seq=? AND reason=?");
+              "DELETE FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=?");
       this.upsertSeq =
           c.prepareStatement(
               "INSERT INTO player_event_seq(uuid,seq) VALUES(?,?) "
@@ -968,13 +976,13 @@ public final class BackupImporter {
     @Override
     public void handleLedger(JsonObject obj) throws SQLException {
       long ts = longOrZero(obj, "ts");
-      String addon = Objects.requireNonNullElse(stringOrNull(obj, "addon"), "");
+      String module = Objects.requireNonNullElse(moduleField(obj), "");
       String op = Objects.requireNonNullElse(stringOrNull(obj, "op"), "");
       long seq = longOrZero(obj, "seq");
       String reason = Objects.requireNonNullElse(stringOrNull(obj, "reason"), "");
 
       existsLedger.setLong(1, ts);
-      existsLedger.setString(2, addon);
+      existsLedger.setString(2, module);
       existsLedger.setString(3, op);
       existsLedger.setLong(4, seq);
       existsLedger.setString(5, reason);
@@ -982,7 +990,7 @@ public final class BackupImporter {
         if (rs.next()) {
           if (overwrite) {
             deleteLedger.setLong(1, ts);
-            deleteLedger.setString(2, addon);
+            deleteLedger.setString(2, module);
             deleteLedger.setString(3, op);
             deleteLedger.setLong(4, seq);
             deleteLedger.setString(5, reason);
@@ -994,7 +1002,7 @@ public final class BackupImporter {
       }
 
       insertLedger.setLong(1, ts);
-      insertLedger.setString(2, addon);
+      insertLedger.setString(2, module);
       insertLedger.setString(3, op);
       byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
