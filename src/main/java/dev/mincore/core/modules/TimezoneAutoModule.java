@@ -21,15 +21,14 @@ public final class TimezoneAutoModule implements MinCoreModule {
   }
 
   @Override
-  public java.util.Set<String> requires() {
-    return java.util.Set.of(TimezoneModule.ID);
-  }
-
-  @Override
   public void start(ModuleContext context) {
     Config cfg = context.config();
     if (!cfg.modules().timezone().enabled()) {
       LOG.info("(mincore) timezone.auto skipped because timezone module is disabled");
+      return;
+    }
+    if (!context.isModuleActive(TimezoneModule.ID)) {
+      LOG.info("(mincore) timezone.auto skipped because timezone module is inactive");
       return;
     }
     detector = TimezoneAutoDetector.create(cfg).orElse(null);
