@@ -33,7 +33,8 @@ import org.slf4j.LoggerFactory;
  * <p><strong>Responsibilities</strong>
  *
  * <ul>
- *   <li>Listen to {@link BalanceChangedEvent} and persist a compact audit line (addon {@code core},
+ *   <li>Listen to {@link BalanceChangedEvent} and persist a compact audit line (module
+ *       {@code core.ledger},
  *       op {@code balance}).
  *   <li>Expose a {@link Ledger} implementation for add-ons to record operations with optional
  *       idempotency.
@@ -157,7 +158,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           CREATE TABLE IF NOT EXISTS core_ledger (
             id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             ts_s            BIGINT UNSIGNED NOT NULL,
-            addon_id        VARCHAR(64)     NOT NULL,
+            module_id       VARCHAR(64)     NOT NULL,
             op              VARCHAR(32)     NOT NULL,
             from_uuid       BINARY(16)      NULL,
             to_uuid         BINARY(16)      NULL,
@@ -174,7 +175,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
             extra_json      MEDIUMTEXT      NULL,
             PRIMARY KEY (id),
             KEY idx_ts           (ts_s),
-            KEY idx_addon        (addon_id),
+            KEY idx_module       (module_id),
             KEY idx_op           (op),
             KEY idx_from         (from_uuid),
             KEY idx_to           (to_uuid),
@@ -203,7 +204,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
                   long delta = e.newUnits() - e.oldUnits();
                   inst.writeRow(
                       Instant.now().getEpochSecond(),
-                      "core",
+                      "core.ledger",
                       "balance",
                       e.player(),
                       null,
@@ -278,7 +279,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    * <p>This is append-only; rows are never updated. If {@code idemKey} is provided, its SHA-256 is
    * stored in {@code idem_key_hash} to support duplicate suppression by higher layers.
    *
-   * @param addonId add-on identifier, e.g. {@code "shop"}; required, max 64 characters
+   * @param moduleId module identifier, e.g. {@code "core.ledger"}; required, max 64 characters
    * @param op short operation name, e.g. {@code "buy"} or {@code "refund"}; required, max 32
    *     characters
    * @param from optional payer UUID (may be {@code null})
@@ -295,7 +296,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    */
   @Override
   public void log(
-      String addonId,
+      String moduleId,
       String op,
       UUID from,
       UUID to,
@@ -311,7 +312,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     byte[] idemHash = (idemKey == null || idemKey.isBlank()) ? null : sha256(idemKey);
     writeRow(
         now,
-        safe(addonId, 64),
+        safe(moduleId, 64),
         safe(op, 32),
         from,
         to,
@@ -334,7 +335,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    * Internal helper that writes a single row and optionally mirrors it to the JSONL file.
    *
    * @param tsS event timestamp in epoch seconds (UTC)
-   * @param addonId producer id
+   * @param moduleId producer id
    * @param op short operation
    * @param from optional payer
    * @param to optional payee
@@ -352,7 +353,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
    */
   private void writeRow(
       long tsS,
-      String addonId,
+      String moduleId,
       String op,
       UUID from,
       UUID to,
@@ -373,13 +374,13 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
               c.prepareStatement(
                   """
                   INSERT INTO core_ledger
-                    (ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code,
+                    (ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code,
                      seq, idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json)
                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                   """)) {
         int i = 1;
         ps.setLong(i++, tsS);
-        ps.setString(i++, addonId);
+        ps.setString(i++, moduleId);
         ps.setString(i++, op);
         if (from == null) ps.setNull(i++, java.sql.Types.BINARY);
         else ps.setBytes(i++, Uuids.toBytes(from));
@@ -442,7 +443,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         ensureParent(filePath);
         JsonObject j = new JsonObject();
         j.addProperty("ts", tsS);
-        j.addProperty("addon", addonId);
+        j.addProperty("module", moduleId);
         j.addProperty("op", op);
         if (from != null) j.addProperty("from", from.toString());
         if (to != null) j.addProperty("to", to.toString());
@@ -493,7 +494,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   public java.util.List<Row> recent(int limit) {
     return query(
         """
-        SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code
+        SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code
         FROM core_ledger ORDER BY id DESC LIMIT ?
         """,
         ps -> ps.setInt(1, Math.max(1, Math.min(200, limit))));
@@ -509,7 +510,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   public java.util.List<Row> byPlayer(UUID player, int limit) {
     return query(
         """
-        SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code
+        SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code
         FROM core_ledger
         WHERE (from_uuid = ? OR to_uuid = ?)
         ORDER BY id DESC LIMIT ?
@@ -532,7 +533,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   public java.util.List<Row> byReasonContains(String needle, int limit) {
     return query(
         """
-        SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code
+        SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code
         FROM core_ledger WHERE reason LIKE ?
         ORDER BY id DESC LIMIT ?
         """,
@@ -543,21 +544,21 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
   }
 
   /**
-   * Fetch rows emitted by a given add-on, newest first.
+   * Fetch rows emitted by a given module, newest first.
    *
-   * @param addonId add-on identifier, e.g. {@code "shop"}
+   * @param moduleId module identifier, e.g. {@code "core.ledger"}
    * @param limit maximum number of rows to return (clamped to 1..200)
    * @return immutable list of rows; best-effort if a query error occurs
    */
-  public java.util.List<Row> byAddon(String addonId, int limit) {
+  public java.util.List<Row> byModule(String moduleId, int limit) {
     return query(
         """
-        SELECT id, ts_s, addon_id, op, from_uuid, to_uuid, amount, reason, ok, code
-        FROM core_ledger WHERE addon_id = ?
+        SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code
+        FROM core_ledger WHERE module_id = ?
         ORDER BY id DESC LIMIT ?
         """,
         ps -> {
-          ps.setString(1, addonId);
+          ps.setString(1, moduleId);
           ps.setInt(2, Math.max(1, Math.min(200, limit)));
         });
   }
@@ -577,8 +578,8 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     /** Amount in smallest currency units. */
     public final long amount;
 
-    /** Add-on identifier (e.g., {@code "core"} or {@code "shop"}). */
-    public final String addon;
+    /** Module identifier (e.g., {@code "core.ledger"} or {@code "shop"}). */
+    public final String module;
 
     /** Operation name (e.g., {@code "balance"}, {@code "buy"}). */
     public final String op;
@@ -603,7 +604,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
      *
      * @param id row id
      * @param tsS event time (epoch seconds)
-     * @param addon add-on id
+     * @param module module id
      * @param op operation
      * @param from optional payer
      * @param to optional payee
@@ -615,7 +616,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
     Row(
         long id,
         long tsS,
-        String addon,
+        String module,
         String op,
         UUID from,
         UUID to,
@@ -625,7 +626,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         String code) {
       this.id = id;
       this.tsS = tsS;
-      this.addon = addon;
+      this.module = module;
       this.op = op;
       this.from = from;
       this.to = to;
@@ -657,7 +658,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
         while (rs.next()) {
           long id = rs.getLong(1);
           long ts = rs.getLong(2);
-          String addon = rs.getString(3);
+          String module = rs.getString(3);
           String op = rs.getString(4);
           byte[] f = rs.getBytes(5);
           byte[] t = rs.getBytes(6);
@@ -666,7 +667,7 @@ public final class LedgerImpl implements Ledger, AutoCloseable {
           boolean ok = rs.getBoolean(9);
           String code = rs.getString(10);
           out.add(
-              new Row(id, ts, addon, op, bytesToUuid(f), bytesToUuid(t), amt, reason, ok, code));
+              new Row(id, ts, module, op, bytesToUuid(f), bytesToUuid(t), amt, reason, ok, code));
         }
       }
     } catch (Throwable e) {

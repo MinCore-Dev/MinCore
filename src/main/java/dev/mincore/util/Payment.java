@@ -85,7 +85,7 @@ public final class Payment {
    * Performs a one-shot, idempotent transfer: withdraws from the payer and deposits to the payee
    * using {@link Wallets#transfer(UUID, UUID, long, String, String)}.
    *
-   * <p>The idempotency key is derived from {@code addonScope}, the participants, the amount, and
+   * <p>The idempotency key is derived from {@code moduleScope}, the participants, the amount, and
    * the normalized reason. Repeating the same call with the same arguments will be treated as the
    * same logical transfer by the wallet layer.
    *
@@ -95,14 +95,14 @@ public final class Payment {
    * @param amount smallest currency units; must be {@code > 0}
    * @param reason short, human-friendly reason; normalized internally via {@link
    *     #normalizeReason(String)}
-   * @param addonScope namespace for idempotency keys (for example, {@code "shop:buy"})
+   * @param moduleScope namespace for idempotency keys (for example, {@code "ledger:transfer"})
    * @return {@code true} if the transfer completed successfully or was already applied; {@code
    *     false} otherwise
    */
   public static boolean safeTransfer(
-      Wallets w, UUID from, UUID to, long amount, String reason, String addonScope) {
+      Wallets w, UUID from, UUID to, long amount, String reason, String moduleScope) {
     String rn = normalizeReason(reason);
-    String idem = idemKey(addonScope + ":transfer", from, to, amount, rn);
+    String idem = idemKey(moduleScope + ":transfer", from, to, amount, rn);
     return w.transfer(from, to, amount, rn, idem);
   }
 }

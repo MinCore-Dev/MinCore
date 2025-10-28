@@ -68,7 +68,7 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 
 * `/timezone` help; `/timezone set <ZoneId>`; `/timezone clock <12|24>`
 * `/mincore db ping|info`; `/mincore diag`
-* `/mincore ledger recent [N] | player <name|UUID> [N] | addon <id> [N] | reason <substring> [N]`
+* `/mincore ledger recent [N] | player <name|UUID> [N] | module <id> [N] | reason <substring> [N]`
 * `/playtime me | top [N] | reset <player>`
 * `/mincore jobs list | run <job>`; `/mincore backup now`
 * Admin-only: `/mincore migrate --check|--apply` • `/mincore export --all [--out <dir>] [--gzip true]` • `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>` • `/mincore doctor [--fk --orphans --counts --analyze --locks]`
@@ -195,7 +195,7 @@ Add‑on • Services • Wallets • Ledger • Idempotency • SchemaHelper �
 **`core_requests`** (idempotency: `key_hash`, `scope`, `payload_hash`, `ok`, `created_at_s`, `expires_at_s`),  
 **`player_event_seq`** (per‑player seq).
 
-**Ledger `core_ledger`** (append‑only): `ts_s`, `addon_id`, `op`, `from_uuid`, `to_uuid`, `amount`, `reason`, `ok`, `code`, `seq`, `idem_scope`, `idem_key_hash`, `old_units`, `new_units`, `server_node`, `extra_json`; indexed on time/addon/op/from/to/reason/seq.
+**Ledger `core_ledger`** (append‑only): `ts_s`, `module_id`, `op`, `from_uuid`, `to_uuid`, `amount`, `reason`, `ok`, `code`, `seq`, `idem_scope`, `idem_key_hash`, `old_units`, `new_units`, `server_node`, `extra_json`; indexed on time/module/op/from/to/reason/seq.
 
 ### 2.5 Idempotency (exact‑once)
 
@@ -208,7 +208,7 @@ Purposeful indexes on lookups/time windows/idempotency expiry.
 
 ### 2.7 JSONL Ledger Mirror
 
-`jsonl/v1` lines with fields: `ts, addon, op, from, to, amount, reason, ok, code, seq?, idemScope?, oldUnits?, newUnits?, extra?`.  
+`jsonl/v1` lines with fields: `ts, module, op, from, to, amount, reason, ok, code, seq?, idemScope?, oldUnits?, newUnits?, extra?`.
 Operators rotate/compress externally; backups can archive.
 
 ### 2.8 Performance Notes
@@ -449,7 +449,7 @@ public interface Playtime extends AutoCloseable {
 
 ```java
 public interface Ledger {
-  void log(String addonId, String op, UUID from, UUID to, long amount,
+  void log(String moduleId, String op, UUID from, UUID to, long amount,
            String reason, boolean ok, String code,
            String idemScope, String idemKey, String extraJson);
 }
@@ -480,7 +480,7 @@ Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz
 - `/mincore diag` — ping + schema version + advisory lock check. (`mincore.cmd.diag.ok|fail`)
 
 **/mincore ledger**  
-- `recent [N]`, `player <name|UUID> [N]`, `addon <id> [N]`, `reason <substring> [N]`.  
+- `recent [N]`, `player <name|UUID> [N]`, `module <id> [N]`, `reason <substring> [N]`.
 Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
 
 **/playtime**  

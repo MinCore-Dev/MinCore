@@ -235,7 +235,7 @@ public final class BackupExporter {
   private static long dumpLedger(BufferedWriter writer, Connection c)
       throws SQLException, IOException {
     String sql =
-        "SELECT ts_s, addon_id, op, HEX(from_uuid) AS from_uuid, HEX(to_uuid) AS to_uuid, amount, reason, ok, code, seq, "
+        "SELECT ts_s, module_id, op, HEX(from_uuid) AS from_uuid, HEX(to_uuid) AS to_uuid, amount, reason, ok, code, seq, "
             + "idem_scope, HEX(idem_key_hash) AS idem_key_hash, old_units, new_units, server_node, extra_json "
             + "FROM core_ledger ORDER BY id";
     try (PreparedStatement ps = c.prepareStatement(sql);
@@ -252,9 +252,9 @@ public final class BackupExporter {
             .append(':')
             .append(rs.getLong("ts_s"))
             .append(',')
-            .append(quote("addon"))
+            .append(quote("module"))
             .append(':')
-            .append(quote(rs.getString("addon_id")))
+            .append(quote(rs.getString("module_id")))
             .append(',')
             .append(quote("op"))
             .append(':')
