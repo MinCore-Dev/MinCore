@@ -1,5 +1,45 @@
 // MinCore v1.0.0 configuration
 {
+  modules: {
+    ledger: {
+      enabled: true,
+      retentionDays: 0,
+      file: {
+        enabled: false,
+        path: "./logs/mincore-ledger.jsonl"
+      }
+    },
+    scheduler: {
+      enabled: true,
+      jobs: {
+        backup: {
+          enabled: true,
+          schedule: "0 45 4 * * *",
+          outDir: "./backups/mincore",
+          onMissed: "runAtNextStartup",
+          gzip: true,
+          prune: { keepDays: 14, keepMax: 60 }
+        },
+        cleanup: {
+          idempotencySweep: {
+            enabled: true,
+            schedule: "0 30 4 * * *",
+            retentionDays: 30,
+            batchLimit: 5000
+          }
+        }
+      }
+    },
+    timezone: {
+      enabled: true,
+      autoDetect: {
+        enabled: false,
+        // Toggle via modules.timezone.autoDetect.enabled and point to the GeoIP database path below.
+        database: "./config/mincore.geoip.mmdb"
+      }
+    },
+    playtime: { enabled: true }
+  },
   core: {
     db: {
       host: "127.0.0.1",
@@ -22,41 +62,13 @@
     time: {
       display: {
         defaultZone: "UTC",
-        allowPlayerOverride: false,
-        // When true, auto-detect each joining player's timezone via GeoIP
-        autoDetect: false
+        allowPlayerOverride: false
       }
     },
     i18n: {
       defaultLocale: "en_US",
       enabledLocales: [ "en_US" ],
       fallbackLocale: "en_US"
-    },
-    ledger: {
-      enabled: true,
-      retentionDays: 0,
-      file: {
-        enabled: false,
-        path: "./logs/mincore-ledger.jsonl"
-      }
-    },
-    jobs: {
-      backup: {
-        enabled: true,
-        schedule: "0 45 4 * * *",
-        outDir: "./backups/mincore",
-        onMissed: "runAtNextStartup",
-        gzip: true,
-        prune: { keepDays: 14, keepMax: 60 }
-      },
-      cleanup: {
-        idempotencySweep: {
-          enabled: true,
-          schedule: "0 30 4 * * *",
-          retentionDays: 30,
-          batchLimit: 5000
-        }
-      }
     },
     log: {
       json: false,
