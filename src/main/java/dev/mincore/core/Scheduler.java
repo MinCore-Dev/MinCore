@@ -92,6 +92,18 @@ public final class Scheduler {
     return true;
   }
 
+  /** Cancels all scheduled jobs and clears state. */
+  public static synchronized void shutdown() {
+    for (JobHandle job : JOBS.values()) {
+      ScheduledFuture<?> future = job.future;
+      if (future != null) {
+        future.cancel(false);
+      }
+    }
+    JOBS.clear();
+    services = null;
+  }
+
   private static void register(JobHandle job) {
     JOBS.put(job.name, job);
     schedule(job, Instant.now());

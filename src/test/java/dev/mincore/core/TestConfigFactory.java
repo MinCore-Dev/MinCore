@@ -42,6 +42,11 @@ final class TestConfigFactory {
     Config.Cleanup cleanup =
         new Config.Cleanup(new Config.IdempotencySweep(true, "0 30 4 * * *", 30, 5_000));
     Config.Jobs jobs = new Config.Jobs(backup, cleanup);
+    Config.SchedulerModule schedulerModule = new Config.SchedulerModule(true, jobs);
+    Config.TimezoneModule timezoneModule =
+        new Config.TimezoneModule(true, new Config.AutoDetect(false, ""));
+    Config.PlaytimeModule playtimeModule = new Config.PlaytimeModule(true);
+    Config.Modules modules = new Config.Modules(ledger, schedulerModule, timezoneModule, playtimeModule);
     Config.Log log = new Config.Log(false, 250L, "INFO");
 
     Constructor<Config> ctor =
@@ -50,10 +55,9 @@ final class TestConfigFactory {
             Config.Runtime.class,
             Config.Time.class,
             Config.I18n.class,
-            Config.Ledger.class,
-            Config.Jobs.class,
+            Config.Modules.class,
             Config.Log.class);
     ctor.setAccessible(true);
-    return ctor.newInstance(dbConfig, runtime, time, i18n, ledger, jobs, log);
+    return ctor.newInstance(dbConfig, runtime, time, i18n, modules, log);
   }
 }

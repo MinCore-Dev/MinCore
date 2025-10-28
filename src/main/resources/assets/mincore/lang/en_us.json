@@ -32,6 +32,7 @@
   "mincore.cmd.pt.top.header": "Top %s players by playtime:",
   "mincore.cmd.pt.top.line": "%s. %s — %s",
   "mincore.cmd.pt.reset.ok": "Playtime reset.",
+  "mincore.cmd.pt.disabled": "Playtime tracking is currently disabled.",
   "mincore.err.player.unknown": "Unknown player.",
   "mincore.err.player.ambiguous": "Multiple players match that name.",
   "mincore.err.economy.insufficient": "Insufficient funds.",

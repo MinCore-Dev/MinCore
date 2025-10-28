@@ -11,9 +11,9 @@ import dev.mincore.api.events.CoreEvents;
 import dev.mincore.api.storage.ExtensionDatabase;
 import java.io.IOException;
 import java.sql.SQLException;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +30,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   private final Attributes attributes;
   private final ExtensionDbImpl extensionDb;
   private final ScheduledExecutorService scheduler;
-  private final Playtime playtime;
+  private final Optional<Playtime> playtime;
   private final DbHealth dbHealth;
   private final Metrics metrics;
 
@@ -42,7 +42,7 @@ public final class CoreServices implements Services, java.io.Closeable {
       Attributes attributes,
       ExtensionDbImpl extensionDb,
       ScheduledExecutorService scheduler,
-      Playtime playtime,
+      Optional<Playtime> playtime,
       DbHealth dbHealth,
       Metrics metrics) {
     this.pool = pool;
@@ -146,16 +146,13 @@ public final class CoreServices implements Services, java.io.Closeable {
     Players players = new PlayersImpl(ds, events, dbHealth, metrics);
     Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics);
     Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
-    PlaytimeImpl play = new PlaytimeImpl();
-
-    // Track playtime via Fabric connection events
-    ServerPlayConnectionEvents.JOIN.register(
-        (handler, sender, server) -> play.onJoin(handler.player.getUuid()));
-    ServerPlayConnectionEvents.DISCONNECT.register(
-        (handler, server) -> play.onQuit(handler.player.getUuid()));
+    Optional<Playtime> playtime =
+        cfg.modules().playtime().enabled()
+            ? Optional.of(new PlaytimeImpl())
+            : Optional.empty();
 
     return new CoreServices(
-        ds, events, players, wallets, attrs, ext, scheduler, play, dbHealth, metrics);
+        ds, events, players, wallets, attrs, ext, scheduler, playtime, dbHealth, metrics);
   }
 
   @Override
@@ -189,7 +186,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   }
 
   @Override
-  public Playtime playtime() {
+  public Optional<Playtime> playtime() {
     return playtime;
   }
 

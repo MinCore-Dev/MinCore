@@ -16,6 +16,7 @@ import dev.mincore.core.Migrations;
 import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.core.SqlErrorCodes;
+import dev.mincore.core.modules.ModuleStateView;
 import dev.mincore.util.TimeDisplay;
 import dev.mincore.util.TimePreference;
 import dev.mincore.util.Timezones;
@@ -46,6 +47,9 @@ public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
   private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
       new TokenBucketRateLimiter(4, 0.3);
+  private static final String LEDGER_MODULE_ID = "ledger";
+  private static final String SCHEDULER_MODULE_ID = "scheduler";
+  private static volatile ModuleStateView MODULES;
 
   private AdminCommands() {}
 
@@ -54,7 +58,8 @@ public final class AdminCommands {
    *
    * @param services service container backing command handlers
    */
-  public static void register(final Services services) {
+  public static void register(final Services services, final ModuleStateView modules) {
+    MODULES = modules;
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
             CommandRegistryAccess registryAccess,
@@ -121,99 +126,103 @@ public final class AdminCommands {
               .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
           root.then(doctor);
 
-          LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
-          ledger.then(
-              CommandManager.literal("recent")
-                  .then(
-                      CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerRecent(
-                                      ctx.getSource(),
-                                      services,
-                                      IntegerArgumentType.getInteger(ctx, "limit"))))
-                  .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
-          ledger.then(
-              CommandManager.literal("player")
-                  .then(
-                      CommandManager.argument("target", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByPlayer(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "target"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByPlayer(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "target"),
-                                      10))));
-          ledger.then(
-              CommandManager.literal("addon")
-                  .then(
-                      CommandManager.argument("addonId", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByAddon(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "addonId"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByAddon(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "addonId"),
-                                      10))));
-          ledger.then(
-              CommandManager.literal("reason")
-                  .then(
-                      CommandManager.argument("substring", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByReason(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "substring"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByReason(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "substring"),
-                                      10))));
-          root.then(ledger);
+          if (modules != null && modules.isActive(LEDGER_MODULE_ID)) {
+            LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
+            ledger.then(
+                CommandManager.literal("recent")
+                    .then(
+                        CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerRecent(
+                                        ctx.getSource(),
+                                        services,
+                                        IntegerArgumentType.getInteger(ctx, "limit"))))
+                    .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
+            ledger.then(
+                CommandManager.literal("player")
+                    .then(
+                        CommandManager.argument("target", StringArgumentType.string())
+                            .then(
+                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(
+                                        ctx ->
+                                            cmdLedgerByPlayer(
+                                                ctx.getSource(),
+                                                services,
+                                                StringArgumentType.getString(ctx, "target"),
+                                                IntegerArgumentType.getInteger(ctx, "limit"))))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByPlayer(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "target"),
+                                        10))));
+            ledger.then(
+                CommandManager.literal("addon")
+                    .then(
+                        CommandManager.argument("addonId", StringArgumentType.string())
+                            .then(
+                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(
+                                        ctx ->
+                                            cmdLedgerByAddon(
+                                                ctx.getSource(),
+                                                services,
+                                                StringArgumentType.getString(ctx, "addonId"),
+                                                IntegerArgumentType.getInteger(ctx, "limit"))))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByAddon(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "addonId"),
+                                        10))));
+            ledger.then(
+                CommandManager.literal("reason")
+                    .then(
+                        CommandManager.argument("substring", StringArgumentType.string())
+                            .then(
+                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(
+                                        ctx ->
+                                            cmdLedgerByReason(
+                                                ctx.getSource(),
+                                                services,
+                                                StringArgumentType.getString(ctx, "substring"),
+                                                IntegerArgumentType.getInteger(ctx, "limit"))))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByReason(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "substring"),
+                                        10))));
+            root.then(ledger);
+          }
 
-          LiteralArgumentBuilder<ServerCommandSource> jobs = CommandManager.literal("jobs");
-          jobs.then(
-              CommandManager.literal("list")
-                  .executes(ctx -> cmdJobsList(ctx.getSource(), services)));
-          jobs.then(
-              CommandManager.literal("run")
-                  .then(
-                      CommandManager.argument("job", StringArgumentType.string())
-                          .executes(
-                              ctx ->
-                                  cmdJobsRun(
-                                      ctx.getSource(), StringArgumentType.getString(ctx, "job")))));
-          root.then(jobs);
+          if (modules != null && modules.isActive(SCHEDULER_MODULE_ID)) {
+            LiteralArgumentBuilder<ServerCommandSource> jobs = CommandManager.literal("jobs");
+            jobs.then(
+                CommandManager.literal("list")
+                    .executes(ctx -> cmdJobsList(ctx.getSource(), services)));
+            jobs.then(
+                CommandManager.literal("run")
+                    .then(
+                        CommandManager.argument("job", StringArgumentType.string())
+                            .executes(
+                                ctx ->
+                                    cmdJobsRun(
+                                        ctx.getSource(), StringArgumentType.getString(ctx, "job")))));
+            root.then(jobs);
 
-          root.then(
-              CommandManager.literal("backup")
-                  .then(
-                      CommandManager.literal("now")
-                          .executes(ctx -> cmdBackupNow(ctx.getSource(), services))));
+            root.then(
+                CommandManager.literal("backup")
+                    .then(
+                        CommandManager.literal("now")
+                            .executes(ctx -> cmdBackupNow(ctx.getSource(), services))));
+          }
 
           dispatcher.register(root);
         });
@@ -792,8 +801,8 @@ public final class AdminCommands {
   }
 
   private static boolean ensureLedgerEnabled(final ServerCommandSource src) {
-    Config cfg = MinCoreMod.config();
-    if (cfg != null && cfg.ledgerEnabled()) {
+    ModuleStateView modules = MODULES;
+    if (modules != null && modules.isActive(LEDGER_MODULE_ID)) {
       return true;
     }
     src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.disabled"), false);
