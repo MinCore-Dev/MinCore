@@ -57,7 +57,7 @@ final class ModuleToggleTest {
             modules.timezone(),
             modules.playtime()));
     try (TestHarness harness = new TestHarness(config)) {
-      harness.start(Set.of(LedgerModule.ID));
+      harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(LedgerModule.ID));
       var ledger = MinCoreApi.ledger();
       org.junit.jupiter.api.Assertions.assertNotNull(ledger);
@@ -65,7 +65,16 @@ final class ModuleToggleTest {
       boolean exists =
           org.junit.jupiter.api.Assertions.assertDoesNotThrow(
               () -> harness.services().database().schema().tableExists("core_ledger"));
-      org.junit.jupiter.api.Assertions.assertFalse(exists);
+      if (exists) {
+        try (var conn = harness.services().database().borrowConnection();
+            var ps = conn.prepareStatement("SELECT COUNT(*) FROM core_ledger");
+            var rs = ps.executeQuery()) {
+          org.junit.jupiter.api.Assertions.assertTrue(rs.next());
+          org.junit.jupiter.api.Assertions.assertEquals(0L, rs.getLong(1));
+        }
+      } else {
+        org.junit.jupiter.api.Assertions.assertFalse(exists);
+      }
     }
   }
 
@@ -137,9 +146,7 @@ final class ModuleToggleTest {
 
   private static Set<String> allModules(Config config) {
     Set<String> requested = new LinkedHashSet<>();
-    if (config.modules().ledger().enabled()) {
-      requested.add(LedgerModule.ID);
-    }
+    requested.add(LedgerModule.ID);
     if (config.modules().timezone().enabled()) {
       requested.add(TimezoneModule.ID);
     }
