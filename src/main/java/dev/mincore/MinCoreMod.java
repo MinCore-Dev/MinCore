@@ -90,8 +90,16 @@ public final class MinCoreMod implements ModInitializer {
     AdminCommands.register(services);
 
     // Player-facing commands
-    TimezoneCommand.register(services);
-    PlaytimeCommand.register(services);
+    if (cfg.modules().timezone().enabled()) {
+      TimezoneCommand.register(services);
+    } else {
+      LOG.info("(mincore) timezone command disabled by config");
+    }
+    if (cfg.modules().playtime().enabled()) {
+      PlaytimeCommand.register(services);
+    } else {
+      LOG.info("(mincore) playtime command disabled by config");
+    }
 
     // 8) Scheduler hooks (backups, sweeps, etc.)
     Scheduler.install(services, cfg);

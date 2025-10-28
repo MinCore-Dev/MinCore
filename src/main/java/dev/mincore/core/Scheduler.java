@@ -40,6 +40,11 @@ public final class Scheduler {
     services = s;
     JOBS.clear();
 
+    if (!cfg.modules().scheduler().enabled()) {
+      LOG.info("(mincore) scheduler: disabled by config");
+      return;
+    }
+
     if (cfg.jobs().cleanup().idempotencySweep().enabled()) {
       register(
           new JobHandle(
