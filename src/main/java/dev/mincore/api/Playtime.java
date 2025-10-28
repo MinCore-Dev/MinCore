@@ -9,9 +9,9 @@ import java.util.UUID;
 /**
  * Playtime surface exposed by MinCore.
  *
- * <p>This is a lightweight, in-memory tracker intended for admin UX and simple add-on logic. It
- * does not persist by itself. Add-ons that need persistence can mirror deltas on quit or snapshot
- * the leaderboard periodically.
+ * <p>This is a lightweight, in-memory tracker intended for admin UX and simple module or automation
+ * logic. It does not persist by itself. Bundled modules or operator tooling that need persistence
+ * can mirror deltas on quit or snapshot the leaderboard periodically.
  */
 public interface Playtime extends AutoCloseable {
 

@@ -4,11 +4,12 @@ package dev.mincore.api.storage;
 import java.sql.SQLException;
 
 /**
- * Helper interface for add-ons to evolve their own database schema safely at startup.
+ * Helper interface for bundled modules and operator automation to evolve their own database schema
+ * safely at startup.
  *
  * <p>All methods are intended to be <em>idempotent</em>, so they can be called on every server boot
- * without causing errors. A typical add-on will obtain an instance of this interface from {@code
- * MinCoreApi.database().schema()} and then:
+ * without causing errors. A typical module or automation workflow will obtain an instance of this
+ * interface from {@code MinCoreApi.database().schema()} and then:
  *
  * <ol>
  *   <li>Create tables with {@link #ensureTable(String)} or {@link #ensureTable(String, String)}.
@@ -21,7 +22,8 @@ import java.sql.SQLException;
  *       and {@link #ensurePrimaryKey(String, String, String)} as needed.
  * </ol>
  *
- * <p>Implementations are provided by MinCore; add-ons should not implement this interface.
+ * <p>Implementations are provided by MinCore; bundled modules and automation should not implement
+ * this interface.
  */
 public interface SchemaHelper {
 

@@ -20,9 +20,9 @@ import org.slf4j.LoggerFactory;
  * Permission helper that prefers LuckPerms, then Fabric Permissions API, then vanilla operator
  * levels.
  *
- * <p>This API is intentionally slim and stable so add-ons can depend on it without pulling in
- * optional dependencies themselves. Callers should run permission checks on the server thread when
- * a LuckPerms lookup is required so user data is already cached.
+ * <p>This API is intentionally slim and stable so bundled modules and operator automation can depend
+ * on it without pulling in optional dependencies themselves. Callers should run permission checks on
+ * the server thread when a LuckPerms lookup is required so user data is already cached.
  */
 public final class Perms {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");

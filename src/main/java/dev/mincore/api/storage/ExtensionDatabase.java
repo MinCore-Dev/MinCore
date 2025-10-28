@@ -5,9 +5,10 @@ import java.sql.Connection;
 import java.sql.SQLException;
 
 /**
- * Shared database helpers available to add-ons.
+ * Shared database helpers available to bundled modules and operator automation.
  *
- * <p>Lets add-ons borrow connections, use advisory locks, or run actions with retry.
+ * <p>Lets MinCore modules and automation borrow connections, use advisory locks, or run actions
+ * with retry.
  */
 public interface ExtensionDatabase {
   /**
