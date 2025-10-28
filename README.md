@@ -127,7 +127,7 @@ Start the server. Run these in game or on the server console as an operator.
 1. `/mincore db ping`
 2. `/mincore db info`
 3. `/mincore diag`
-4. Create two test players or use two accounts. Use wallet operations via the built-in wallet module (for example with a simple test command or script), then check `/mincore ledger recent`
+4. Create two test players or use two accounts. Use wallet operations via the built-in wallet module (for example with a simple test command or script), then check `/mincore ledger recent` *(only when `modules.ledger.enabled` is `true`; if the module is disabled, note that configuration choice and skip so the missing command output isn't mistaken for a failure).*
 5. `/playtime me` and `/playtime top 10`
 
 If all commands respond as expected, the core is healthy.
