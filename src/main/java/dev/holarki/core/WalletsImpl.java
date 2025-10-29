@@ -268,7 +268,8 @@ public final class WalletsImpl implements Wallets {
     long exp = now + 30L * 24 * 3600;
     try (Connection c = ds.getConnection()) {
       c.setAutoCommit(false);
-      byte[] keyHash = sha256(idemKey);
+      String effectiveKey = normalizeIdemKey(idemKey);
+      byte[] keyHash = sha256(effectiveKey);
       byte[] payloadHash = sha256(payload);
 
       try (PreparedStatement ins = c.prepareStatement(insert)) {
@@ -295,7 +296,7 @@ public final class WalletsImpl implements Wallets {
                   ErrorCode.IDEMPOTENCY_MISMATCH,
                   scope,
                   "idempotency payload mismatch",
-                  idemKey);
+                  effectiveKey);
               dbHealth.markSuccess();
               return OperationResult.failure(
                   ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
@@ -308,7 +309,7 @@ public final class WalletsImpl implements Wallets {
                   ErrorCode.IDEMPOTENCY_REPLAY,
                   scope,
                   "idempotent replay",
-                  idemKey);
+                  effectiveKey);
               dbHealth.markSuccess();
               return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
             }
@@ -421,7 +422,14 @@ public final class WalletsImpl implements Wallets {
   }
 
   private static String autoKey() {
-    return "core:auto:" + System.nanoTime();
+    return "core:auto:" + UUID.randomUUID();
+  }
+
+  private static String normalizeIdemKey(String idemKey) {
+    if (idemKey == null || idemKey.isBlank()) {
+      return autoKey();
+    }
+    return idemKey;
   }
 
   private record Mutation(OperationResult result, List<CoreEvents.BalanceChangedEvent> events) {
