@@ -9,6 +9,7 @@ import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
@@ -74,25 +75,29 @@ public final class BackupExporter {
       c.setAutoCommit(false);
       c.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
 
-      try (OutputStream fos = Files.newOutputStream(outFile);
-          OutputStream wrapped = gzip ? new GZIPOutputStream(fos) : fos;
-          DigestOutput digestOut = new DigestOutput(wrapped, sha);
+      long players;
+      long attrs;
+      long seq;
+      long ledger;
+      try (DigestOutputStream digestStream =
+              new DigestOutputStream(Files.newOutputStream(outFile), sha);
+          OutputStream dataOut = gzip ? new GZIPOutputStream(digestStream) : digestStream;
           BufferedWriter writer =
-              new BufferedWriter(new OutputStreamWriter(digestOut, StandardCharsets.UTF_8))) {
+              new BufferedWriter(new OutputStreamWriter(dataOut, StandardCharsets.UTF_8))) {
 
         writeHeader(writer, cfg);
-        long players = dumpPlayers(writer, c);
-        long attrs = dumpAttributes(writer, c);
-        long seq = dumpEventSequences(writer, c);
-        long ledger = dumpLedger(writer, c);
+        players = dumpPlayers(writer, c);
+        attrs = dumpAttributes(writer, c);
+        seq = dumpEventSequences(writer, c);
+        ledger = dumpLedger(writer, c);
         writer.flush();
-
-        Files.writeString(
-            outDir.resolve(baseName + ".sha256"), HexFormat.of().formatHex(sha.digest()));
-        prune(outDir, backupCfg.prune(), outFile);
-        c.rollback();
-        return new Result(outFile, players, attrs, seq, ledger);
       }
+
+      String checksumHex = HexFormat.of().formatHex(sha.digest());
+      Files.writeString(outDir.resolve(baseName + ".sha256"), checksumHex);
+      prune(outDir, backupCfg.prune(), outFile);
+      c.rollback();
+      return new Result(outFile, players, attrs, seq, ledger);
     }
   }
 
@@ -410,36 +415,4 @@ public final class BackupExporter {
    */
   public record Result(Path file, long players, long attributes, long eventSeq, long ledger) {}
 
-  /** Simple OutputStream wrapper that updates a MessageDigest. */
-  private static final class DigestOutput extends OutputStream {
-    private final OutputStream delegate;
-    private final MessageDigest digest;
-
-    DigestOutput(OutputStream delegate, MessageDigest digest) {
-      this.delegate = delegate;
-      this.digest = digest;
-    }
-
-    @Override
-    public void write(int b) throws IOException {
-      delegate.write(b);
-      digest.update((byte) b);
-    }
-
-    @Override
-    public void write(byte[] b, int off, int len) throws IOException {
-      delegate.write(b, off, len);
-      digest.update(b, off, len);
-    }
-
-    @Override
-    public void flush() throws IOException {
-      delegate.flush();
-    }
-
-    @Override
-    public void close() throws IOException {
-      delegate.close();
-    }
-  }
 }
