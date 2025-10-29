@@ -2,7 +2,7 @@
 package dev.mincore.core;
 
 import dev.mincore.api.ErrorCode;
-import dev.mincore.api.storage.ExtensionDatabase;
+import dev.mincore.api.storage.ModuleDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -17,8 +17,8 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Default implementation of {@link ExtensionDatabase} backed by the shared Hikari pool. */
-public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
+/** Default implementation of {@link ModuleDatabase} backed by the shared Hikari pool. */
+public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
 
   private final DataSource ds;
@@ -34,7 +34,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
    * @param ds shared datasource
    * @param dbHealth health monitor for degraded mode handling
    */
-  public ExtensionDbImpl(DataSource ds, DbHealth dbHealth, Metrics metrics) {
+  public ModuleDatabaseImpl(DataSource ds, DbHealth dbHealth, Metrics metrics) {
     this.ds = ds;
     this.schemaHelper = new SchemaHelperImpl(ds);
     this.dbHealth = dbHealth;
@@ -43,7 +43,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
 
   @Override
   public Connection borrowConnection() throws SQLException {
-    if (!dbHealth.allowWrite("extDb.borrowConnection")) {
+    if (!dbHealth.allowWrite("moduleDb.borrowConnection")) {
       throw new SQLException("database is in degraded mode", "08000");
     }
     return ds.getConnection();
@@ -51,7 +51,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
 
   @Override
   public boolean tryAdvisoryLock(String name) {
-    if (!dbHealth.allowWrite("extDb.tryAdvisoryLock")) {
+    if (!dbHealth.allowWrite("moduleDb.tryAdvisoryLock")) {
       return false;
     }
     String lock = validateLockName(name);
@@ -63,7 +63,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
           heldLocks.add(lock);
           dbHealth.markSuccess();
           if (metrics != null) {
-            metrics.recordExtensionOperation(true, null);
+            metrics.recordModuleOperation(true, null);
           }
           return true;
         }
@@ -72,12 +72,12 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
       if (metrics != null) {
-        metrics.recordExtensionOperation(false, code);
+        metrics.recordModuleOperation(false, code);
       }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={}",
           code,
-          "extDb.tryAdvisoryLock",
+          "moduleDb.tryAdvisoryLock",
           e.getMessage(),
           e.getSQLState(),
           e.getErrorCode(),
@@ -86,7 +86,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
     }
     dbHealth.markSuccess();
     if (metrics != null) {
-      metrics.recordExtensionOperation(false, ErrorCode.DEGRADED_MODE);
+      metrics.recordModuleOperation(false, ErrorCode.DEGRADED_MODE);
     }
     return false;
   }
@@ -98,7 +98,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
 
   @Override
   public <T> T withRetry(SQLSupplier<T> action) throws SQLException {
-    if (!dbHealth.allowWrite("extDb.withRetry")) {
+    if (!dbHealth.allowWrite("moduleDb.withRetry")) {
       throw new SQLException("database is in degraded mode", "08000");
     }
     SQLException last = null;
@@ -107,7 +107,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         T result = action.get();
         dbHealth.markSuccess();
         if (metrics != null) {
-          metrics.recordExtensionOperation(true, null);
+          metrics.recordModuleOperation(true, null);
         }
         return result;
       } catch (SQLException e) {
@@ -115,12 +115,12 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         ErrorCode code = SqlErrorCodes.classify(e);
         dbHealth.markFailure(e);
         if (metrics != null) {
-          metrics.recordExtensionOperation(false, code);
+          metrics.recordModuleOperation(false, code);
         }
         LOG.warn(
             "(mincore) code={} op={} attempt={} message={} sqlState={} vendor={}",
             code,
-            "extDb.withRetry",
+            "moduleDb.withRetry",
             i + 1,
             e.getMessage(),
             e.getSQLState(),
@@ -150,7 +150,7 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
 
   private void releaseInternal(String name, boolean checkHealth) {
     try {
-      if (checkHealth && !dbHealth.allowWrite("extDb.releaseAdvisoryLock")) {
+      if (checkHealth && !dbHealth.allowWrite("moduleDb.releaseAdvisoryLock")) {
         return;
       }
       try (Connection c = ds.getConnection();
@@ -159,19 +159,19 @@ public final class ExtensionDbImpl implements ExtensionDatabase, AutoCloseable {
         ps.executeQuery();
         dbHealth.markSuccess();
         if (metrics != null) {
-          metrics.recordExtensionOperation(true, null);
+          metrics.recordModuleOperation(true, null);
         }
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
       if (metrics != null) {
-        metrics.recordExtensionOperation(false, code);
+        metrics.recordModuleOperation(false, code);
       }
       LOG.warn(
           "(mincore) code={} op={} message={} sqlState={} vendor={} lock={}",
           code,
-          "extDb.releaseAdvisoryLock",
+          "moduleDb.releaseAdvisoryLock",
           e.getMessage(),
           e.getSQLState(),
           e.getErrorCode(),

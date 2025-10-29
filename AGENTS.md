@@ -57,7 +57,7 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 * [ ] Honor module enable/disable toggles; provide explicit no-op behavior when disabled.
 * [ ] Use idempotent wallet APIs for module-initiated network flows.
 * [ ] Subscribe to core events responsibly; dedupe by (player, seq) when reacting.
-* [ ] Use `ExtensionDatabase.tryAdvisoryLock` (module-owned migrations/jobs) or the module-specific wrapper.
+* [ ] Use `ModuleDatabase.tryAdvisoryLock` (module-owned migrations/jobs) or the module-specific wrapper.
 * [ ] Localize user messages; use server/player TZ render helpers.
 * [ ] Avoid blocking main thread; schedule async work when needed.
 * [ ] Emit structured health metrics and surface degradations via `/mincore diag`.
@@ -176,7 +176,7 @@ Module • Services • Wallets • Ledger • Idempotency • SchemaHelper • 
 
 ### 2.1 High‑Level Architecture
 
-- **Services** container exposes `Players`, `Wallets`, `Attributes`, `CoreEvents`, `ExtensionDatabase`, `Playtime`, `Ledger`.
+- **Services** container exposes `Players`, `Wallets`, `Attributes`, `CoreEvents`, `ModuleDatabase`, `Playtime`, `Ledger`.
 - **All DB I/O off‑thread**; **events post‑commit**; **per‑player ordered**.
 
 ### 2.2 Threading & Ordering
@@ -362,7 +362,7 @@ public final class MinCoreApi {
   public static dev.mincore.api.Wallets wallets();
   public static dev.mincore.api.Attributes attributes();
   public static dev.mincore.api.events.CoreEvents events();
-  public static dev.mincore.api.storage.ExtensionDatabase database();
+  public static dev.mincore.api.storage.ModuleDatabase database();
   public static Ledger ledger();
 }
 ```
@@ -373,7 +373,7 @@ public interface Services {
   dev.mincore.api.Wallets wallets();
   dev.mincore.api.Attributes attributes();
   dev.mincore.api.events.CoreEvents events();
-  dev.mincore.api.storage.ExtensionDatabase database();
+  dev.mincore.api.storage.ModuleDatabase database();
   java.util.concurrent.ScheduledExecutorService scheduler();
   dev.mincore.api.Playtime playtime();
   void shutdown() throws java.io.IOException;
@@ -457,10 +457,10 @@ public interface Ledger {
 }
 ```
 
-**ExtensionDatabase**
+**ModuleDatabase**
 
 ```java
-public interface ExtensionDatabase {
+public interface ModuleDatabase {
   java.sql.Connection borrowConnection() throws java.sql.SQLException;
   boolean tryAdvisoryLock(String name);
   void releaseAdvisoryLock(String name);

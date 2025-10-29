@@ -11,7 +11,7 @@ import java.sql.SQLException;
  * <p>Lets MinCore modules and automation borrow connections, use advisory locks, or run actions with
  * retry without shipping their own pool management.
  */
-public interface ExtensionDatabase {
+public interface ModuleDatabase {
   /**
    * Borrows a JDBC {@link Connection} from the pool.
    *

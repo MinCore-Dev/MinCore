@@ -2,7 +2,7 @@
 package dev.mincore.api;
 
 import dev.mincore.api.events.CoreEvents;
-import dev.mincore.api.storage.ExtensionDatabase;
+import dev.mincore.api.storage.ModuleDatabase;
 
 /**
  * Static accessors for MinCore singletons (players, wallets, attributes, events, database, ledger)
@@ -96,7 +96,7 @@ public final class MinCoreApi {
    *
    * @return shared database helpers for modules and automation
    */
-  public static ExtensionDatabase database() {
+  public static ModuleDatabase database() {
     return services.database();
   }
 
