@@ -10,26 +10,47 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Handles owner-controlled timezone auto-detection using a local GeoIP database. */
+/**
+ * Handles owner-controlled timezone auto-detection using a local GeoIP database.
+ *
+ * <p>Detections are rate-limited per player/IP pair so multiple players behind the same address
+ * can still receive automatic zones while preventing redundant lookups for the same player. Each
+ * recorded attempt expires after a configurable interval so players can be re-detected later.
+ */
 public final class TimezoneAutoDetector implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
   private static final Path DEFAULT_DB_PATH = Path.of("config", "holarki.geoip.mmdb");
 
+  /** Default duration to remember detection attempts per player/IP pair. */
+  private static final Duration DEFAULT_DETECTION_TTL = Duration.ofHours(12);
+
   private final DatabaseReader reader;
+  private final Duration detectionTtl;
+  private final ConcurrentMap<String, ConcurrentMap<UUID, Instant>> processedPairs =
+      new ConcurrentHashMap<>();
   private final AtomicBoolean closed = new AtomicBoolean(false);
-  private final Set<String> skippedAddresses =
-      java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
   private TimezoneAutoDetector(DatabaseReader reader) {
+    this(reader, DEFAULT_DETECTION_TTL);
+  }
+
+  private TimezoneAutoDetector(DatabaseReader reader, Duration detectionTtl) {
     this.reader = reader;
+    this.detectionTtl =
+        detectionTtl == null || detectionTtl.isNegative()
+            ? DEFAULT_DETECTION_TTL
+            : detectionTtl;
   }
 
   /**
@@ -102,8 +123,9 @@ public final class TimezoneAutoDetector implements AutoCloseable {
         || address.isLinkLocalAddress()) {
       return;
     }
-    if (!skippedAddresses.add(address.getHostAddress())) {
-      // We've already attempted detection for this address in this session.
+    Instant now = Instant.now();
+    if (!shouldAttemptDetection(uuid, address, now)) {
+      // We've already attempted detection for this player and address recently.
       return;
     }
     services
@@ -121,8 +143,56 @@ public final class TimezoneAutoDetector implements AutoCloseable {
                 zone.ifPresent(z -> Timezones.setAuto(uuid, z, services));
               } catch (Exception e) {
                 LOG.debug("(holarki) timezone auto-detect failed: {}", e.getMessage());
+              } finally {
+                prune(uuid, address, Instant.now());
               }
             });
+  }
+
+  /**
+   * Returns whether a detection attempt should proceed for the given player/address and records
+   * the attempt timestamp when allowed.
+   */
+  boolean shouldAttemptDetection(UUID uuid, InetAddress address, Instant now) {
+    if (uuid == null || address == null || now == null) {
+      return false;
+    }
+    String key = address.getHostAddress();
+    ConcurrentMap<UUID, Instant> players =
+        processedPairs.computeIfAbsent(key, ignored -> new ConcurrentHashMap<>());
+    Instant cutoff = now.minus(detectionTtl);
+    players.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+    Instant previous = players.get(uuid);
+    if (previous != null && !previous.isBefore(cutoff)) {
+      return false;
+    }
+    players.put(uuid, now);
+    return true;
+  }
+
+  private void prune(UUID uuid, InetAddress address, Instant reference) {
+    if (uuid == null || address == null || reference == null) {
+      return;
+    }
+    String key = address.getHostAddress();
+    ConcurrentMap<UUID, Instant> players = processedPairs.get(key);
+    if (players == null) {
+      return;
+    }
+    Instant cutoff = reference.minus(detectionTtl);
+    players.compute(
+        uuid,
+        (ignored, previous) ->
+            previous == null || reference.isAfter(previous) ? reference : previous);
+    players.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+    if (players.isEmpty()) {
+      processedPairs.remove(key, players);
+    }
+  }
+
+  /** Creates a detector instance with a custom TTL for unit tests. */
+  static TimezoneAutoDetector forTesting(Duration detectionTtl) {
+    return new TimezoneAutoDetector(null, detectionTtl);
   }
 
   private InetAddress parseAddress(String ip) {
