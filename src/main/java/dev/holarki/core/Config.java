@@ -259,6 +259,14 @@ public final class Config {
     }
   }
 
+  /**
+   * Removes JSON5 affordances that Gson does not understand.
+   *
+   * <p>The implementation strips comments first and then removes trailing commas while preserving
+   * awareness of string literals so payload text such as {@code ",]"} survives intact. Keeping the
+   * comma trim within a string-aware scan prevents regressions where quoted commas were
+   * unintentionally deleted.
+   */
   private static String stripJson5(String raw) {
     StringBuilder cleaned = new StringBuilder(raw.length());
     boolean inString = false;
@@ -321,7 +329,55 @@ public final class Config {
       cleaned.append(c);
     }
 
-    return cleaned.toString().replaceAll(",(?=\\s*[}\\]])", "");
+    StringBuilder withoutTrailing = new StringBuilder(cleaned.length());
+    inString = false;
+    escaping = false;
+    stringDelimiter = 0;
+
+    for (int i = 0; i < cleaned.length(); i++) {
+      char c = cleaned.charAt(i);
+
+      if (inString) {
+        withoutTrailing.append(c);
+        if (escaping) {
+          escaping = false;
+        } else if (c == '\\') {
+          escaping = true;
+        } else if (c == stringDelimiter) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (c == '"' || c == 0x27) {
+        inString = true;
+        stringDelimiter = c;
+        withoutTrailing.append(c);
+        continue;
+      }
+
+      if (c == ',') {
+        int j = i + 1;
+        while (j < cleaned.length()) {
+          char lookahead = cleaned.charAt(j);
+          if (lookahead == ' ' || lookahead == '\t' || lookahead == '\n' || lookahead == '\r') {
+            j++;
+            continue;
+          }
+          break;
+        }
+        if (j < cleaned.length()) {
+          char lookahead = cleaned.charAt(j);
+          if (lookahead == '}' || lookahead == ']') {
+            continue;
+          }
+        }
+      }
+
+      withoutTrailing.append(c);
+    }
+
+    return withoutTrailing.toString();
   }
 
   private static Db parseDb(JsonObject db) {
