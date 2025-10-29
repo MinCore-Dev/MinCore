@@ -4,9 +4,9 @@ package dev.holarki.modules.ledger;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import dev.holarki.commands.AdminCommands;
 import dev.holarki.api.Players;
 import dev.holarki.api.Players.PlayerRef;
+import dev.holarki.commands.AdminCommands;
 import dev.holarki.core.Services;
 import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.util.TimeDisplay;
@@ -19,15 +19,20 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.UUID;
 import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Registers the `/holarki ledger` admin command hierarchy. */
 final class LedgerAdminCommands {
+  private static final Logger LOG = LoggerFactory.getLogger("holarki");
 
   private LedgerAdminCommands() {}
 
@@ -120,9 +125,13 @@ final class LedgerAdminCommands {
   private static int cmdLedgerRecent(
       final ServerCommandSource src, final Services services, final int limit) {
     final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger ORDER BY id DESC LIMIT ?";
+        "SELECT l.id, l.ts_s, l.module_id, l.op, l.from_uuid, l.to_uuid, pf.name, pt.name,"
+            + " l.amount, l.reason, l.ok, l.code, l.seq, l.idem_scope, l.old_units,"
+            + " l.new_units, l.server_node, l.extra_json "
+            + "FROM core_ledger l "
+            + "LEFT JOIN players pf ON pf.uuid = l.from_uuid "
+            + "LEFT JOIN players pt ON pt.uuid = l.to_uuid "
+            + "ORDER BY l.id DESC LIMIT ?";
     return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, Math.min(200, limit))));
   }
 
@@ -137,9 +146,13 @@ final class LedgerAdminCommands {
     }
     final UUID u = resolved;
     final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE from_uuid = ? OR to_uuid = ? ORDER BY id DESC LIMIT ?";
+        "SELECT l.id, l.ts_s, l.module_id, l.op, l.from_uuid, l.to_uuid, pf.name, pt.name,"
+            + " l.amount, l.reason, l.ok, l.code, l.seq, l.idem_scope, l.old_units,"
+            + " l.new_units, l.server_node, l.extra_json "
+            + "FROM core_ledger l "
+            + "LEFT JOIN players pf ON pf.uuid = l.from_uuid "
+            + "LEFT JOIN players pt ON pt.uuid = l.to_uuid "
+            + "WHERE l.from_uuid = ? OR l.to_uuid = ? ORDER BY l.id DESC LIMIT ?";
     return printLedger(
         src,
         services,
@@ -158,9 +171,13 @@ final class LedgerAdminCommands {
       final String moduleId,
       final int limit) {
     final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE module_id = ? ORDER BY id DESC LIMIT ?";
+        "SELECT l.id, l.ts_s, l.module_id, l.op, l.from_uuid, l.to_uuid, pf.name, pt.name,"
+            + " l.amount, l.reason, l.ok, l.code, l.seq, l.idem_scope, l.old_units,"
+            + " l.new_units, l.server_node, l.extra_json "
+            + "FROM core_ledger l "
+            + "LEFT JOIN players pf ON pf.uuid = l.from_uuid "
+            + "LEFT JOIN players pt ON pt.uuid = l.to_uuid "
+            + "WHERE l.module_id = ? ORDER BY l.id DESC LIMIT ?";
     return printLedger(
         src,
         services,
@@ -177,9 +194,13 @@ final class LedgerAdminCommands {
       final String needle,
       final int limit) {
     final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE reason LIKE ? ORDER BY id DESC LIMIT ?";
+        "SELECT l.id, l.ts_s, l.module_id, l.op, l.from_uuid, l.to_uuid, pf.name, pt.name,"
+            + " l.amount, l.reason, l.ok, l.code, l.seq, l.idem_scope, l.old_units,"
+            + " l.new_units, l.server_node, l.extra_json "
+            + "FROM core_ledger l "
+            + "LEFT JOIN players pf ON pf.uuid = l.from_uuid "
+            + "LEFT JOIN players pt ON pt.uuid = l.to_uuid "
+            + "WHERE l.reason LIKE ? ORDER BY l.id DESC LIMIT ?";
     return printLedger(
         src,
         services,
@@ -228,16 +249,18 @@ final class LedgerAdminCommands {
                   rs.getString(4),
                   readUuid(rs, 5),
                   readUuid(rs, 6),
-                  rs.getLong(7),
+                  rs.getString(7),
                   rs.getString(8),
-                  rs.getBoolean(9),
+                  rs.getLong(9),
                   rs.getString(10),
-                  rs.getLong(11),
+                  rs.getBoolean(11),
                   rs.getString(12),
-                  readNullableLong(rs, 13),
-                  readNullableLong(rs, 14),
-                  rs.getString(15),
-                  rs.getString(16)));
+                  rs.getLong(13),
+                  rs.getString(14),
+                  readNullableLong(rs, 15),
+                  readNullableLong(rs, 16),
+                  rs.getString(17),
+                  rs.getString(18)));
         }
       }
     } catch (Exception e) {
@@ -253,7 +276,6 @@ final class LedgerAdminCommands {
     }
 
     TimePreference pref = Timezones.preferences(src, services);
-    Players players = services.players();
     String offset = TimeDisplay.offsetLabel(pref.zone());
     src.sendFeedback(
         () ->
@@ -266,8 +288,8 @@ final class LedgerAdminCommands {
         false);
     for (LedgerRow row : rows) {
       String when = TimeDisplay.formatDateTime(Instant.ofEpochSecond(row.ts()), pref);
-      String from = formatPlayer(players, row.from());
-      String to = formatPlayer(players, row.to());
+      String from = formatPlayer(row.from(), row.fromName());
+      String to = formatPlayer(row.to(), row.toName());
       src.sendFeedback(
           () ->
               Text.translatable(
@@ -290,15 +312,31 @@ final class LedgerAdminCommands {
                   formatExtra(row.extraJson())),
           false);
     }
+    Set<UUID> participants = new HashSet<>();
+    for (LedgerRow row : rows) {
+      if (row.from() != null) {
+        participants.add(row.from());
+      }
+      if (row.to() != null) {
+        participants.add(row.to());
+      }
+    }
+    LOG.debug(
+        "(holarki) op={} rows={} uniqueParticipants={} lookupMode=joined",
+        "/holarki ledger",
+        rows.size(),
+        participants.size());
     return 1;
   }
 
-  private static String formatPlayer(Players players, UUID uuid) {
+  private static String formatPlayer(UUID uuid, String resolvedName) {
     if (uuid == null) {
       return "-";
     }
-    PlayerRef ref = players.byUuid(uuid).orElse(null);
-    return ref != null ? ref.name() : uuid.toString();
+    if (resolvedName != null && !resolvedName.isBlank()) {
+      return resolvedName;
+    }
+    return uuid.toString();
   }
 
   private static String formatOptional(String value) {
@@ -366,6 +404,8 @@ final class LedgerAdminCommands {
       String op,
       UUID from,
       UUID to,
+      String fromName,
+      String toName,
       long amount,
       String reason,
       boolean ok,
