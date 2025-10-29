@@ -260,9 +260,68 @@ public final class Config {
   }
 
   private static String stripJson5(String raw) {
-    return raw.replaceAll("(?s)/\\*.*?\\*/", "")
-        .replaceAll("(?m)//.*$", "")
-        .replaceAll(",(?=\\s*[}\\]])", "");
+    StringBuilder cleaned = new StringBuilder(raw.length());
+    boolean inString = false;
+    boolean escaping = false;
+    char stringDelimiter = 0;
+    boolean inLineComment = false;
+    boolean inBlockComment = false;
+
+    for (int i = 0; i < raw.length(); i++) {
+      char c = raw.charAt(i);
+
+      if (inLineComment) {
+        if (c == '\n' || c == '\r') {
+          inLineComment = false;
+          cleaned.append(c);
+        }
+        continue;
+      }
+
+      if (inBlockComment) {
+        if (c == '*' && i + 1 < raw.length() && raw.charAt(i + 1) == '/') {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
+      }
+
+      if (inString) {
+        cleaned.append(c);
+        if (escaping) {
+          escaping = false;
+        } else if (c == '\\') {
+          escaping = true;
+        } else if (c == stringDelimiter) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (c == '"' || c == 0x27) {
+        inString = true;
+        stringDelimiter = c;
+        cleaned.append(c);
+        continue;
+      }
+
+      if (c == '/' && i + 1 < raw.length()) {
+        char next = raw.charAt(i + 1);
+        if (next == '/') {
+          inLineComment = true;
+          i++;
+          continue;
+        } else if (next == '*') {
+          inBlockComment = true;
+          i++;
+          continue;
+        }
+      }
+
+      cleaned.append(c);
+    }
+
+    return cleaned.toString().replaceAll(",(?=\\s*[}\\]])", "");
   }
 
   private static Db parseDb(JsonObject db) {
