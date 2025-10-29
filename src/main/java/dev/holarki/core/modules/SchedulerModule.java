@@ -20,17 +20,18 @@ public final class SchedulerModule implements HolarkiModule {
   }
 
   @Override
-  public void start(ModuleContext context) {
+  public ModuleActivation start(ModuleContext context) {
     Config cfg = context.config();
     if (!cfg.modules().scheduler().enabled()) {
       LOG.info("(holarki) scheduler module disabled by configuration");
-      return;
+      return ModuleActivation.skipped("scheduler module disabled by configuration");
     }
     SchedulerEngine engine = new SchedulerEngine();
     engine.start(context.services(), cfg);
     this.engine = engine;
     context.publishService(ID, SchedulerService.class, engine);
     SchedulerAdminCommands.register(context, engine);
+    return ModuleActivation.activated();
   }
 
   @Override

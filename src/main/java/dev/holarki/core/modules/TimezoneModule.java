@@ -17,13 +17,14 @@ public final class TimezoneModule implements HolarkiModule {
   }
 
   @Override
-  public void start(ModuleContext context) {
+  public ModuleActivation start(ModuleContext context) {
     Config cfg = context.config();
     if (!cfg.modules().timezone().enabled()) {
       LOG.info("(holarki) timezone module disabled by configuration");
-      return;
+      return ModuleActivation.skipped("timezone module disabled by configuration");
     }
     TimezoneCommand.register(context.services());
+    return ModuleActivation.activated();
   }
 
   @Override

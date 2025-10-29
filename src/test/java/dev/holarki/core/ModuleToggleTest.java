@@ -6,6 +6,7 @@ import dev.holarki.api.Ledger;
 import dev.holarki.core.Services;
 import dev.holarki.core.modules.HolarkiModule;
 import dev.holarki.core.modules.LedgerModule;
+import dev.holarki.core.modules.ModuleActivation;
 import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.core.modules.ModuleManager;
 import dev.holarki.core.modules.SchedulerModule;
@@ -157,7 +158,9 @@ final class ModuleToggleTest {
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(TimezoneModule.ID));
-      org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(TimezoneAutoModule.ID));
+      org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(TimezoneAutoModule.ID));
+      org.junit.jupiter.api.Assertions.assertFalse(
+          harness.manager.activeModules().contains(TimezoneAutoModule.ID));
     }
   }
 
@@ -189,7 +192,7 @@ final class ModuleToggleTest {
     }
 
     @Override
-    public void start(ModuleContext context) {
+    public ModuleActivation start(ModuleContext context) {
       started = true;
       context.publishLedger(new TestLedger());
       context.publishService(id(), DummyService.class, new DummyService());

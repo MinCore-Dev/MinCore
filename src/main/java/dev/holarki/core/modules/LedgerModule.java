@@ -17,7 +17,7 @@ public final class LedgerModule implements HolarkiModule {
   }
 
   @Override
-  public void start(ModuleContext context) throws Exception {
+  public ModuleActivation start(ModuleContext context) throws Exception {
     var services = context.services();
     ledger =
         LedgerService.install(
@@ -28,6 +28,7 @@ public final class LedgerModule implements HolarkiModule {
             context.config().ledger());
     context.publishLedger(ledger);
     LedgerAdminCommands.register(context);
+    return ModuleActivation.activated();
   }
 
   @Override
