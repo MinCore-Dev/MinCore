@@ -24,7 +24,9 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +48,7 @@ public final class LedgerService implements Ledger, AutoCloseable {
   private final int retentionDays;
   private final Metrics metrics;
   private AutoCloseable coreListener; // event unsubscription
+  private volatile ScheduledFuture<?> retentionFuture;
 
   private LedgerService(
       ModuleDatabase database,
@@ -169,11 +172,20 @@ public final class LedgerService implements Ledger, AutoCloseable {
 
     if (ledgerCfg.retentionDays() > 0) {
       long days = ledgerCfg.retentionDays();
-      scheduler.scheduleAtFixedRate(
-          () -> service.cleanup(days),
-          5,
-          TimeUnit.HOURS.toSeconds(1),
-          TimeUnit.SECONDS);
+      try {
+        service.retentionFuture =
+            scheduler.scheduleAtFixedRate(
+                () -> service.cleanup(days),
+                5,
+                TimeUnit.HOURS.toSeconds(1),
+                TimeUnit.SECONDS);
+      } catch (RejectedExecutionException e) {
+        LOG.warn("(holarki) ledger: retention scheduling rejected; disabling cleanup", e);
+        service.retentionFuture = null;
+      } catch (RuntimeException e) {
+        LOG.warn("(holarki) ledger: retention scheduling failed; disabling cleanup", e);
+        service.retentionFuture = null;
+      }
     }
 
     LOG.info(
@@ -197,6 +209,11 @@ public final class LedgerService implements Ledger, AutoCloseable {
 
   @Override
   public void close() throws Exception {
+    ScheduledFuture<?> future = this.retentionFuture;
+    this.retentionFuture = null;
+    if (future != null) {
+      future.cancel(false);
+    }
     if (coreListener != null) {
       try {
         coreListener.close();
