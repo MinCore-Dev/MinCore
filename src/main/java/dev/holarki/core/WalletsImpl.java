@@ -14,6 +14,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -33,6 +34,7 @@ public final class WalletsImpl implements Wallets {
   private final EventBus events;
   private final DbHealth dbHealth;
   private final Metrics metrics;
+  private final long idempotencyTtlSeconds;
 
   /**
    * Creates a wallet service backed by the given datasource and event bus.
@@ -42,11 +44,19 @@ public final class WalletsImpl implements Wallets {
    * @param dbHealth health monitor for degraded mode handling
    * @param metrics metrics registry for observability
    */
-  public WalletsImpl(DataSource ds, EventBus events, DbHealth dbHealth, Metrics metrics) {
+  public WalletsImpl(
+      DataSource ds,
+      EventBus events,
+      DbHealth dbHealth,
+      Metrics metrics,
+      Duration idempotencyTtl) {
     this.ds = ds;
     this.events = events;
     this.dbHealth = dbHealth;
     this.metrics = Objects.requireNonNull(metrics, "metrics");
+    Objects.requireNonNull(idempotencyTtl, "idempotencyTtl");
+    long ttlSeconds = idempotencyTtl.getSeconds();
+    this.idempotencyTtlSeconds = ttlSeconds < 0 ? 0L : ttlSeconds;
   }
 
   @Override
@@ -265,7 +275,8 @@ public final class WalletsImpl implements Wallets {
         "SELECT payload_hash, ok FROM core_requests WHERE key_hash=? AND scope=? FOR UPDATE";
     String markOk = "UPDATE core_requests SET ok=1 WHERE key_hash=? AND scope=?";
     long now = Instant.now().getEpochSecond();
-    long exp = now + 30L * 24 * 3600;
+    long ttl = idempotencyTtlSeconds;
+    long exp = ttl >= Long.MAX_VALUE - now ? Long.MAX_VALUE : now + ttl;
     try (Connection c = ds.getConnection()) {
       c.setAutoCommit(false);
       String effectiveKey = normalizeIdemKey(idemKey);
