@@ -1,8 +1,8 @@
-# AGENTS.md — MinCore v1.0.0 (Unified & Consistent)
+# AGENTS.md — Holarki v1.0.0 (Unified & Consistent)
 
-This document is the machine-operable specification for MinCore v1.0.0. Treat it as the single source of truth unless the user overrides it. It unifies all project requirements, standards, and runbooks so future agents can build and maintain MinCore's built-in modules without having to rediscover expectations from the codebase.
+This document is the machine-operable specification for Holarki v1.0.0. Treat it as the single source of truth unless the user overrides it. It unifies all project requirements, standards, and runbooks so future agents can build and maintain Holarki's built-in modules without having to rediscover expectations from the codebase.
 
-> Scope: Fabric Minecraft server mod named **MinCore** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
+> Scope: Fabric Minecraft server mod named **Holarki** that provides DB access/migrations, economy wallets + ledger (with idempotency), events, scheduler, playtime, i18n, timezone rendering, JSONL backup/export/import, and ops tooling.
 
 ---
 
@@ -12,7 +12,7 @@ This document is the machine-operable specification for MinCore v1.0.0. Treat it
 
 **Primary Objective**
 
-Implement, configure, validate, operate, or extend MinCore according to this document. Prefer **safe, idempotent, ops-first** decisions.
+Implement, configure, validate, operate, or extend Holarki according to this document. Prefer **safe, idempotent, ops-first** decisions.
 
 **Never do**
 
@@ -47,7 +47,7 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 
 * [ ] DB user least-priv; TLS if cross-host.
 * [ ] `session.forceUtc=true`; backups enabled 04:45 UTC; retention configured.
-* [ ] `/mincore db ping|info` OK; `/mincore diag` OK.
+* [ ] `/holarki db ping|info` OK; `/holarki diag` OK.
 * [ ] `jobs list` shows backup & cleanup; advisory locks tested.
 * [ ] Export and restore tested; checksums verified.
 * [ ] Logs monitored for `CONNECTION_LOST`, `IDEMPOTENCY_*`, deadlocks.
@@ -60,7 +60,7 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 * [ ] Use `ModuleDatabase.tryAdvisoryLock` (module-owned migrations/jobs) or the module-specific wrapper.
 * [ ] Localize user messages; use server/player TZ render helpers.
 * [ ] Avoid blocking main thread; schedule async work when needed.
-* [ ] Emit structured health metrics and surface degradations via `/mincore diag`.
+* [ ] Emit structured health metrics and surface degradations via `/holarki diag`.
 
 ### 4) Error Codes (Canonical Set)
 
@@ -69,11 +69,11 @@ Implement, configure, validate, operate, or extend MinCore according to this doc
 ### 5) Command Reference (One-Page)
 
 * `/timezone` help; `/timezone set <ZoneId>`; `/timezone clock <12|24>`
-* `/mincore db ping|info`; `/mincore diag`
-* `/mincore ledger recent [N] | player <name|UUID> [N] | module <id> [N] | reason <substring> [N]`
+* `/holarki db ping|info`; `/holarki diag`
+* `/holarki ledger recent [N] | player <name|UUID> [N] | module <id> [N] | reason <substring> [N]`
 * `/playtime me | top [N] | reset <player>`
-* `/mincore jobs list | run <job>`; `/mincore backup now`
-* Admin-only: `/mincore migrate --check|--apply` • `/mincore export --all [--out <dir>] [--gzip true]` • `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>` • `/mincore doctor [--fk --orphans --counts --analyze --locks]`
+* `/holarki jobs list | run <job>`; `/holarki backup now`
+* Admin-only: `/holarki migrate --check|--apply` • `/holarki export --all [--out <dir>] [--gzip true]` • `/holarki restore --mode <fresh|merge> [--atomic|--staging] --from <dir>` • `/holarki doctor [--fk --orphans --counts --analyze --locks]`
 
 **Rate-limits:** Player cmds cooldown 2–5s; admin diag token bucket (~cap 3–5, refill 0.2–0.5/s).
 
@@ -92,9 +92,9 @@ See Sections 3.9 and 5.2 below for SQL and Docker snippets.
 
 ## Full Project Specification (verbatim master spec)
 
-# MinCore Master Spec (v1.0.0) — Unified & Consistent
+# Holarki Master Spec (v1.0.0) — Unified & Consistent
 
-> This is the consolidated, internally consistent master specification for **MinCore v1.0.0**.  
+> This is the consolidated, internally consistent master specification for **Holarki v1.0.0**.  
 > It resolves prior naming/terminology clashes (e.g., **backup vs export**, **db info vs db status**), aligns commands/APIs across all parts, and improves section flow.  
 > Treat this as the **sole source of truth** unless you explicitly override it.
 
@@ -104,7 +104,7 @@ See Sections 3.9 and 5.2 below for SQL and Docker snippets.
 
 ### 1.1 Mission
 
-MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships as a single jar containing first‑party modules—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—each controlled by configuration toggles so operators can right‑size the surface area without losing API stability. The mission is to keep those modules cohesive, ops‑friendly, and always invokable (no‑op when disabled) so servers get consistent behavior whether a feature is active or parked.
+Holarki is a **small, opinionated core** for Fabric Minecraft servers that ships as a single jar containing first‑party modules—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—each controlled by configuration toggles so operators can right‑size the surface area without losing API stability. The mission is to keep those modules cohesive, ops‑friendly, and always invokable (no‑op when disabled) so servers get consistent behavior whether a feature is active or parked.
 
 ### 1.2 Non‑Goals
 
@@ -144,7 +144,7 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 
 - Commented JSON5 config; backups 04:45 UTC; least‑priv DB; **Config Template Writer**.
 - Server TZ default, optional per‑player TZ; **/timezone**.
-- Commands: `/mincore diag`, `/mincore db ping|info`, `/mincore ledger …`, `/playtime me|top|reset`, `/mincore jobs list|run`, `/mincore backup now`.
+- Commands: `/holarki diag`, `/holarki db ping|info`, `/holarki ledger …`, `/playtime me|top|reset`, `/holarki jobs list|run`, `/holarki backup now`.
 - Dev standards: JavaDoc, Spotless, error‑code catalogue, module maintenance workflows, smoke test.
 
 ### 1.7 Compatibility Matrix
@@ -236,7 +236,7 @@ UTC storage • least‑priv DB user • advisory‑locked jobs • portable JSO
 
 ### 3.1 Config Location & Parsing
 
-`config/mincore.json5` (JSON5 with comments/trailing commas).  
+`config/holarki.json5` (JSON5 with comments/trailing commas).  
 `session.forceUtc=true` runs `SET time_zone='+00:00'` per pooled connection.
 
 ### 3.2 Full Commented Config (example)
@@ -246,8 +246,8 @@ core {
   db {
     host = "127.0.0.1"
     port = 3306
-    database = "mincore"
-    user = "mincore"
+    database = "holarki"
+    user = "holarki"
     password = "change-me"
     tls { enabled = false }
     session { forceUtc = true }
@@ -277,7 +277,7 @@ core {
     backup {
       enabled = true
       schedule = "0 45 4 * * *"
-      outDir = "./backups/mincore"
+      outDir = "./backups/holarki"
       onMissed = "runAtNextStartup"
       gzip = true
       prune { keepDays = 14, keepMax = 60 }
@@ -297,11 +297,11 @@ core {
 }
 ```
 
-**Env overrides:** `MINCORE_DB_HOST|PORT|DATABASE|USER|PASSWORD`.
+**Env overrides:** `HOLARKI_DB_HOST|PORT|DATABASE|USER|PASSWORD`.
 
 ### 3.3 Config Template Writer
 
-Generates/updates `mincore.json5.example` with full comments; never overwrites live config.
+Generates/updates `holarki.json5.example` with full comments; never overwrites live config.
 
 ### 3.4 Timezones
 
@@ -309,7 +309,7 @@ UTC storage; server display TZ; optional per‑player `/timezone set <ZoneId>` (
 
 ### 3.5 Localization (i18n)
 
-Locales in `assets/mincore/lang/*.json`. Fallbacks; validation task checks missing/mismatched keys/placeholders.
+Locales in `assets/holarki/lang/*.json`. Fallbacks; validation task checks missing/mismatched keys/placeholders.
 
 ### 3.6 Scheduler (cron UTC)
 
@@ -323,7 +323,7 @@ Locales in `assets/mincore/lang/*.json`. Fallbacks; validation task checks missi
 
 ### 3.8 Observability
 
-`(mincore)`‑prefixed logs; error tokens; slow‑query WARNs; optional JSON log stream; optional metrics (JMX/Prometheus).
+`(holarki)`‑prefixed logs; error tokens; slow‑query WARNs; optional JSON log stream; optional metrics (JMX/Prometheus).
 
 ### 3.9 Security & Privacy
 
@@ -331,16 +331,16 @@ Least‑priv GRANT; secrets via env; TLS for cross‑host DB; no default PII; IP
 
 ### 3.10 Runbooks
 
-- **Ad‑hoc export**: `/mincore export --all --out ./backups/mincore --gzip true`  
-- **Restore**: `/mincore restore --mode fresh --atomic --from <dir>` or `--staging`; or `--mode merge --overwrite`.  
+- **Ad‑hoc export**: `/holarki export --all --out ./backups/holarki --gzip true`  
+- **Restore**: `/holarki restore --mode fresh --atomic --from <dir>` or `--staging`; or `--mode merge --overwrite`.  
 - **DB‑native**: `mariadb-dump` / `mariabackup`; PITR via binlogs.  
-- **Validation**: compare counts, smoke tests, `/mincore doctor --counts --fk`.
+- **Validation**: compare counts, smoke tests, `/holarki doctor --counts --fk`.
 
 **Appendix A — Minimal GRANT**
 
 ```sql
-CREATE USER 'mincore'@'10.0.%' IDENTIFIED BY 'change-me';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON mincore.* TO 'mincore'@'10.0.%';
+CREATE USER 'holarki'@'10.0.%' IDENTIFIED BY 'change-me';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON holarki.* TO 'holarki'@'10.0.%';
 FLUSH PRIVILEGES;
 ```
 
@@ -355,27 +355,27 @@ SemVer intent • off‑thread DB • events: background, AT‑LEAST‑ONCE, ord
 ### 4.2 Core Entry Points
 
 ```java
-public final class MinCoreApi {
-  public static void bootstrap(dev.mincore.core.Services s);
+public final class HolarkiApi {
+  public static void bootstrap(dev.holarki.core.Services s);
   public static void publishLedger(Ledger l);
-  public static dev.mincore.api.Players players();
-  public static dev.mincore.api.Wallets wallets();
-  public static dev.mincore.api.Attributes attributes();
-  public static dev.mincore.api.events.CoreEvents events();
-  public static dev.mincore.api.storage.ModuleDatabase database();
+  public static dev.holarki.api.Players players();
+  public static dev.holarki.api.Wallets wallets();
+  public static dev.holarki.api.Attributes attributes();
+  public static dev.holarki.api.events.CoreEvents events();
+  public static dev.holarki.api.storage.ModuleDatabase database();
   public static Ledger ledger();
 }
 ```
 
 ```java
 public interface Services {
-  dev.mincore.api.Players players();
-  dev.mincore.api.Wallets wallets();
-  dev.mincore.api.Attributes attributes();
-  dev.mincore.api.events.CoreEvents events();
-  dev.mincore.api.storage.ModuleDatabase database();
+  dev.holarki.api.Players players();
+  dev.holarki.api.Wallets wallets();
+  dev.holarki.api.Attributes attributes();
+  dev.holarki.api.events.CoreEvents events();
+  dev.holarki.api.storage.ModuleDatabase database();
   java.util.concurrent.ScheduledExecutorService scheduler();
-  dev.mincore.api.Playtime playtime();
+  dev.holarki.api.Playtime playtime();
   void shutdown() throws java.io.IOException;
 }
 ```
@@ -474,29 +474,29 @@ public interface ModuleDatabase {
 - `/timezone` — help (shows zone, timezone label with abbreviation + UTC offset, clock style, sample time).
 - `/timezone set <ZoneId>` (or `/timezone <ZoneId>`) — set personal TZ if enabled.
 - `/timezone clock <12|24>` — toggle per-player clock style.
-Errors: `mincore.err.tz.invalid`, `mincore.err.tz.clockInvalid`, `mincore.err.tz.overridesDisabled`; Success: `mincore.cmd.tz.set.ok`, `mincore.cmd.tz.clock.ok`.
+Errors: `holarki.err.tz.invalid`, `holarki.err.tz.clockInvalid`, `holarki.err.tz.overridesDisabled`; Success: `holarki.cmd.tz.set.ok`, `holarki.cmd.tz.clock.ok`.
 
-**/mincore db**  
-- `/mincore db ping` — driver/server versions, RTT. (`mincore.cmd.db.ping.ok|fail`)
-- `/mincore db info` — pool stats, URL host/port (masked), TLS, isolation. (`mincore.cmd.db.info.*`)
-- `/mincore diag` — ping + schema version + advisory lock check. (`mincore.cmd.diag.ok|fail`)
+**/holarki db**  
+- `/holarki db ping` — driver/server versions, RTT. (`holarki.cmd.db.ping.ok|fail`)
+- `/holarki db info` — pool stats, URL host/port (masked), TLS, isolation. (`holarki.cmd.db.info.*`)
+- `/holarki diag` — ping + schema version + advisory lock check. (`holarki.cmd.diag.ok|fail`)
 
-**/mincore ledger**  
+**/holarki ledger**  
 - `recent [N]`, `player <name|UUID> [N]`, `module <id> [N]`, `reason <substring> [N]`.
-Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
+Output respects viewer TZ; i18n keys: `holarki.cmd.ledger.header|line|none`.
 
 **/playtime**  
-- `me`, `top [N]`, `reset <player>` (admin). Keys: `mincore.cmd.pt.*`.
+- `me`, `top [N]`, `reset <player>` (admin). Keys: `holarki.cmd.pt.*`.
 
 **Jobs & backup**  
-- `/mincore jobs list`, `/mincore jobs run <job>`  
-- `/mincore backup now` (manual JSONL export with current config)
+- `/holarki jobs list`, `/holarki jobs run <job>`  
+- `/holarki backup now` (manual JSONL export with current config)
 
 **Admin‑only (extended)**  
-- `/mincore migrate --check|--apply`  
-- `/mincore export --all [--out <dir>] [--gzip true]`  
-- `/mincore restore --mode <fresh|merge> [--atomic|--staging] --from <dir>`  
-- `/mincore doctor [--fk --orphans --counts --analyze --locks]`
+- `/holarki migrate --check|--apply`  
+- `/holarki export --all [--out <dir>] [--gzip true]`  
+- `/holarki restore --mode <fresh|merge> [--atomic|--staging] --from <dir>`  
+- `/holarki doctor [--fk --orphans --counts --analyze --locks]`
 
 ### 4.5 Rate‑Limiting
 
@@ -507,23 +507,23 @@ Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
 
 | Code | i18n key |
 |---|---|
-| INSUFFICIENT_FUNDS | `mincore.err.economy.insufficient` |
-| INVALID_AMOUNT | `mincore.err.economy.invalid` |
-| UNKNOWN_PLAYER | `mincore.err.player.unknown` |
-| IDEMPOTENCY_REPLAY | `mincore.err.idem.replay` |
-| IDEMPOTENCY_MISMATCH | `mincore.err.idem.mismatch` |
-| DEADLOCK_RETRY_EXHAUSTED | `mincore.err.db.deadlock` |
-| CONNECTION_LOST | `mincore.err.db.unavailable` |
-| DEGRADED_MODE | `mincore.err.db.degraded` |
-| MIGRATION_LOCKED | `mincore.err.migrate.locked` |
-| NAME_AMBIGUOUS | `mincore.err.player.ambiguous` |
-| INVALID_TZ | `mincore.err.tz.invalid` |
-| INVALID_CLOCK | `mincore.err.tz.clockInvalid` |
-| OVERRIDES_DISABLED | `mincore.err.tz.overridesDisabled` |
+| INSUFFICIENT_FUNDS | `holarki.err.economy.insufficient` |
+| INVALID_AMOUNT | `holarki.err.economy.invalid` |
+| UNKNOWN_PLAYER | `holarki.err.player.unknown` |
+| IDEMPOTENCY_REPLAY | `holarki.err.idem.replay` |
+| IDEMPOTENCY_MISMATCH | `holarki.err.idem.mismatch` |
+| DEADLOCK_RETRY_EXHAUSTED | `holarki.err.db.deadlock` |
+| CONNECTION_LOST | `holarki.err.db.unavailable` |
+| DEGRADED_MODE | `holarki.err.db.degraded` |
+| MIGRATION_LOCKED | `holarki.err.migrate.locked` |
+| NAME_AMBIGUOUS | `holarki.err.player.ambiguous` |
+| INVALID_TZ | `holarki.err.tz.invalid` |
+| INVALID_CLOCK | `holarki.err.tz.clockInvalid` |
+| OVERRIDES_DISABLED | `holarki.err.tz.overridesDisabled` |
 
 ### 4.7 Output Examples
 
-- `/timezone` help, `/mincore db ping`, `/mincore ledger recent`, `/playtime top N` — localized; timestamps in viewer TZ with zone abbreviations + UTC offsets + clock style.
+- `/timezone` help, `/holarki db ping`, `/holarki ledger recent`, `/playtime top N` — localized; timestamps in viewer TZ with zone abbreviations + UTC offsets + clock style.
 
 ---
 
@@ -532,20 +532,20 @@ Output respects viewer TZ; i18n keys: `mincore.cmd.ledger.header|line|none`.
 ### 5.1 Toolchain & Layout
 
 - Java 21, Gradle 8.1.4+, Loom 1.11.x, MariaDB driver 3.4.x.  
-- Artifacts: `mincore` (core), `mincore-jdbc` (driver shim); ship as **bundle JAR**.  
-- Paths: config `config/mincore.json5`, backups `./backups/mincore`, optional logs `logs/mincore.jsonl`.  
+- Artifacts: `holarki` (core), `holarki-jdbc` (driver shim); ship as **bundle JAR**.  
+- Paths: config `config/holarki.json5`, backups `./backups/holarki`, optional logs `logs/holarki.jsonl`.  
 - Env overrides supported for DB creds.
 
 ### 5.2 Local MariaDB (Docker)
 
 ```bash
-docker run --name mincore-mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=devroot -d mariadb:11
+docker run --name holarki-mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=devroot -d mariadb:11
 ```
 
 ```sql
-CREATE DATABASE IF NOT EXISTS mincore CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'mincore'@'%' IDENTIFIED BY 'change-me';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON mincore.* TO 'mincore'@'%';
+CREATE DATABASE IF NOT EXISTS holarki CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'holarki'@'%' IDENTIFIED BY 'change-me';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON holarki.* TO 'holarki'@'%';
 FLUSH PRIVILEGES;
 ```
 
@@ -555,19 +555,19 @@ FLUSH PRIVILEGES;
 
 ### 5.3a Permission Gateway (LuckPerms-first)
 
-- **Detection order:** MinCore resolves permissions using LuckPerms (via `LuckPermsProvider` and the cached user data) first, then the Fabric Permissions API when available, and finally vanilla operator levels as the fallback. All lookups should execute on the server thread so LuckPerms user data is already cached.
-- **No hard deps:** Keep LuckPerms and Fabric Permissions API as `compileOnly` dependencies. Ship MinCore without bundling either implementation jar.
-- **Helper API:** Use `dev.mincore.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "mincore.module.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
-- **Node naming:** Prefix permissions with `mincore.` or your module identifier, e.g. `mincore.admin.jobs.run` or `mincore.playtime.viewer.toggle`. Keep lowercase dot-separated segments.
+- **Detection order:** Holarki resolves permissions using LuckPerms (via `LuckPermsProvider` and the cached user data) first, then the Fabric Permissions API when available, and finally vanilla operator levels as the fallback. All lookups should execute on the server thread so LuckPerms user data is already cached.
+- **No hard deps:** Keep LuckPerms and Fabric Permissions API as `compileOnly` dependencies. Ship Holarki without bundling either implementation jar.
+- **Helper API:** Use `dev.holarki.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "holarki.module.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
+- **Node naming:** Prefix permissions with `holarki.` or your module identifier, e.g. `holarki.admin.jobs.run` or `holarki.playtime.viewer.toggle`. Keep lowercase dot-separated segments.
 - **Op levels:** Level `4` for full admin, `3` for high-trust staff, `2` for moderation, `0` for everyone. Choose the fallback that mirrors the command’s intended audience.
 
 ### 5.4 One‑Shot Smoke Test
 
-1) `/mincore db ping|info`  
+1) `/holarki db ping|info`  
 2) Create 2 players; deposit; transfer with idemKey; repeat transfer (expect **REPLAY** no‑op).  
-3) `/mincore ledger recent` shows entries; events fired.  
-4) `/mincore export --all --out ./backups/mincore --gzip true`  
-5) Cleanup; `/mincore doctor --counts --fk`.
+3) `/holarki ledger recent` shows entries; events fired.  
+4) `/holarki export --all --out ./backups/holarki --gzip true`  
+5) Cleanup; `/holarki doctor --counts --fk`.
 
 ### 5.5 Testing Strategy
 
@@ -583,7 +583,7 @@ FLUSH PRIVILEGES;
 
 ### 5.7 Localization Workflow
 
-- Keys under `assets/mincore/lang/*.json` (e.g., `en_us.json`).  
+- Keys under `assets/holarki/lang/*.json` (e.g., `en_us.json`).  
 - Consistent naming; placeholders; validation task for missing/mismatched keys; translator notes in Markdown.
 
 ### 5.8 Release Engineering
@@ -608,7 +608,7 @@ All built-in modules must support three phases: **bootstrap**, **active**, and *
 2. **Active** — Execute business logic with full telemetry (structured logs, metrics). Respect advisory locks around long-running jobs and ensure event handlers are idempotent.
 3. **Disabled** — Commands should report module-disabled messages, scheduled jobs must unschedule or short-circuit, and services should return safe defaults or no-ops without throwing.
 
-When toggles change at runtime, transition gracefully: flush pending tasks, release locks, and guarantee repeated enable/disable cycles remain safe. Surface module state through `/mincore diag` and expose health signals so operators know whether a module is dormant, degraded, or healthy.
+When toggles change at runtime, transition gracefully: flush pending tasks, release locks, and guarantee repeated enable/disable cycles remain safe. Surface module state through `/holarki diag` and expose health signals so operators know whether a module is dormant, degraded, or healthy.
 
 ### 5.11 Contributor Workflow
 
@@ -616,11 +616,11 @@ Branches (`development`), small PRs, Conventional Commits, PR template, code own
 
 ### 5.12 Ops‑Grade Smoke Test (Extended)
 
-- `/mincore migrate --apply`, `/mincore db info`  
+- `/holarki migrate --apply`, `/holarki db info`  
 - 2 players, deposit/transfer + replay test  
-- `/mincore export …` → verify files  
+- `/holarki export …` → verify files  
 - Cleanup via restore fresh/atomic or truncation  
-- `/mincore doctor --counts --fk`
+- `/holarki doctor --counts --fk`
 
 ### 5.13 Deliverables (“Done”)
 
@@ -628,4 +628,4 @@ Branches (`development`), small PRs, Conventional Commits, PR template, code own
 
 ---
 
-**End of MinCore v1.0.0 — Unified & Consistent Master Spec**
+**End of Holarki v1.0.0 — Unified & Consistent Master Spec**
