@@ -105,19 +105,19 @@ public final class BackupExporter {
   private static void writeHeader(BufferedWriter writer, Config cfg) throws IOException {
     String json =
         "{"
-            + quote("version")
+            + requiredString("version")
             + ":"
-            + quote("jsonl/v1")
+            + requiredString("jsonl/v1")
             + ','
-            + quote("generatedAt")
+            + requiredString("generatedAt")
             + ":"
-            + quote(Instant.now().toString())
+            + requiredString(Instant.now().toString())
             + ','
-            + quote("defaultZone")
+            + requiredString("defaultZone")
             + ":"
-            + quote(cfg.time().display().defaultZone().getId())
+            + requiredString(cfg.time().display().defaultZone().getId())
             + ','
-            + quote("schemaVersion")
+            + requiredString("schemaVersion")
             + ":"
             + Migrations.currentVersion()
             + "}\n";
@@ -141,31 +141,31 @@ public final class BackupExporter {
 
         String line =
             "{"
-                + quote("table")
+                + requiredString("table")
                 + ":"
-                + quote("players")
+                + requiredString("players")
                 + ','
-                + quote("uuid")
+                + requiredString("uuid")
                 + ":"
-                + quote(formatUuid(rs.getString("uuid")))
+                + requiredString(formatUuid(rs.getString("uuid")))
                 + ','
-                + quote("name")
+                + requiredString("name")
                 + ":"
-                + quote(rs.getString("name"))
+                + requiredString(rs.getString("name"))
                 + ','
-                + quote("balance")
+                + requiredString("balance")
                 + ":"
                 + balance
                 + ','
-                + quote("createdAt")
+                + requiredString("createdAt")
                 + ":"
                 + createdAt
                 + ','
-                + quote("updatedAt")
+                + requiredString("updatedAt")
                 + ":"
                 + updatedAt
                 + ','
-                + quote("seenAt")
+                + requiredString("seenAt")
                 + ":"
                 + seenValue
                 + "}\n";
@@ -186,27 +186,27 @@ public final class BackupExporter {
       while (rs.next()) {
         String line =
             "{"
-                + quote("table")
+                + requiredString("table")
                 + ":"
-                + quote("player_attributes")
+                + requiredString("player_attributes")
                 + ','
-                + quote("owner")
+                + requiredString("owner")
                 + ":"
-                + quote(formatUuid(rs.getString("owner_uuid")))
+                + requiredString(formatUuid(rs.getString("owner_uuid")))
                 + ','
-                + quote("key")
+                + requiredString("key")
                 + ":"
-                + quote(rs.getString("attr_key"))
+                + requiredString(rs.getString("attr_key"))
                 + ','
-                + quote("value")
+                + requiredString("value")
                 + ":"
                 + rs.getString("value_json")
                 + ','
-                + quote("createdAt")
+                + requiredString("createdAt")
                 + ":"
                 + rs.getLong("created_at_s")
                 + ','
-                + quote("updatedAt")
+                + requiredString("updatedAt")
                 + ":"
                 + rs.getLong("updated_at_s")
                 + "}\n";
@@ -226,15 +226,15 @@ public final class BackupExporter {
       while (rs.next()) {
         StringBuilder line = new StringBuilder();
         line.append('{')
-            .append(quote("table"))
+            .append(requiredString("table"))
             .append(':')
-            .append(quote("player_event_seq"))
+            .append(requiredString("player_event_seq"))
             .append(',')
-            .append(quote("uuid"))
+            .append(requiredString("uuid"))
             .append(':')
-            .append(quote(formatUuid(rs.getString("uuid"))))
+            .append(requiredString(formatUuid(rs.getString("uuid"))))
             .append(',')
-            .append(quote("seq"))
+            .append(requiredString("seq"))
             .append(':')
             .append(rs.getLong("seq"))
             .append("}\n");
@@ -261,71 +261,71 @@ public final class BackupExporter {
         Long newUnits = newUnitsObj == null ? null : ((Number) newUnitsObj).longValue();
         StringBuilder line = new StringBuilder();
         line.append('{')
-            .append(quote("table"))
+            .append(requiredString("table"))
             .append(':')
-            .append(quote("core_ledger"))
+            .append(requiredString("core_ledger"))
             .append(',')
-            .append(quote("ts"))
+            .append(requiredString("ts"))
             .append(':')
             .append(rs.getLong("ts_s"))
             .append(',')
-            .append(quote("module"))
+            .append(requiredString("module"))
             .append(':')
-            .append(quote(rs.getString("module_id")))
+            .append(requiredString(rs.getString("module_id")))
             .append(',')
-            .append(quote("op"))
+            .append(requiredString("op"))
             .append(':')
-            .append(quote(rs.getString("op")))
+            .append(requiredString(rs.getString("op")))
             .append(',')
-            .append(quote("from"))
+            .append(requiredString("from"))
             .append(':')
-            .append(quote(formatUuid(rs.getString("from_uuid"))))
+            .append(requiredString(formatUuid(rs.getString("from_uuid"))))
             .append(',')
-            .append(quote("to"))
+            .append(requiredString("to"))
             .append(':')
-            .append(quote(formatUuid(rs.getString("to_uuid"))))
+            .append(requiredString(formatUuid(rs.getString("to_uuid"))))
             .append(',')
-            .append(quote("amount"))
+            .append(requiredString("amount"))
             .append(':')
             .append(rs.getLong("amount"))
             .append(',')
-            .append(quote("reason"))
+            .append(requiredString("reason"))
             .append(':')
-            .append(quote(rs.getString("reason")))
+            .append(requiredString(rs.getString("reason")))
             .append(',')
-            .append(quote("ok"))
+            .append(requiredString("ok"))
             .append(':')
             .append(rs.getBoolean("ok"))
             .append(',')
-            .append(quote("code"))
+            .append(requiredString("code"))
             .append(':')
-            .append(quote(rs.getString("code")))
+            .append(optionalString(rs.getString("code")))
             .append(',')
-            .append(quote("seq"))
+            .append(requiredString("seq"))
             .append(':')
             .append(rs.getLong("seq"))
             .append(',')
-            .append(quote("idemScope"))
+            .append(requiredString("idemScope"))
             .append(':')
-            .append(quote(rs.getString("idem_scope")))
+            .append(optionalString(rs.getString("idem_scope")))
             .append(',')
-            .append(quote("idemKey"))
+            .append(requiredString("idemKey"))
             .append(':')
-            .append(quote(rs.getString("idem_key_hash")))
+            .append(optionalString(rs.getString("idem_key_hash")))
             .append(',')
-            .append(quote("oldUnits"))
+            .append(requiredString("oldUnits"))
             .append(':')
             .append(oldUnits == null ? "null" : oldUnits.toString())
             .append(',')
-            .append(quote("newUnits"))
+            .append(requiredString("newUnits"))
             .append(':')
             .append(newUnits == null ? "null" : newUnits.toString())
             .append(',')
-            .append(quote("serverNode"))
+            .append(requiredString("serverNode"))
             .append(':')
-            .append(quote(rs.getString("server_node")))
+            .append(optionalString(rs.getString("server_node")))
             .append(',')
-            .append(quote("extra"))
+            .append(requiredString("extra"))
             .append(':')
             .append(rs.getString("extra_json") == null ? "null" : rs.getString("extra_json"))
             .append("}\n");
@@ -398,11 +398,12 @@ public final class BackupExporter {
     return new UUID(msb, lsb).toString();
   }
 
-  private static String quote(String in) {
-    if (in == null) {
-      return "\"\"";
-    }
-    return new JsonPrimitive(in).toString();
+  private static String requiredString(String in) {
+    return new JsonPrimitive(in == null ? "" : in).toString();
+  }
+
+  private static String optionalString(String in) {
+    return in == null ? "null" : requiredString(in);
   }
 
   /**

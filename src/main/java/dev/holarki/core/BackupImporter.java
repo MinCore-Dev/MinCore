@@ -441,13 +441,12 @@ public final class BackupImporter {
     if (element == null || element.isJsonNull()) {
       return null;
     }
-    String value = element.getAsString();
-    return value.isEmpty() ? null : value;
+    return element.getAsString();
   }
 
   private static String moduleField(JsonObject obj) throws SQLException {
     String module = stringOrNull(obj, "module");
-    if (module == null) {
+    if (module == null || module.isEmpty()) {
       throw new SQLException("snapshot missing ledger module identifier");
     }
     return module;
