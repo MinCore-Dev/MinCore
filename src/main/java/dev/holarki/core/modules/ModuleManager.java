@@ -32,7 +32,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
   private final Map<String, HolarkiModule> modules = new HashMap<>();
   private final List<HolarkiModule> startOrder = new ArrayList<>();
   private final LinkedHashSet<String> active = new LinkedHashSet<>();
-  private final Map<Class<?>, Object> services = new HashMap<>();
+  private final Map<Class<?>, Object> publishedServices = new HashMap<>();
   private final Map<String, Set<Class<?>>> moduleServices = new HashMap<>();
   private final ModuleContext context;
   private boolean started;
@@ -121,14 +121,14 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
   @Override
   public synchronized <T> Optional<T> service(Class<T> type) {
     Objects.requireNonNull(type, "type");
-    return Optional.ofNullable(type.cast(services.get(type)));
+    return Optional.ofNullable(type.cast(publishedServices.get(type)));
   }
 
   private synchronized void publishService(String moduleId, Class<?> type, Object service) {
     Objects.requireNonNull(moduleId, "moduleId");
     Objects.requireNonNull(type, "type");
     if (service == null) {
-      services.remove(type);
+      publishedServices.remove(type);
       Set<Class<?>> published = moduleServices.get(moduleId);
       if (published != null) {
         published.remove(type);
@@ -138,7 +138,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
       }
       return;
     }
-    services.put(type, service);
+    publishedServices.put(type, service);
     moduleServices.computeIfAbsent(moduleId, id -> new LinkedHashSet<>()).add(type);
   }
 
@@ -146,7 +146,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     Set<Class<?>> published = moduleServices.remove(moduleId);
     if (published != null) {
       for (Class<?> type : published) {
-        services.remove(type);
+        publishedServices.remove(type);
       }
     }
   }
