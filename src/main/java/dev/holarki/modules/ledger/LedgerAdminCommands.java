@@ -31,12 +31,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Registers the `/holarki ledger` admin command hierarchy. */
-final class LedgerAdminCommands {
+public final class LedgerAdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
 
   private LedgerAdminCommands() {}
 
-  static void register(ModuleContext context) {
+  public static void register(ModuleContext context) {
     Objects.requireNonNull(context, "context");
     if (!context.config().ledger().enabled()) {
       return;
@@ -45,7 +45,7 @@ final class LedgerAdminCommands {
     context.registerAdminCommandExtension(root -> attach(root, services));
   }
 
-  static void attach(
+  public static void attach(
       final LiteralArgumentBuilder<ServerCommandSource> root, final Services services) {
     LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
     ledger.then(

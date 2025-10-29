@@ -15,18 +15,18 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
 
 /** Scheduler-specific admin commands under `/holarki`. */
-final class SchedulerAdminCommands {
+public final class SchedulerAdminCommands {
 
   private SchedulerAdminCommands() {}
 
-  static void register(ModuleContext context, SchedulerService scheduler) {
+  public static void register(ModuleContext context, SchedulerService scheduler) {
     Objects.requireNonNull(context, "context");
     Objects.requireNonNull(scheduler, "scheduler");
     Services services = context.services();
     context.registerAdminCommandExtension(root -> attach(root, scheduler, services));
   }
 
-  static void attach(
+  public static void attach(
       final LiteralArgumentBuilder<ServerCommandSource> root,
       final SchedulerService scheduler,
       final Services services) {

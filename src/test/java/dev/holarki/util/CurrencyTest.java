@@ -42,7 +42,7 @@ class CurrencyTest {
     @Test
     @DisplayName("parses high magnitude values exactly")
     void parsesHighMagnitudeExactly() {
-      assertEquals(Long.MAX_VALUE, Currency.parse("9_223_372_036.854775807k"));
+      assertEquals(Long.MAX_VALUE, Currency.parse("9_223_372_036.854775807b"));
       assertEquals(1_234_567_890_000L, Currency.parse("1_234_567.89m"));
     }
 

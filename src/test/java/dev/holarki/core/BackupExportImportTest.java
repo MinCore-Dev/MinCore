@@ -16,6 +16,7 @@ import dev.holarki.util.Uuids;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -23,6 +24,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.util.UUID;
 import javax.sql.DataSource;
+import org.mariadb.jdbc.MariaDbDataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,13 +36,26 @@ class BackupExportImportTest {
     builder.setPort(0);
     builder.setBaseDir(tempDir.resolve("db-base").toString());
     builder.setDataDir(tempDir.resolve("db-data").toString());
+    builder.setDeletingTemporaryBaseAndDataDirsOnShutdown(true);
+    builder.setSecurityDisabled(true);
+    builder.addArg("--user=" + MariaDbTestSupport.USER);
 
     DB db = DB.newEmbeddedDB(builder.build());
     db.start();
     try {
       String dbName = "holarki";
-      db.createDB(dbName);
-      DataSource dataSource = db.getDataSource(dbName);
+      try (Connection admin =
+              DriverManager.getConnection(
+                  "jdbc:mariadb://127.0.0.1:" + db.getConfiguration().getPort() + "/mysql",
+                  MariaDbTestSupport.USER,
+                  MariaDbTestSupport.PASSWORD);
+          Statement st = admin.createStatement()) {
+        st.executeUpdate("CREATE DATABASE IF NOT EXISTS " + dbName);
+      }
+      MariaDbDataSource dataSource = new MariaDbDataSource();
+      dataSource.setUrl("jdbc:mariadb://127.0.0.1:" + db.getConfiguration().getPort() + "/" + dbName);
+      dataSource.setUser(MariaDbTestSupport.USER);
+      dataSource.setPassword(MariaDbTestSupport.PASSWORD);
       ModuleDatabase moduleDb = new SimpleModuleDatabase(dataSource);
       Services services = new SimpleServices(moduleDb);
 
