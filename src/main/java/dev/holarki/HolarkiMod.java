@@ -15,8 +15,10 @@ import dev.holarki.core.modules.SchedulerModule;
 import dev.holarki.core.modules.TimezoneAutoModule;
 import dev.holarki.core.modules.TimezoneModule;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
@@ -90,12 +92,38 @@ public final class HolarkiMod implements ModInitializer {
     // 6) Ensure player account exists on join
     ServerPlayConnectionEvents.JOIN.register(
         (handler, sender, server) -> {
-          var p = handler.player;
-          UUID uuid = p.getUuid();
-          String name = p.getGameProfile().getName();
-          long now = java.time.Instant.now().getEpochSecond();
-          services.players().upsertSeen(uuid, name, now);
+          var player = handler.player;
+          UUID uuid = player.getUuid();
+          String name = player.getGameProfile().getName();
+          long now = Instant.now().getEpochSecond();
+
           services.playtime().onJoin(uuid);
+
+          Runnable upsertSeen =
+              () -> {
+                try {
+                  services.players().upsertSeen(uuid, name, now);
+                } catch (Exception e) {
+                  LOG.error(
+                      "(holarki) failed to update player seen record (uuid={}, name={})",
+                      uuid,
+                      name,
+                      e);
+                }
+              };
+
+          var scheduler = services.scheduler();
+          if (scheduler.isShutdown()) {
+            LOG.debug("(holarki) skip player seen upsert for {} (scheduler stopping)", uuid);
+            return;
+          }
+
+          try {
+            scheduler.execute(upsertSeen);
+          } catch (RejectedExecutionException ex) {
+            LOG.debug(
+                "(holarki) scheduler rejected player seen upsert for {} (stopping)", uuid, ex);
+          }
         });
 
     ServerPlayConnectionEvents.DISCONNECT.register(
