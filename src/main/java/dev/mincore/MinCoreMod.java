@@ -3,6 +3,7 @@ package dev.mincore;
 
 import dev.mincore.api.MinCoreApi;
 import dev.mincore.commands.AdminCommands;
+import dev.mincore.commands.PlaytimeCommand;
 import dev.mincore.core.Config;
 import dev.mincore.core.CoreServices;
 import dev.mincore.core.Migrations;
@@ -10,7 +11,6 @@ import dev.mincore.core.SchemaVerifier;
 import dev.mincore.core.Services;
 import dev.mincore.core.modules.LedgerModule;
 import dev.mincore.core.modules.ModuleManager;
-import dev.mincore.core.modules.PlaytimeModule;
 import dev.mincore.core.modules.SchedulerModule;
 import dev.mincore.core.modules.TimezoneAutoModule;
 import dev.mincore.core.modules.TimezoneModule;
@@ -80,13 +80,12 @@ public final class MinCoreMod implements ModInitializer {
     if (cfg.modules().timezone().autoDetect().enabled() && cfg.time().display().autoDetect()) {
       requested.add(TimezoneAutoModule.ID);
     }
-    if (cfg.modules().playtime().enabled()) {
-      requested.add(PlaytimeModule.ID);
-    }
     if (cfg.modules().scheduler().enabled()) {
       requested.add(SchedulerModule.ID);
     }
     MODULES.start(requested);
+
+    PlaytimeCommand.register(services);
 
     // 6) Ensure player account exists on join
     ServerPlayConnectionEvents.JOIN.register(
@@ -96,7 +95,11 @@ public final class MinCoreMod implements ModInitializer {
           String name = p.getGameProfile().getName();
           long now = java.time.Instant.now().getEpochSecond();
           services.players().upsertSeen(uuid, name, now);
+          services.playtime().onJoin(uuid);
         });
+
+    ServerPlayConnectionEvents.DISCONNECT.register(
+        (handler, server) -> services.playtime().onQuit(handler.player.getUuid()));
 
     // 7) Admin commands (db diag + ledger peek)
     AdminCommands.register(services, MODULES);

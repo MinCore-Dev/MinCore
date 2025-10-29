@@ -101,11 +101,11 @@ public final class MinCoreApi {
   }
 
   /**
-   * Gets the playtime tracker singleton when the playtime module is active.
+   * Gets the playtime tracker singleton.
    *
-   * @return optional playtime tracker
+   * @return playtime tracker singleton
    */
-  public static java.util.Optional<dev.mincore.api.Playtime> playtime() {
+  public static dev.mincore.api.Playtime playtime() {
     return services.playtime();
   }
 

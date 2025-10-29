@@ -66,11 +66,7 @@ public final class PlaytimeCommand {
   }
 
   private static int cmdMe(ServerCommandSource src, Services services) {
-    Playtime playtime = services.playtime().orElse(null);
-    if (playtime == null) {
-      srcSend(src, Text.translatable("mincore.cmd.pt.disabled"));
-      return 0;
-    }
+    Playtime playtime = services.playtime();
     try {
       var player = src.getPlayer();
       if (player == null) {
@@ -87,11 +83,7 @@ public final class PlaytimeCommand {
   }
 
   private static int cmdTop(ServerCommandSource src, Services services, int limit) {
-    Playtime playtime = services.playtime().orElse(null);
-    if (playtime == null) {
-      srcSend(src, Text.translatable("mincore.cmd.pt.disabled"));
-      return 0;
-    }
+    Playtime playtime = services.playtime();
     List<Playtime.Entry> entries = playtime.top(limit);
     if (entries.isEmpty()) {
       srcSend(src, Text.translatable("mincore.cmd.pt.top.empty"));
@@ -112,11 +104,7 @@ public final class PlaytimeCommand {
   }
 
   private static int cmdReset(ServerCommandSource src, Services services, UUID target) {
-    Playtime playtime = services.playtime().orElse(null);
-    if (playtime == null) {
-      srcSend(src, Text.translatable("mincore.cmd.pt.disabled"));
-      return 0;
-    }
+    Playtime playtime = services.playtime();
     playtime.reset(target);
     srcSend(src, Text.translatable("mincore.cmd.pt.reset.ok"));
     return 1;

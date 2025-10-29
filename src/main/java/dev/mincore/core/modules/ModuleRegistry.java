@@ -12,8 +12,7 @@ public final class ModuleRegistry {
           LedgerModule.ID, LedgerModule::new,
           SchedulerModule.ID, SchedulerModule::new,
           TimezoneModule.ID, TimezoneModule::new,
-          TimezoneAutoModule.ID, TimezoneAutoModule::new,
-          PlaytimeModule.ID, PlaytimeModule::new);
+          TimezoneAutoModule.ID, TimezoneAutoModule::new);
 
   private ModuleRegistry() {}
 

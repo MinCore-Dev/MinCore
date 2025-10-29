@@ -11,7 +11,6 @@ import dev.mincore.api.events.CoreEvents;
 import dev.mincore.api.storage.ModuleDatabase;
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.slf4j.Logger;
@@ -30,7 +29,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   private final Attributes attributes;
   private final ModuleDatabaseImpl moduleDatabase;
   private final ScheduledExecutorService scheduler;
-  private final Optional<Playtime> playtime;
+  private final Playtime playtime;
   private final DbHealth dbHealth;
   private final Metrics metrics;
 
@@ -42,7 +41,7 @@ public final class CoreServices implements Services, java.io.Closeable {
       Attributes attributes,
       ModuleDatabaseImpl moduleDatabase,
       ScheduledExecutorService scheduler,
-      Optional<Playtime> playtime,
+      Playtime playtime,
       DbHealth dbHealth,
       Metrics metrics) {
     this.pool = pool;
@@ -146,10 +145,7 @@ public final class CoreServices implements Services, java.io.Closeable {
     Players players = new PlayersImpl(ds, events, dbHealth, metrics);
     Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics);
     Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
-    Optional<Playtime> playtime =
-        cfg.modules().playtime().enabled()
-            ? Optional.of(new PlaytimeImpl())
-            : Optional.empty();
+    Playtime playtime = new PlaytimeImpl();
 
     return new CoreServices(
         ds, events, players, wallets, attrs, moduleDb, scheduler, playtime, dbHealth, metrics);
@@ -186,7 +182,7 @@ public final class CoreServices implements Services, java.io.Closeable {
   }
 
   @Override
-  public Optional<Playtime> playtime() {
+  public Playtime playtime() {
     return playtime;
   }
 
@@ -201,6 +197,11 @@ public final class CoreServices implements Services, java.io.Closeable {
     }
     metrics.close();
     scheduler.shutdownNow();
+    try {
+      playtime.close();
+    } catch (Exception e) {
+      LOG.debug("(mincore) playtime shutdown issue", e);
+    }
     pool.close();
   }
 
