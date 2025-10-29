@@ -191,7 +191,7 @@ public final class AdminCommands {
     } catch (Exception e) {
       logAdminFailure("/holarki db info", e);
       src.sendFeedback(
-          () -> Text.translatable("holarki.cmd.db.ping.fail", e.getClass().getSimpleName()), false);
+          () -> Text.translatable("holarki.cmd.db.info.fail", e.getClass().getSimpleName()), false);
       return 0;
     }
   }
