@@ -10,6 +10,10 @@ plugins {
 group = 'dev.holarki'
 version = '1.0.0'
 
+base {
+  archivesName = 'holarki'
+}
+
 java {
   toolchain { languageVersion = JavaLanguageVersion.of(21) }
   withJavadocJar()
@@ -66,7 +70,7 @@ spotless {
     removeUnusedImports()
     indentWithSpaces()
     endWithNewline()
-    licenseHeader '/* Holarki © 2025 — MIT */\n'
+    licenseHeader '/* Holarki © 2025 Holarki Devs — MIT */\n'
   }
 }
 
@@ -151,6 +155,7 @@ publishing {
   publications {
     mavenJava(MavenPublication) {
       from components.java
+      artifactId = 'holarki'
     }
   }
 }
