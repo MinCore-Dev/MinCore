@@ -56,7 +56,7 @@ public final class WalletsImpl implements Wallets {
     this.metrics = Objects.requireNonNull(metrics, "metrics");
     Objects.requireNonNull(idempotencyTtl, "idempotencyTtl");
     long ttlSeconds = idempotencyTtl.getSeconds();
-    this.idempotencyTtlSeconds = ttlSeconds < 0 ? 0L : ttlSeconds;
+    this.idempotencyTtlSeconds = ttlSeconds <= 0 ? Long.MAX_VALUE : ttlSeconds;
   }
 
   @Override

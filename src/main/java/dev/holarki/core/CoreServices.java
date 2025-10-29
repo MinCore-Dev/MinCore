@@ -146,7 +146,10 @@ public final class CoreServices implements Services, java.io.Closeable {
     Players players = new PlayersImpl(ds, events, dbHealth, metrics);
     long retentionDays =
         Math.max(0, cfg.modules().scheduler().jobs().cleanup().idempotencySweep().retentionDays());
-    Duration idempotencyTtl = Duration.ofDays(retentionDays);
+    Duration idempotencyTtl =
+        retentionDays > 0
+            ? Duration.ofDays(retentionDays)
+            : Duration.ofDays(365); // 0 => keep requests ~1y to protect retries
     Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics, idempotencyTtl);
     Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
     Playtime playtime = new PlaytimeImpl();

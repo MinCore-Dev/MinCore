@@ -24,6 +24,7 @@
           idempotencySweep: {
             enabled: true,
             schedule: "0 30 4 * * *",
+            // Set to 0 to keep roughly a year of request keys for retry protection.
             retentionDays: 30,
             batchLimit: 5000
           }
