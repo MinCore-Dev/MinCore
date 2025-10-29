@@ -114,7 +114,7 @@ final class BackupCycleTest {
   }
 
   @Test
-  void restoreAllowsLedgerWithoutAddonField() throws Exception {
+  void restoreAllowsLedgerEntryWithoutLegacyFields() throws Exception {
     Path snapshot = Files.createTempFile("mincore-ledger-compat", ".jsonl");
     TestServices services =
         new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
