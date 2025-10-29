@@ -2,6 +2,7 @@
   "holarki.cmd.db.ping.ok": "Database OK (ping %s ms)",
   "holarki.cmd.db.ping.fail": "Database error (%s)",
   "holarki.cmd.db.info.detail": "DB host=%s port=%s mode=%s product=%s url=%s isolation=%s",
+  "holarki.cmd.db.info.fail": "Database info failed (%s)",
   "holarki.cmd.diag.db.ok": "Database connection: OK",
   "holarki.cmd.diag.db.fail": "Database connection failed (%s)",
   "holarki.cmd.diag.schema": "Schema version: %s",
