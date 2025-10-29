@@ -930,10 +930,14 @@ public final class BackupImporter {
                   + "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
       this.existsLedger =
           c.prepareStatement(
-              "SELECT id FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=? LIMIT 1");
+              "SELECT id FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=? "
+                  + "AND from_uuid<=>? AND to_uuid<=>? AND amount=? AND ok=? AND code<=>? "
+                  + "AND idem_scope<=>? AND idem_key_hash<=>? LIMIT 1");
       this.deleteLedger =
           c.prepareStatement(
-              "DELETE FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=?");
+              "DELETE FROM core_ledger WHERE ts_s=? AND module_id=? AND op=? AND seq=? AND reason=? "
+                  + "AND from_uuid<=>? AND to_uuid<=>? AND amount=? AND ok=? AND code<=>? "
+                  + "AND idem_scope<=>? AND idem_key_hash<=>?");
       this.upsertSeq =
           c.prepareStatement(
               "INSERT INTO player_event_seq(uuid,seq) VALUES(?,?) "
@@ -982,12 +986,47 @@ public final class BackupImporter {
       String op = Objects.requireNonNullElse(stringOrNull(obj, "op"), "");
       long seq = longOrZero(obj, "seq");
       String reason = Objects.requireNonNullElse(stringOrNull(obj, "reason"), "");
+      byte[] from = uuidToBytes(stringOrNull(obj, "from"));
+      byte[] to = uuidToBytes(stringOrNull(obj, "to"));
+      long amount = longOrZero(obj, "amount");
+      Boolean ok = boolOrNull(obj, "ok");
+      boolean okValue = ok != null ? ok : false;
+      String code = stringOrNull(obj, "code");
+      String scope = stringOrNull(obj, "idemScope");
+      byte[] key = hexToBytes(stringOrNull(obj, "idemKey"));
 
       existsLedger.setLong(1, ts);
       existsLedger.setString(2, module);
       existsLedger.setString(3, op);
       existsLedger.setLong(4, seq);
       existsLedger.setString(5, reason);
+      if (from == null) {
+        existsLedger.setNull(6, Types.BINARY);
+      } else {
+        existsLedger.setBytes(6, from);
+      }
+      if (to == null) {
+        existsLedger.setNull(7, Types.BINARY);
+      } else {
+        existsLedger.setBytes(7, to);
+      }
+      existsLedger.setLong(8, amount);
+      existsLedger.setBoolean(9, okValue);
+      if (code == null) {
+        existsLedger.setNull(10, Types.VARCHAR);
+      } else {
+        existsLedger.setString(10, code);
+      }
+      if (scope == null) {
+        existsLedger.setNull(11, Types.VARCHAR);
+      } else {
+        existsLedger.setString(11, scope);
+      }
+      if (key == null) {
+        existsLedger.setNull(12, Types.BINARY);
+      } else {
+        existsLedger.setBytes(12, key);
+      }
       try (ResultSet rs = existsLedger.executeQuery()) {
         if (rs.next()) {
           if (overwrite) {
@@ -996,6 +1035,33 @@ public final class BackupImporter {
             deleteLedger.setString(3, op);
             deleteLedger.setLong(4, seq);
             deleteLedger.setString(5, reason);
+            if (from == null) {
+              deleteLedger.setNull(6, Types.BINARY);
+            } else {
+              deleteLedger.setBytes(6, from);
+            }
+            if (to == null) {
+              deleteLedger.setNull(7, Types.BINARY);
+            } else {
+              deleteLedger.setBytes(7, to);
+            }
+            deleteLedger.setLong(8, amount);
+            deleteLedger.setBoolean(9, okValue);
+            if (code == null) {
+              deleteLedger.setNull(10, Types.VARCHAR);
+            } else {
+              deleteLedger.setString(10, code);
+            }
+            if (scope == null) {
+              deleteLedger.setNull(11, Types.VARCHAR);
+            } else {
+              deleteLedger.setString(11, scope);
+            }
+            if (key == null) {
+              deleteLedger.setNull(12, Types.BINARY);
+            } else {
+              deleteLedger.setBytes(12, key);
+            }
             deleteLedger.executeUpdate();
           } else {
             return;
@@ -1006,36 +1072,30 @@ public final class BackupImporter {
       insertLedger.setLong(1, ts);
       insertLedger.setString(2, module);
       insertLedger.setString(3, op);
-      byte[] from = uuidToBytes(stringOrNull(obj, "from"));
       if (from == null) {
         insertLedger.setNull(4, Types.BINARY);
       } else {
         insertLedger.setBytes(4, from);
       }
-      byte[] to = uuidToBytes(stringOrNull(obj, "to"));
       if (to == null) {
         insertLedger.setNull(5, Types.BINARY);
       } else {
         insertLedger.setBytes(5, to);
       }
-      insertLedger.setLong(6, longOrZero(obj, "amount"));
+      insertLedger.setLong(6, amount);
       insertLedger.setString(7, reason);
-      Boolean ok = boolOrNull(obj, "ok");
-      insertLedger.setBoolean(8, ok != null ? ok : false);
-      String code = stringOrNull(obj, "code");
+      insertLedger.setBoolean(8, okValue);
       if (code == null) {
         insertLedger.setNull(9, Types.VARCHAR);
       } else {
         insertLedger.setString(9, code);
       }
       insertLedger.setLong(10, seq);
-      String scope = stringOrNull(obj, "idemScope");
       if (scope == null) {
         insertLedger.setNull(11, Types.VARCHAR);
       } else {
         insertLedger.setString(11, scope);
       }
-      byte[] key = hexToBytes(stringOrNull(obj, "idemKey"));
       if (key == null) {
         insertLedger.setNull(12, Types.BINARY);
       } else {

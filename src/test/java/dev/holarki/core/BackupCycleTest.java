@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.holarki.api.Attributes;
@@ -32,6 +33,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -211,6 +213,70 @@ final class BackupCycleTest {
 
       assertTrue(sawPlayer, "expected exported player row with control characters");
       assertTrue(sawLedger, "expected exported ledger row with control characters");
+    } finally {
+      services.shutdown();
+      deleteRecursively(backupDir);
+    }
+  }
+
+  @Test
+  void mergeRestorePreservesDistinctManualLedgerRows() throws Exception {
+    Path backupDir = Files.createTempDirectory("holarki-merge-manual-ledger");
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+
+    try {
+      Migrations.apply(services);
+      truncateAllTables();
+
+      UUID fromOne = UUID.fromString("00000000-0000-0000-0000-00000000aa01");
+      UUID toOne = UUID.fromString("00000000-0000-0000-0000-00000000aa02");
+      UUID fromTwo = UUID.fromString("00000000-0000-0000-0000-00000000bb01");
+      UUID toTwo = UUID.fromString("00000000-0000-0000-0000-00000000bb02");
+      long ts = 1_710_000_000L;
+      String module = "manual";
+      String op = "adjust";
+      String reason = "manual correction";
+
+      Path snapshot = backupDir.resolve("manual-ledger.jsonl");
+      try (BufferedWriter writer = Files.newBufferedWriter(snapshot, StandardCharsets.UTF_8)) {
+        writer.write(
+            String.format(
+                Locale.ROOT,
+                "{\"version\":\"jsonl/v1\",\"schemaVersion\":%d,\"defaultZone\":null}",
+                Migrations.currentVersion()));
+        writer.newLine();
+        writer.write(
+            ledgerSnapshotLine(ts, module, op, fromOne, toOne, reason, 0L, 100L));
+        writer.newLine();
+        writer.write(
+            ledgerSnapshotLine(ts, module, op, fromTwo, toTwo, reason, 0L, 200L));
+        writer.newLine();
+      }
+
+      BackupImporter.Result result =
+          BackupImporter.restore(
+              services, snapshot, BackupImporter.Mode.MERGE, null, false, false);
+
+      assertNotNull(result);
+      List<LedgerRow> ledgerRows = readLedger();
+      assertEquals(2, ledgerRows.size());
+      assertTrue(
+          ledgerRows.stream()
+              .anyMatch(
+                  row ->
+                      row.amount() == 100L
+                          && fromOne.equals(row.from())
+                          && toOne.equals(row.to())),
+          "expected ledger row for first manual entry");
+      assertTrue(
+          ledgerRows.stream()
+              .anyMatch(
+                  row ->
+                      row.amount() == 200L
+                          && fromTwo.equals(row.from())
+                          && toTwo.equals(row.to())),
+          "expected ledger row for second manual entry");
     } finally {
       services.shutdown();
       deleteRecursively(backupDir);
@@ -651,6 +717,44 @@ final class BackupCycleTest {
     long high = buffer.getLong();
     long low = buffer.getLong();
     return new UUID(high, low);
+  }
+
+  private static String ledgerSnapshotLine(
+      long ts,
+      String module,
+      String op,
+      UUID from,
+      UUID to,
+      String reason,
+      long seq,
+      long amount) {
+    JsonObject row = new JsonObject();
+    row.addProperty("table", "core_ledger");
+    row.addProperty("ts", ts);
+    row.addProperty("module", module);
+    row.addProperty("op", op);
+    if (from != null) {
+      row.addProperty("from", from.toString());
+    } else {
+      row.add("from", JsonNull.INSTANCE);
+    }
+    if (to != null) {
+      row.addProperty("to", to.toString());
+    } else {
+      row.add("to", JsonNull.INSTANCE);
+    }
+    row.addProperty("amount", amount);
+    row.addProperty("reason", reason);
+    row.addProperty("ok", true);
+    row.add("code", JsonNull.INSTANCE);
+    row.addProperty("seq", seq);
+    row.add("idemScope", JsonNull.INSTANCE);
+    row.add("idemKey", JsonNull.INSTANCE);
+    row.add("oldUnits", JsonNull.INSTANCE);
+    row.add("newUnits", JsonNull.INSTANCE);
+    row.add("serverNode", JsonNull.INSTANCE);
+    row.add("extra", JsonNull.INSTANCE);
+    return row.toString();
   }
 
   private static void deleteRecursively(Path path) throws IOException {
