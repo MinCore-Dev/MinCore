@@ -104,7 +104,7 @@ See Sections 3.9 and 5.2 below for SQL and Docker snippets.
 
 ### 1.1 Mission
 
-Holarki is a **small, opinionated core** for Fabric Minecraft servers that ships as a single jar containing first‑party modules—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—each controlled by configuration toggles so operators can right‑size the surface area without losing API stability. The mission is to keep those modules cohesive, ops‑friendly, and always invokable (no‑op when disabled) so servers get consistent behavior whether a feature is active or parked.
+Holarki is a **small, opinionated core** for Fabric Minecraft servers that ships as a single jar containing first‑party modules—**DB access + schema evolution, wallets + ledger, events, scheduler, playtime, i18n, timezone rendering**—each controlled by configuration toggles so operators can right‑size the surface area without losing API stability. The mission is to keep those modules cohesive, ops‑friendly, and always invokable (no‑op when disabled) so servers get consistent behavior whether a feature is active or parked, while intentionally preserving interoperability with external mods (e.g., LuckPerms, Fabric Permissions API) instead of expanding a generic add‑on surface.
 
 ### 1.2 Non‑Goals
 
@@ -560,6 +560,7 @@ FLUSH PRIVILEGES;
 - **Helper API:** Use `dev.holarki.perms.Perms` from commands and services. Example: `if (!Perms.check(player, "holarki.module.command", 4)) { /* deny */ }`. For off-thread work, hop back to the main thread and call `Perms.checkUUID(server, uuid, node, opLevel)` if needed.
 - **Node naming:** Prefix permissions with `holarki.` or your module identifier, e.g. `holarki.admin.jobs.run` or `holarki.playtime.viewer.toggle`. Keep lowercase dot-separated segments.
 - **Op levels:** Level `4` for full admin, `3` for high-trust staff, `2` for moderation, `0` for everyone. Choose the fallback that mirrors the command’s intended audience.
+- **Interoperability without new hooks:** Preserve these bridges while keeping Holarki a single-jar bundle of first-party modules. Do not add new public extension points; reinforce the existing integrations instead.
 
 ### 5.4 One‑Shot Smoke Test
 

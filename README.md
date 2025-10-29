@@ -1,6 +1,6 @@
 # Holarki
 
-A small, opinionated core for Fabric Minecraft servers that ships every first-party capability as built-in modules server owners toggle on or off. Holarki bundles database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering so operators can right-size the surface area without juggling extra jars. The focus is on operators who want a cohesive, production-grade toolkit without stitching together extra downloads.
+A small, opinionated core for Fabric Minecraft servers that ships every first-party capability as built-in modules server owners toggle on or off. Holarki bundles database access with safe schema evolution, wallets with a durable ledger, events, a simple scheduler, playtime, i18n, and timezone rendering so operators can right-size the surface area without juggling extra jars. The focus is on operators who want a cohesive, production-grade toolkit without stitching together extra downloads, while still benefiting from intentionally supported integrations like LuckPerms and the Fabric Permissions API for permission checks.
 
 > Source of truth: **Holarki Master Spec v1.0.0**. Treat that spec as authoritative.
 
@@ -62,7 +62,7 @@ Holarki does not include a full gameplay economy, shops, quests, or a web panel.
 - Daily JSONL exports with gzip and checksum files controlled by the backup module switches
 - Playtime service with top, me and reset endpoints bundled in the core
 - i18n and timezone rendering utilities, including optional player overrides and GeoIP auto-detect
-- LuckPerms-first permission helper with Fabric Permissions API and vanilla fallbacks
+- LuckPerms-first permission helper with Fabric Permissions API and vanilla fallbacks while keeping Holarki a single-jar bundle of first-party modules
 - Config Template Writer that generates a complete commented example plus module toggle cheatsheet
 - Single bundle shipping every first-party module; no extra jars to install
 
@@ -153,7 +153,7 @@ Config file location: `config/holarki.json5`
 
 Module identifiers follow a simple hierarchy: top-level modules use single-segment IDs (`ledger`, `timezone`, `scheduler`), while nested capabilities append a dotted suffix that mirrors their config branch (for example, `timezone.auto`). For instance, the `modules.timezone.autoDetect` block configures the `timezone.auto` module toggle, so operators can map JSON5 structure to the identifier used in commands, diagnostics, and metrics.
 
-All modules ship in the single Holarki jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules: { ... }` block in `holarki.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path).
+All modules ship in the single Holarki jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules: { ... }` block in `holarki.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path). The bundle intentionally integrates with external mods—particularly the permissions stack—yet no longer promises a general add-on API surface beyond those touchpoints.
 
 ```json5
 {
@@ -327,6 +327,8 @@ For large servers, consider `mariadb-dump` or `mariabackup` for point in time re
 - Time zone auto detection is opt in and, when enabled, runs for every joining player
 
 ## Developer Guide
+
+Holarki stays a single bundled jar of first-party modules, but contributors must preserve the deliberate integrations with external permission providers like LuckPerms and the Fabric Permissions API. Build on those bridges when necessary, yet avoid introducing new public extension hooks—we no longer guarantee an add-on API surface beyond the existing touchpoints.
 
 ### Project layout and toolchain
 
