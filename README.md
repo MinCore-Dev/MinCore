@@ -144,11 +144,10 @@ Config file location: `config/mincore.json5`
 
 | Module | Purpose | Default | Toggle(s) |
 | ------ | ------- | ------- | --------- |
-| Core runtime (DB, migrations, wallet engine, events) | Fundamental plumbing used by all other modules | Enabled | Always on |
+| Core runtime (DB, migrations, wallet engine, events, playtime tracker) | Fundamental plumbing used by all other modules | Enabled | Always on |
 | Ledger persistence | Durable append-only ledger for wallet changes and custom log entries | Enabled | `modules.ledger.enabled`; optional JSONL mirror via `modules.ledger.file.enabled` |
 | Backup exporter | Scheduled JSONL backups with gzip + checksum | Enabled | `modules.scheduler.enabled` must remain `true`; toggle executions with `modules.scheduler.jobs.backup.enabled` |
 | Idempotency sweep | TTL cleanup for the wallet request registry | Enabled | `modules.scheduler.jobs.cleanup.idempotencySweep.enabled` (requires `modules.scheduler.enabled`) |
-| Playtime tracker | In-memory tracking with `/playtime` commands | Enabled | `modules.playtime.enabled` |
 | Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `modules.timezone.enabled`; GeoIP lookup via `modules.timezone.autoDetect.enabled` + `modules.timezone.autoDetect.database` |
 | i18n bundle | Locale loading/rendering | Enabled | Ensure `core.i18n.enabledLocales` lists allowed locales; remove extras to limit availability |
 
@@ -194,8 +193,7 @@ All modules ship in the single MinCore jar. Disabling a module removes its stora
         enabled: false,
         database: "./config/mincore.geoip.mmdb"
       }
-    },
-    playtime: { enabled: true }
+    }
   },
   core: {
     db: {
