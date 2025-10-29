@@ -10,7 +10,7 @@ import dev.mincore.api.Players;
 import dev.mincore.api.Playtime;
 import dev.mincore.api.Wallets;
 import dev.mincore.api.events.CoreEvents;
-import dev.mincore.api.storage.ExtensionDatabase;
+import dev.mincore.api.storage.ModuleDatabase;
 import dev.mincore.api.storage.SchemaHelper;
 import dev.mincore.util.Uuids;
 import java.io.BufferedWriter;
@@ -514,12 +514,12 @@ final class BackupCycleTest {
 
   /** Minimal {@link Services} implementation for tests backed by a JDBC URL. */
   private static final class TestServices implements Services {
-    private final TestExtensionDatabase database;
+    private final TestModuleDatabase database;
     private final ScheduledExecutorService scheduler;
     private final Playtime playtime;
 
     TestServices(String jdbcUrl, String user, String password) {
-      this.database = new TestExtensionDatabase(jdbcUrl, user, password);
+      this.database = new TestModuleDatabase(jdbcUrl, user, password);
       this.scheduler =
           Executors.newSingleThreadScheduledExecutor(
               r -> {
@@ -551,7 +551,7 @@ final class BackupCycleTest {
     }
 
     @Override
-    public ExtensionDatabase database() {
+    public ModuleDatabase database() {
       return database;
     }
 
@@ -573,13 +573,13 @@ final class BackupCycleTest {
     }
   }
 
-  /** ExtensionDatabase backed by {@link DriverManager} connections. */
-  private static final class TestExtensionDatabase implements ExtensionDatabase, AutoCloseable {
+  /** ModuleDatabase backed by {@link DriverManager} connections. */
+  private static final class TestModuleDatabase implements ModuleDatabase, AutoCloseable {
     private final String jdbcUrl;
     private final String user;
     private final String password;
 
-    TestExtensionDatabase(String jdbcUrl, String user, String password) {
+    TestModuleDatabase(String jdbcUrl, String user, String password) {
       this.jdbcUrl = jdbcUrl;
       this.user = user;
       this.password = password;

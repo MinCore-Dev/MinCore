@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Simple metrics registry that exposes core counters via JMX.
  *
- * <p>The implementation exposes wallet, player, attribute, ledger, and extension-database counters
+ * <p>The implementation exposes wallet, player, attribute, ledger, and module-database counters
  * via JMX. Metrics focus on success/failure counts and capture the last observed error codes for
  * quick diagnostics.
  */
@@ -47,13 +47,13 @@ public final class Metrics implements AutoCloseable {
   private final AtomicLong attributeWriteFailure = new AtomicLong();
   private final AtomicLong ledgerWriteSuccess = new AtomicLong();
   private final AtomicLong ledgerWriteFailure = new AtomicLong();
-  private final AtomicLong extensionOpSuccess = new AtomicLong();
-  private final AtomicLong extensionOpFailure = new AtomicLong();
+  private final AtomicLong moduleOpSuccess = new AtomicLong();
+  private final AtomicLong moduleOpFailure = new AtomicLong();
 
   private final AtomicReference<String> lastPlayerErrorCode = new AtomicReference<>("NONE");
   private final AtomicReference<String> lastAttributeErrorCode = new AtomicReference<>("NONE");
   private final AtomicReference<String> lastLedgerErrorCode = new AtomicReference<>("NONE");
-  private final AtomicReference<String> lastExtensionErrorCode = new AtomicReference<>("NONE");
+  private final AtomicReference<String> lastModuleErrorCode = new AtomicReference<>("NONE");
 
   private final MBeanServer server;
   private final ObjectName objectName;
@@ -132,11 +132,11 @@ public final class Metrics implements AutoCloseable {
     }
   }
 
-  /** Records an ExtensionDatabase helper operation outcome. */
-  public void recordExtensionOperation(boolean ok, ErrorCode code) {
-    increment(ok ? extensionOpSuccess : extensionOpFailure);
+  /** Records a ModuleDatabase helper operation outcome. */
+  public void recordModuleOperation(boolean ok, ErrorCode code) {
+    increment(ok ? moduleOpSuccess : moduleOpFailure);
     if (!ok && code != null) {
-      lastExtensionErrorCode.set(code.name());
+      lastModuleErrorCode.set(code.name());
     }
   }
 
@@ -280,13 +280,13 @@ public final class Metrics implements AutoCloseable {
     }
 
     @Override
-    public long getExtensionOperationSuccess() {
-      return extensionOpSuccess.get();
+    public long getModuleOperationSuccess() {
+      return moduleOpSuccess.get();
     }
 
     @Override
-    public long getExtensionOperationFailure() {
-      return extensionOpFailure.get();
+    public long getModuleOperationFailure() {
+      return moduleOpFailure.get();
     }
 
     @Override
@@ -305,8 +305,8 @@ public final class Metrics implements AutoCloseable {
     }
 
     @Override
-    public String getLastExtensionErrorCode() {
-      return lastExtensionErrorCode.get();
+    public String getLastModuleErrorCode() {
+      return lastModuleErrorCode.get();
     }
   }
 
@@ -412,11 +412,11 @@ public final class Metrics implements AutoCloseable {
     /** Ledger write failures. */
     long getLedgerWriteFailure();
 
-    /** Extension database helper successes. */
-    long getExtensionOperationSuccess();
+    /** Module database helper successes. */
+    long getModuleOperationSuccess();
 
-    /** Extension database helper failures. */
-    long getExtensionOperationFailure();
+    /** Module database helper failures. */
+    long getModuleOperationFailure();
 
     /** Last observed player error code. */
     String getLastPlayerErrorCode();
@@ -427,7 +427,7 @@ public final class Metrics implements AutoCloseable {
     /** Last observed ledger error code. */
     String getLastLedgerErrorCode();
 
-    /** Last observed extension database error code. */
-    String getLastExtensionErrorCode();
+    /** Last observed module database error code. */
+    String getLastModuleErrorCode();
   }
 }

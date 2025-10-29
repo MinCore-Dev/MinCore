@@ -45,7 +45,7 @@ public interface Services {
    *
    * @return the shared module database helper singleton
    */
-  dev.mincore.api.storage.ExtensionDatabase database();
+  dev.mincore.api.storage.ModuleDatabase database();
 
   /**
    * Background scheduler for maintenance tasks owned by the core (daemon threads).
