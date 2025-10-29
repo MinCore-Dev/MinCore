@@ -352,7 +352,7 @@ Provide a local MariaDB as shown earlier. The mod will create the schema automat
 
 ### Module API overview
 
-All bundled modules call into the shared `MinCoreApi` so their behavior stays consistent whether you invoke a command or let a scheduled job run. There are no external add-on jars to wire up—the scheduler, backup, cleanup, and other module jobs all live inside the core mod. Operators who automate maintenance (for example with scripting mods or console bridges) can reuse the same entry points:
+All bundled modules call into the shared `MinCoreApi` so their behavior stays consistent whether you invoke a command or let a scheduled job run. Every capability ships as a first-party module inside the core mod—the scheduler, backup, cleanup, and other jobs are already present and ready to use. Operators who automate maintenance (for example with scripting mods or console bridges) can reuse the same entry points:
 
 ```java
 var wallets = MinCoreApi.wallets();
