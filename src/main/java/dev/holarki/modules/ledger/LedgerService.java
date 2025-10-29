@@ -141,6 +141,7 @@ public final class LedgerService implements Ledger, AutoCloseable {
           e.getSQLState(),
           e.getErrorCode(),
           e);
+      throw new IllegalStateException("failed to initialize ledger schema", e);
     }
 
     service.coreListener =
