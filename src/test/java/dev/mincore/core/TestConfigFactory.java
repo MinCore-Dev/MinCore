@@ -45,8 +45,7 @@ final class TestConfigFactory {
     Config.SchedulerModule schedulerModule = new Config.SchedulerModule(true, jobs);
     Config.TimezoneModule timezoneModule =
         new Config.TimezoneModule(true, new Config.AutoDetect(false, ""));
-    Config.PlaytimeModule playtimeModule = new Config.PlaytimeModule(true);
-    Config.Modules modules = new Config.Modules(ledger, schedulerModule, timezoneModule, playtimeModule);
+    Config.Modules modules = new Config.Modules(ledger, schedulerModule, timezoneModule);
     Config.Log log = new Config.Log(false, 250L, "INFO");
 
     Constructor<Config> ctor =

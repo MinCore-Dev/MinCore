@@ -69,8 +69,7 @@ public final class Config {
               enabled: false,
               database: "./config/mincore.geoip.mmdb"
             }
-          },
-          playtime: { enabled: true }
+          }
         },
         core: {
           db: {
@@ -335,9 +334,7 @@ public final class Config {
       Ledger ledger = parseLedger(optObject(modules, "ledger"));
       SchedulerModule scheduler = parseScheduler(optObject(modules, "scheduler"));
       TimezoneModule timezone = parseTimezone(optObject(modules, "timezone"), defaultAutoDetect);
-      PlaytimeModule playtime = parsePlaytime(optObject(modules, "playtime"));
-      return new ModulesParseResult(
-          new Modules(ledger, scheduler, timezone, playtime), true, false);
+      return new ModulesParseResult(new Modules(ledger, scheduler, timezone), true, false);
     }
 
     JsonObject legacyLedger = optObject(core, "ledger");
@@ -351,9 +348,7 @@ public final class Config {
     Jobs jobs = parseJobs(legacyJobs);
     SchedulerModule scheduler = new SchedulerModule(true, jobs);
     TimezoneModule timezone = parseTimezone(null, defaultAutoDetect);
-    PlaytimeModule playtime = parsePlaytime(null);
-    return new ModulesParseResult(
-        new Modules(ledger, scheduler, timezone, playtime), false, true);
+    return new ModulesParseResult(new Modules(ledger, scheduler, timezone), false, true);
   }
 
   private static SchedulerModule parseScheduler(JsonObject scheduler) {
@@ -373,11 +368,6 @@ public final class Config {
             ? optString(autoObj, "database", "./config/mincore.geoip.mmdb")
             : "./config/mincore.geoip.mmdb";
     return new TimezoneModule(enabled, new AutoDetect(autoEnabled, database));
-  }
-
-  private static PlaytimeModule parsePlaytime(JsonObject playtime) {
-    boolean enabled = playtime == null || optBoolean(playtime, "enabled", true);
-    return new PlaytimeModule(enabled);
   }
 
   private static I18n parseI18n(JsonObject i18n) {
@@ -613,9 +603,6 @@ public final class Config {
     if (modules.timezone().autoDetect() == null) {
       throw new IllegalStateException("modules.timezone.autoDetect block missing");
     }
-    if (modules.playtime() == null) {
-      throw new IllegalStateException("modules.playtime block missing");
-    }
     validateLedger(modules.ledger());
     validateJobs(modules.scheduler().jobs());
     if (!modules.scheduler().enabled()) {
@@ -818,10 +805,8 @@ public final class Config {
    * @param ledger ledger subsystem configuration
    * @param scheduler scheduler module controlling job wiring
    * @param timezone timezone command + auto-detection controls
-   * @param playtime playtime command toggle
-   */
-  public record Modules(
-      Ledger ledger, SchedulerModule scheduler, TimezoneModule timezone, PlaytimeModule playtime) {}
+  */
+  public record Modules(Ledger ledger, SchedulerModule scheduler, TimezoneModule timezone) {}
 
   /**
    * Scheduler module wrapper.
@@ -846,13 +831,6 @@ public final class Config {
    * @param databasePath path to the MaxMind GeoIP database
    */
   public record AutoDetect(boolean enabled, String databasePath) {}
-
-  /**
-   * Playtime module toggle.
-   *
-   * @param enabled whether the playtime command should register
-   */
-  public record PlaytimeModule(boolean enabled) {}
 
   /**
    * Ledger options.
