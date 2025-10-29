@@ -561,8 +561,8 @@ final class BackupCycleTest {
     }
 
     @Override
-    public java.util.Optional<Playtime> playtime() {
-      return java.util.Optional.of(playtime);
+    public Playtime playtime() {
+      return playtime;
     }
 
     @Override

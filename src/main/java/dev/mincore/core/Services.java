@@ -57,9 +57,9 @@ public interface Services {
   /**
    * In-memory playtime tracker API (session starts/stops and aggregation).
    *
-   * @return optional playtime tracker when the playtime module is active
+   * @return the playtime tracker singleton
    */
-  java.util.Optional<dev.mincore.api.Playtime> playtime();
+  dev.mincore.api.Playtime playtime();
 
   /**
    * Shuts down background resources and closes the connection pool.

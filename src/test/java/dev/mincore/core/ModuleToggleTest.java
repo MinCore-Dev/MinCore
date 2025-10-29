@@ -5,7 +5,6 @@ import dev.mincore.api.MinCoreApi;
 import dev.mincore.core.Services;
 import dev.mincore.core.modules.LedgerModule;
 import dev.mincore.core.modules.ModuleManager;
-import dev.mincore.core.modules.PlaytimeModule;
 import dev.mincore.core.modules.SchedulerModule;
 import dev.mincore.core.modules.TimezoneAutoModule;
 import dev.mincore.core.modules.TimezoneModule;
@@ -43,7 +42,6 @@ final class ModuleToggleTest {
       Set<String> active = harness.manager.activeModules();
       org.junit.jupiter.api.Assertions.assertTrue(active.contains(LedgerModule.ID));
       org.junit.jupiter.api.Assertions.assertTrue(active.contains(TimezoneModule.ID));
-      org.junit.jupiter.api.Assertions.assertTrue(active.contains(PlaytimeModule.ID));
       org.junit.jupiter.api.Assertions.assertTrue(active.contains(SchedulerModule.ID));
     }
   }
@@ -108,7 +106,7 @@ final class ModuleToggleTest {
   }
 
   @Test
-  void bootWithoutPlaytime() throws Exception {
+  void playtimeTrackerAlwaysAvailable() throws Exception {
     Config config = withModules(baseConfig(), modules ->
         new Config.Modules(
             modules.ledger(),
@@ -117,8 +115,9 @@ final class ModuleToggleTest {
             new Config.PlaytimeModule(false)));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
-      org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(PlaytimeModule.ID));
-      org.junit.jupiter.api.Assertions.assertTrue(MinCoreApi.playtime().isEmpty());
+      org.junit.jupiter.api.Assertions.assertNotNull(harness.services().playtime());
+      org.junit.jupiter.api.Assertions.assertSame(
+          harness.services().playtime(), MinCoreApi.playtime());
     }
   }
 
@@ -152,9 +151,6 @@ final class ModuleToggleTest {
     }
     if (config.modules().timezone().autoDetect().enabled() && config.time().display().autoDetect()) {
       requested.add(TimezoneAutoModule.ID);
-    }
-    if (config.modules().playtime().enabled()) {
-      requested.add(PlaytimeModule.ID);
     }
     if (config.modules().scheduler().enabled()) {
       requested.add(SchedulerModule.ID);
