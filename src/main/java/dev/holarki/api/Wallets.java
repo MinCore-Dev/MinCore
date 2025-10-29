@@ -63,7 +63,7 @@ public interface Wallets {
    * @param player player UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return {@code true} on success
    */
   default boolean deposit(UUID player, long amount, String reason, String idemKey) {
@@ -76,7 +76,7 @@ public interface Wallets {
    * @param player player UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return {@code true} on success
    */
   default boolean withdraw(UUID player, long amount, String reason, String idemKey) {
@@ -90,7 +90,7 @@ public interface Wallets {
    * @param to recipient UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return {@code true} on success
    */
   default boolean transfer(UUID from, UUID to, long amount, String reason, String idemKey) {
@@ -115,7 +115,7 @@ public interface Wallets {
    * @param player player UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return structured outcome describing success/failure
    */
   OperationResult depositResult(UUID player, long amount, String reason, String idemKey);
@@ -138,7 +138,7 @@ public interface Wallets {
    * @param player player UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return structured outcome describing success/failure
    */
   OperationResult withdrawResult(UUID player, long amount, String reason, String idemKey);
@@ -163,7 +163,7 @@ public interface Wallets {
    * @param to recipient UUID
    * @param amount amount (must be &gt; 0)
    * @param reason short reason
-   * @param idemKey idempotency key string
+   * @param idemKey idempotency key string; {@code null} or blank generates a unique key per call
    * @return structured outcome describing success/failure
    */
   OperationResult transferResult(UUID from, UUID to, long amount, String reason, String idemKey);

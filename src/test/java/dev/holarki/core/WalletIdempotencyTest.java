@@ -3,6 +3,7 @@ package dev.holarki.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import dev.holarki.api.ErrorCode;
@@ -75,6 +76,17 @@ final class WalletIdempotencyTest {
     OperationResult replay = wallets.depositResult(player, 1_000L, "bonus", key);
     assertTrue(replay.ok());
     assertEquals(ErrorCode.IDEMPOTENCY_REPLAY, replay.code());
+    assertEquals(1_000L, wallets.getBalance(player));
+  }
+
+  @Test
+  void depositWithNullKeyDoesNotReplay() {
+    UUID player = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    OperationResult first = wallets.depositResult(player, 500L, "null-key", null);
+    assertTrue(first.ok());
+    OperationResult second = wallets.depositResult(player, 500L, "null-key", null);
+    assertTrue(second.ok());
+    assertNull(second.code());
     assertEquals(1_000L, wallets.getBalance(player));
   }
 
