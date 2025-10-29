@@ -7,7 +7,7 @@ plugins {
   id 'com.diffplug.spotless' version '6.25.0'
 }
 
-group = 'dev.mincore'
+group = 'dev.holarki'
 version = '1.0.0'
 
 java {
@@ -66,7 +66,7 @@ spotless {
     removeUnusedImports()
     indentWithSpaces()
     endWithNewline()
-    licenseHeader '/* MinCore © 2025 — MIT */\n'
+    licenseHeader '/* Holarki © 2025 — MIT */\n'
   }
 }
 
@@ -87,7 +87,7 @@ tasks.register('validateI18n') {
   group = 'verification'
   description = 'Validates localization files for missing keys and placeholder mismatches.'
 
-  def langDir = file('src/main/resources/assets/mincore/lang')
+  def langDir = file('src/main/resources/assets/holarki/lang')
   inputs.dir(langDir)
 
   doLast {

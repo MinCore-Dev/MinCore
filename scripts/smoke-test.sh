@@ -10,7 +10,7 @@ import re
 import sys
 from pathlib import Path
 
-config_path = Path("config/mincore.json5")
+config_path = Path("config/holarki.json5")
 module_name = sys.argv[1]
 
 if not config_path.exists():
@@ -49,40 +49,40 @@ print("true" if enabled else "false")
 PY
 }
 
-if [[ "${MINCORE_RCON_HOST:-}" == "" || "${MINCORE_RCON_PASSWORD:-}" == "" ]]; then
+if [[ "${HOLARKI_RCON_HOST:-}" == "" || "${HOLARKI_RCON_PASSWORD:-}" == "" ]]; then
   cat <<'MSG'
-Configure MINCORE_RCON_HOST, MINCORE_RCON_PORT (defaults to 25575), and MINCORE_RCON_PASSWORD to
+Configure HOLARKI_RCON_HOST, HOLARKI_RCON_PORT (defaults to 25575), and HOLARKI_RCON_PASSWORD to
 run the automated smoke test via RCON. See docs/SMOKE_TEST.md for the manual checklist.
 MSG
   exit 1
 fi
 
-HOST=${MINCORE_RCON_HOST}
-PORT=${MINCORE_RCON_PORT:-25575}
-PASS=${MINCORE_RCON_PASSWORD}
-RCON_BIN=${MINCORE_RCON_BIN:-mcrcon}
+HOST=${HOLARKI_RCON_HOST}
+PORT=${HOLARKI_RCON_PORT:-25575}
+PASS=${HOLARKI_RCON_PASSWORD}
+RCON_BIN=${HOLARKI_RCON_BIN:-mcrcon}
 
 run() {
   local cmd=$1
-  echo "[mincore-smoke] $cmd"
+  echo "[holarki-smoke] $cmd"
   ${RCON_BIN} -H "${HOST}" -P "${PORT}" -p "${PASS}" "${cmd}"
 }
 
-run "mincore db ping"
-run "mincore db info"
-run "mincore diag"
+run "holarki db ping"
+run "holarki db info"
+run "holarki diag"
 if [[ $(get_module_enabled scheduler) == "true" ]]; then
-  run "mincore jobs list"
-  run "mincore jobs run backup"
-  run "mincore backup now"
+  run "holarki jobs list"
+  run "holarki jobs run backup"
+  run "holarki backup now"
 else
-  echo "[mincore-smoke] Skipping scheduler checks and backup command (modules.scheduler.enabled=false)"
+  echo "[holarki-smoke] Skipping scheduler checks and backup command (modules.scheduler.enabled=false)"
 fi
 if [[ $(get_module_enabled ledger) == "true" ]]; then
-  run "mincore ledger recent 5"
+  run "holarki ledger recent 5"
 else
-  echo "[mincore-smoke] Skipping ledger check (modules.ledger.enabled=false)"
+  echo "[holarki-smoke] Skipping ledger check (modules.ledger.enabled=false)"
 fi
-run "mincore doctor --counts"
+run "holarki doctor --counts"
 
-echo "[mincore-smoke] Automated portion complete. Finish manual steps in docs/SMOKE_TEST.md."
+echo "[holarki-smoke] Automated portion complete. Finish manual steps in docs/SMOKE_TEST.md."
