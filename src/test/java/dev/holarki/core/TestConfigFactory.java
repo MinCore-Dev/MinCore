@@ -12,6 +12,10 @@ final class TestConfigFactory {
   private TestConfigFactory() {}
 
   static Config create(String dbName, Path backupDir) throws Exception {
+    return create(dbName, backupDir, 30);
+  }
+
+  static Config create(String dbName, Path backupDir, int sweepRetentionDays) throws Exception {
     Config.Db dbConfig =
         new Config.Db(
             "127.0.0.1",
@@ -43,7 +47,8 @@ final class TestConfigFactory {
             false,
             new Config.Prune(30, 10));
     Config.Cleanup cleanup =
-        new Config.Cleanup(new Config.IdempotencySweep(true, "0 30 4 * * *", 30, 5_000));
+        new Config.Cleanup(
+            new Config.IdempotencySweep(true, "0 30 4 * * *", sweepRetentionDays, 5_000));
     Config.Jobs jobs = new Config.Jobs(backup, cleanup);
     Config.SchedulerModule schedulerModule = new Config.SchedulerModule(true, jobs);
     Config.TimezoneModule timezoneModule =

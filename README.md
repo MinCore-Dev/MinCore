@@ -314,7 +314,8 @@ For large servers, consider `mariadb-dump` or `mariabackup` for point in time re
 
 - **Ad hoc export** use the command above and verify checksums
 - **Validate** run `/holarki doctor --counts --fk` to check referential integrity
-- **Idempotency sweep** is automatic based on `retentionDays`. You can also run `/holarki jobs run cleanup.idempotencySweep`
+- **Idempotency sweep** is automatic based on `retentionDays` (with `0` keeping roughly a year of
+  request keys for safety). You can also run `/holarki jobs run cleanup.idempotencySweep`
 - **Schema migrations** run `/holarki migrate --apply` on upgrade
 - **Logs** enable JSON logs if you want machine readable output for ingestion
 
