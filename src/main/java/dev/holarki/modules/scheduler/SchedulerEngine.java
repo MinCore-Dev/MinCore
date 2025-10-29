@@ -56,7 +56,7 @@ public final class SchedulerEngine implements SchedulerService {
     }
 
     if (cfg.jobs().backup().enabled()) {
-      Config.BackupJob backupJob = cfg.jobs().backup();
+      Config.Backup backupJob = cfg.jobs().backup();
       register(
           new JobHandle(
               "backup",
