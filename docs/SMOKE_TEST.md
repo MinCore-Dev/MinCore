@@ -25,9 +25,7 @@ export MINCORE_RCON_PASSWORD=change-me
    * `/mincore db ping`
    * `/mincore db info`
    * `/mincore diag`
-2. **Player bootstrap** *(requires `modules.playtime.enabled` = `true`; skip otherwise and confirm the flag before expecting the
-   command responses — the automated script does not cover this step, so note the configuration state explicitly when you skip
-   it)*
+2. **Player bootstrap**
    * Join with Player A, run `/playtime me` (should show a few seconds).
    * Run `/mincore ledger recent 5` and confirm the ledger header prints *(skip if `modules.ledger.enabled` = `false` and log
      that the module is intentionally disabled before continuing).* 

@@ -39,7 +39,6 @@
         database: "./config/mincore.geoip.mmdb"
       }
     },
-    playtime: { enabled: true }
   },
   core: {
     db: {

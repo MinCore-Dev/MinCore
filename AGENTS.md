@@ -126,19 +126,19 @@ MinCore is a **small, opinionated core** for Fabric Minecraft servers that ships
 - **Wallets + Ledger module**: deposit/withdraw/transfer with **idempotency keys**, persisted ledger, and optional **JSONL mirror** even when the ledger output is paused.
 - **Events module**: post‑commit, background dispatch with **per‑player ordering** so dependent modules stay in sync.
 - **Scheduler module**: cron‑like UTC jobs driving **backup** and retention workflows that can be flipped off while leaving APIs callable.
-- **Playtime module**: in‑memory tracker that exposes counters regardless of toggle state (disabled = fixed zeroes).
+- **Playtime service**: always-on in-memory tracker with `/playtime` commands. It is part of the core runtime so operators can rely on consistent counters without any configuration toggle.
 - **Localization + Timezone module**: helpers for I18n, timezone rendering, and optional GeoIP auto‑detect that reduce boilerplate for downstream operator workflows and automation.
 
 ### 1.5 Bundled Modules & Toggles
 
 | Module | Primary Config Toggle | Notes & Disabled Behavior |
 |---|---|---|
-| Ledger | `modules.ledger.enabled` | Controls ledger persistence and JSONL mirroring. When disabled, wallet APIs still accept calls; ledger writes become no‑ops and readers receive empty/placeholder responses rather than failures. |
+| Core runtime (DB, wallets, events, playtime tracker) | Always on | Cannot be disabled. Exposes `/playtime` counters and keeps core services wired regardless of other module toggles. |
+| Ledger | `modules.ledger.enabled` | Controls ledger persistence and JSONL mirroring. When disabled, wallet APIs still accept calls; ledger writes become no-ops and readers receive empty/placeholder responses rather than failures. |
 | Scheduler | `modules.scheduler.enabled` (with nested job toggles such as `modules.scheduler.jobs.backup.enabled`) | Disables background job execution while keeping scheduling APIs, job metadata, and command surfaces callable. Jobs report a disabled status when invoked directly. |
 | Timezone & I18n | `modules.timezone.enabled`, `modules.timezone.autoDetect.enabled` | Governs timezone customization and optional GeoIP detection. When disabled, helpers fall back to the server default zone and retain method contracts. |
-| Playtime | `modules.playtime.enabled` | Stops accruing playtime metrics but continues to serve API calls (always returning zero durations/counters). |
 
-> **Contributor rule:** Adding a new module means defining an explicit config toggle, documenting the disabled behavior, and ensuring every exposed API remains callable (no‑op instead of exception) when the toggle is `false`.
+> **Contributor rule:** Core runtime services (including playtime) stay always-on. Adding a new optional module means defining an explicit config toggle, documenting the disabled behavior, and ensuring every exposed API remains callable (no-op instead of exception) when the toggle is `false`.
 
 ### 1.6 Roadmap Snapshot (v1.0.0 highlights)
 
