@@ -1,6 +1,7 @@
 /* Holarki © 2025 — MIT */
 package dev.holarki.util;
 
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
@@ -61,26 +62,50 @@ public final class Currency {
     if (s == null) {
       throw new IllegalArgumentException("Input may not be null");
     }
-    String t = s.replace("_", "").replace(",", "").trim().toLowerCase(Locale.ROOT);
-    double base;
-    long mul = 1L;
-    if (t.endsWith("k")) {
-      mul = 1_000L;
-      t = t.substring(0, t.length() - 1);
-    } else if (t.endsWith("m")) {
-      mul = 1_000_000L;
-      t = t.substring(0, t.length() - 1);
-    } else if (t.endsWith("b")) {
-      mul = 1_000_000_000L;
-      t = t.substring(0, t.length() - 1);
-    }
-    try {
-      base = Double.parseDouble(t);
-    } catch (NumberFormatException nfe) {
+    String cleaned = s.replace("_", "").replace(",", "").trim();
+    if (cleaned.isEmpty()) {
       throw new IllegalArgumentException("Bad number: " + s);
     }
-    long v = Math.round(base * mul);
-    if (v < 0) throw new IllegalArgumentException("Negative not allowed");
-    return v;
+
+    long multiplier = 1L;
+    String lower = cleaned.toLowerCase(Locale.ROOT);
+    if (lower.endsWith("k")) {
+      multiplier = 1_000L;
+      cleaned = cleaned.substring(0, cleaned.length() - 1);
+    } else if (lower.endsWith("m")) {
+      multiplier = 1_000_000L;
+      cleaned = cleaned.substring(0, cleaned.length() - 1);
+    } else if (lower.endsWith("b")) {
+      multiplier = 1_000_000_000L;
+      cleaned = cleaned.substring(0, cleaned.length() - 1);
+    }
+
+    if (cleaned.isEmpty()) {
+      throw new IllegalArgumentException("Bad number: " + s);
+    }
+
+    BigDecimal base;
+    try {
+      base = new BigDecimal(cleaned);
+    } catch (NumberFormatException nfe) {
+      throw new IllegalArgumentException("Bad number: " + s, nfe);
+    }
+
+    BigDecimal result = base.multiply(BigDecimal.valueOf(multiplier));
+    if (result.signum() < 0) {
+      throw new IllegalArgumentException("Negative not allowed");
+    }
+
+    BigDecimal normalized = result.stripTrailingZeros();
+    if (normalized.scale() > 0) {
+      throw new IllegalArgumentException("Fractional currency units not supported: " + s);
+    }
+
+    BigDecimal max = BigDecimal.valueOf(Long.MAX_VALUE);
+    if (normalized.compareTo(max) > 0) {
+      throw new IllegalArgumentException("Magnitude exceeds Long.MAX_VALUE: " + s);
+    }
+
+    return normalized.longValueExact();
   }
 }
