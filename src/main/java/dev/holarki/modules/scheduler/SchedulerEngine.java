@@ -158,15 +158,29 @@ public final class SchedulerEngine implements SchedulerService {
       return;
     }
     int batch = Math.max(1, sweep.batchLimit());
-    long cutoff =
-        Instant.now().minus(Duration.ofDays(Math.max(0, sweep.retentionDays()))).getEpochSecond();
+    long now = Instant.now().getEpochSecond();
+    long retentionDays = Math.max(0L, sweep.retentionDays());
+    long retentionSeconds = retentionDays * 86_400L;
+    boolean useCreatedCutoff = retentionSeconds > 0;
+    long createdCutoff = now;
+    if (useCreatedCutoff) {
+      long candidate = now - retentionSeconds;
+      createdCutoff = candidate < 0 ? 0L : candidate;
+    }
     int deleted = 0;
     try (Connection c = svc.database().borrowConnection()) {
       c.setAutoCommit(true);
-      String sql = "DELETE FROM core_requests WHERE expires_at_s < ? LIMIT ?";
+      String sql =
+          useCreatedCutoff
+              ? "DELETE FROM core_requests WHERE expires_at_s <= ? AND created_at_s <= ? LIMIT ?"
+              : "DELETE FROM core_requests WHERE expires_at_s <= ? LIMIT ?";
       try (PreparedStatement ps = c.prepareStatement(sql)) {
-        ps.setLong(1, cutoff);
-        ps.setInt(2, batch);
+        ps.setLong(1, now);
+        int idx = 2;
+        if (useCreatedCutoff) {
+          ps.setLong(idx++, createdCutoff);
+        }
+        ps.setInt(idx, batch);
         boolean more = true;
         while (more) {
           int n = ps.executeUpdate();

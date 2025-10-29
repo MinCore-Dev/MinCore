@@ -9,6 +9,7 @@ import dev.holarki.api.Playtime;
 import dev.holarki.api.Wallets;
 import dev.holarki.api.events.CoreEvents;
 import dev.holarki.api.storage.ModuleDatabase;
+import java.time.Duration;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.concurrent.Executors;
@@ -143,7 +144,10 @@ public final class CoreServices implements Services, java.io.Closeable {
     Metrics metrics = new Metrics();
     ModuleDatabaseImpl moduleDb = new ModuleDatabaseImpl(ds, dbHealth, metrics);
     Players players = new PlayersImpl(ds, events, dbHealth, metrics);
-    Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics);
+    long retentionDays =
+        Math.max(0, cfg.modules().scheduler().jobs().cleanup().idempotencySweep().retentionDays());
+    Duration idempotencyTtl = Duration.ofDays(retentionDays);
+    Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics, idempotencyTtl);
     Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
     Playtime playtime = new PlaytimeImpl();
 
