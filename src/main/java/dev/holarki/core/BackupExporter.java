@@ -242,6 +242,10 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        Object oldUnitsObj = rs.getObject("old_units");
+        Object newUnitsObj = rs.getObject("new_units");
+        Long oldUnits = oldUnitsObj == null ? null : ((Number) oldUnitsObj).longValue();
+        Long newUnits = newUnitsObj == null ? null : ((Number) newUnitsObj).longValue();
         StringBuilder line = new StringBuilder();
         line.append('{')
             .append(quote("table"))
@@ -298,11 +302,11 @@ public final class BackupExporter {
             .append(',')
             .append(quote("oldUnits"))
             .append(':')
-            .append(rs.getLong("old_units"))
+            .append(oldUnits == null ? "null" : oldUnits.toString())
             .append(',')
             .append(quote("newUnits"))
             .append(':')
-            .append(rs.getLong("new_units"))
+            .append(newUnits == null ? "null" : newUnits.toString())
             .append(',')
             .append(quote("serverNode"))
             .append(':')

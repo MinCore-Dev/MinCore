@@ -66,6 +66,10 @@ final class BackupCycleTest {
       List<AttributeRow> attributesBefore = readAttributes();
       List<EventSeqRow> eventSeqBefore = readEventSequences();
       List<LedgerRow> ledgerBefore = readLedger();
+      assertTrue(
+          ledgerBefore.stream()
+              .anyMatch(row -> row.oldUnits() == null && row.newUnits() == null),
+          "expected at least one ledger row with null balances before export");
 
       BackupExporter.Result exportResult =
           BackupExporter.exportAll(services, config, backupDir, Boolean.FALSE);
@@ -105,7 +109,12 @@ final class BackupCycleTest {
       assertEquals(playersBefore, readPlayers());
       assertEquals(attributesBefore, readAttributes());
       assertEquals(eventSeqBefore, readEventSequences());
-      assertEquals(ledgerBefore, readLedger());
+      List<LedgerRow> ledgerAfter = readLedger();
+      assertEquals(ledgerBefore, ledgerAfter);
+      assertTrue(
+          ledgerAfter.stream()
+              .anyMatch(row -> row.oldUnits() == null && row.newUnits() == null),
+          "ledger row with null balances should remain null after restore");
       assertEquals(Migrations.currentVersion(), readSchemaVersion());
     } finally {
       services.shutdown();
@@ -280,6 +289,24 @@ final class BackupCycleTest {
         ps.setLong(14, 2_250L);
         ps.setString(15, "node-a");
         ps.setString(16, "{\"note\":\"gift\"}");
+        ps.executeUpdate();
+
+        ps.setLong(1, 4_200L);
+        ps.setString(2, "test-module");
+        ps.setString(3, "audit");
+        ps.setBytes(4, null);
+        ps.setBytes(5, null);
+        ps.setLong(6, 0L);
+        ps.setString(7, "noop");
+        ps.setBoolean(8, true);
+        ps.setString(9, "OK");
+        ps.setLong(10, 3L);
+        ps.setString(11, "wallet:test");
+        ps.setNull(12, java.sql.Types.BINARY);
+        ps.setNull(13, java.sql.Types.BIGINT);
+        ps.setNull(14, java.sql.Types.BIGINT);
+        ps.setString(15, "node-b");
+        ps.setNull(16, java.sql.Types.VARCHAR);
         ps.executeUpdate();
       }
 
