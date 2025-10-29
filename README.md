@@ -152,6 +152,8 @@ Config file location: `config/mincore.json5`
 | Timezone services | `/timezone` commands, overrides, clock format, GeoIP detection | Enabled | `modules.timezone.enabled`; GeoIP lookup via `modules.timezone.autoDetect.enabled` + `modules.timezone.autoDetect.database` |
 | i18n bundle | Locale loading/rendering | Enabled | Ensure `core.i18n.enabledLocales` lists allowed locales; remove extras to limit availability |
 
+Module identifiers follow a simple hierarchy: top-level modules use single-segment IDs (`ledger`, `timezone`, `scheduler`), while nested capabilities append a dotted suffix that mirrors their config branch (for example, `timezone.auto`). For instance, the `modules.timezone.autoDetect` block configures the `timezone.auto` module toggle, so operators can map JSON5 structure to the identifier used in commands, diagnostics, and metrics.
+
 All modules ship in the single MinCore jar. Disabling a module removes its storage writes and scheduled jobs while keeping API methods safe to call (operations become no-ops where applicable). The top-level `modules: { ... }` block in `mincore.json5` controls these toggles and captures per-module settings (for example, backup schedules or the GeoIP database path).
 
 ```json5
