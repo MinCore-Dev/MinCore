@@ -1,12 +1,14 @@
 /* Holarki © 2025 — MIT */
-package dev.holarki.commands;
+package dev.holarki.modules.ledger;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import dev.holarki.commands.AdminCommands;
 import dev.holarki.api.Players;
 import dev.holarki.api.Players.PlayerRef;
 import dev.holarki.core.Services;
+import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.util.TimeDisplay;
 import dev.holarki.util.TimePreference;
 import dev.holarki.util.Timezones;
@@ -19,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Objects;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -27,6 +30,15 @@ import net.minecraft.text.Text;
 final class LedgerAdminCommands {
 
   private LedgerAdminCommands() {}
+
+  static void register(ModuleContext context) {
+    Objects.requireNonNull(context, "context");
+    if (!context.config().ledger().enabled()) {
+      return;
+    }
+    Services services = context.services();
+    context.registerAdminCommandExtension(root -> attach(root, services));
+  }
 
   static void attach(
       final LiteralArgumentBuilder<ServerCommandSource> root, final Services services) {

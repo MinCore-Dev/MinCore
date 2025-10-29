@@ -1,14 +1,15 @@
 /* Holarki © 2025 — MIT */
-package dev.holarki.commands;
+package dev.holarki.modules.scheduler;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.holarki.core.Services;
-import dev.holarki.modules.scheduler.SchedulerService;
+import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.util.TimeDisplay;
 import dev.holarki.util.TimePreference;
 import dev.holarki.util.Timezones;
 import java.util.List;
+import java.util.Objects;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -17,6 +18,13 @@ import net.minecraft.text.Text;
 final class SchedulerAdminCommands {
 
   private SchedulerAdminCommands() {}
+
+  static void register(ModuleContext context, SchedulerService scheduler) {
+    Objects.requireNonNull(context, "context");
+    Objects.requireNonNull(scheduler, "scheduler");
+    Services services = context.services();
+    context.registerAdminCommandExtension(root -> attach(root, scheduler, services));
+  }
 
   static void attach(
       final LiteralArgumentBuilder<ServerCommandSource> root,

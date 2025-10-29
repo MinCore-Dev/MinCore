@@ -3,6 +3,7 @@ package dev.holarki.core.modules;
 
 import dev.holarki.api.HolarkiApi;
 import dev.holarki.api.Ledger;
+import dev.holarki.commands.AdminCommands;
 import dev.holarki.core.Config;
 import dev.holarki.core.Services;
 import java.util.ArrayDeque;
@@ -42,7 +43,13 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     this.services = Objects.requireNonNull(services, "services");
     Predicate<String> predicate = this::isActive;
     this.context =
-        new ModuleContext(config, services, this::publishLedger, predicate, this::publishService);
+        new ModuleContext(
+            config,
+            services,
+            this::publishLedger,
+            predicate,
+            this::publishService,
+            AdminCommands.registrar());
   }
 
   /** Starts the requested module identifiers. */
