@@ -1,4 +1,4 @@
-/* Holarki © 2025 — MIT */
+/* Holarki © 2025 Holarki Devs — MIT */
 package dev.holarki.core;
 
 import dev.holarki.api.events.CoreEvents;
