@@ -56,10 +56,11 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     try {
       for (String id : requested) {
         HolarkiModule module = modules.computeIfAbsent(id, this::newModuleInstance);
+        // Register before starting so a failure still rolls the module back.
+        startedModules.push(module);
         module.start(context);
         active.add(id);
         startOrder.add(module);
-        startedModules.push(module);
         LOG.info("(holarki) module '{}' started", id);
       }
       started = true;

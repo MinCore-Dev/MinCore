@@ -2,8 +2,11 @@
 package dev.holarki.core;
 
 import dev.holarki.api.HolarkiApi;
+import dev.holarki.api.Ledger;
 import dev.holarki.core.Services;
+import dev.holarki.core.modules.HolarkiModule;
 import dev.holarki.core.modules.LedgerModule;
+import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.core.modules.ModuleManager;
 import dev.holarki.core.modules.SchedulerModule;
 import dev.holarki.core.modules.TimezoneAutoModule;
@@ -13,6 +16,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +36,33 @@ final class ModuleToggleTest {
   void afterEach() throws Exception {
     MariaDbTestSupport.dropDatabase(DB_NAME);
     resetApi();
+  }
+
+  @Test
+  void moduleStartupFailureRollsBackResources() throws Exception {
+    Config config = baseConfig();
+    try (TestHarness harness = new TestHarness(config)) {
+      FailingModule failing = new FailingModule();
+      Field modulesField = ModuleManager.class.getDeclaredField("modules");
+      modulesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      Map<String, HolarkiModule> modules =
+          (Map<String, HolarkiModule>) modulesField.get(harness.manager);
+      modules.put(failing.id(), failing);
+
+      RuntimeException error =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              RuntimeException.class, () -> harness.manager.start(Set.of(failing.id())));
+
+      org.junit.jupiter.api.Assertions.assertEquals("Failed to start modules", error.getMessage());
+      org.junit.jupiter.api.Assertions.assertTrue(failing.started);
+      org.junit.jupiter.api.Assertions.assertTrue(failing.stopped);
+      org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(failing.id()));
+      org.junit.jupiter.api.Assertions.assertTrue(harness.manager.activeModules().isEmpty());
+      org.junit.jupiter.api.Assertions.assertTrue(
+          harness.manager.service(DummyService.class).isEmpty());
+      org.junit.jupiter.api.Assertions.assertNull(HolarkiApi.ledger());
+    }
   }
 
   @Test
@@ -127,6 +158,49 @@ final class ModuleToggleTest {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(TimezoneModule.ID));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(TimezoneAutoModule.ID));
+    }
+  }
+
+  private static final class DummyService {}
+
+  private static final class TestLedger implements Ledger {
+    @Override
+    public void log(
+        String moduleId,
+        String op,
+        java.util.UUID from,
+        java.util.UUID to,
+        long amount,
+        String reason,
+        boolean ok,
+        String code,
+        String idemScope,
+        String idemKey,
+        String extraJson) {}
+  }
+
+  private static final class FailingModule implements HolarkiModule {
+    private boolean started;
+    private boolean stopped;
+
+    @Override
+    public String id() {
+      return "test.fail";
+    }
+
+    @Override
+    public void start(ModuleContext context) {
+      started = true;
+      context.publishLedger(new TestLedger());
+      context.publishService(id(), DummyService.class, new DummyService());
+      throw new IllegalStateException("boom");
+    }
+
+    @Override
+    public void stop(ModuleContext context) {
+      stopped = true;
+      context.publishLedger(null);
+      context.publishService(id(), DummyService.class, null);
     }
   }
 
