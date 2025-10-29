@@ -72,7 +72,7 @@ public final class CoreServices implements Services, java.io.Closeable {
     hc.setConnectionTimeout(cfg.db().pool().connectionTimeoutMs());
     hc.setIdleTimeout(cfg.db().pool().idleTimeoutMs());
     hc.setMaxLifetime(cfg.db().pool().maxLifetimeMs());
-    hc.setAutoCommit(false);
+    hc.setAutoCommit(true);
     hc.setPoolName("holarki-hikari");
     hc.setInitializationFailTimeout(-1);
     hc.setConnectionInitSql(cfg.db().forceUtc() ? "SET time_zone = '+00:00'" : null);
