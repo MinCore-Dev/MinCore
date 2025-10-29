@@ -52,8 +52,7 @@ final class ModuleToggleTest {
         new Config.Modules(
             new Config.Ledger(false, modules.ledger().retentionDays(), modules.ledger().jsonlMirror()),
             modules.scheduler(),
-            modules.timezone(),
-            modules.playtime()));
+            modules.timezone()));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(LedgerModule.ID));
@@ -82,8 +81,7 @@ final class ModuleToggleTest {
         new Config.Modules(
             modules.ledger(),
             new Config.SchedulerModule(false, modules.scheduler().jobs()),
-            modules.timezone(),
-            modules.playtime()));
+            modules.timezone()));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(SchedulerModule.ID));
@@ -96,8 +94,7 @@ final class ModuleToggleTest {
         new Config.Modules(
             modules.ledger(),
             modules.scheduler(),
-            new Config.TimezoneModule(false, modules.timezone().autoDetect()),
-            modules.playtime()));
+            new Config.TimezoneModule(false, modules.timezone().autoDetect())));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(TimezoneModule.ID));
@@ -107,12 +104,7 @@ final class ModuleToggleTest {
 
   @Test
   void playtimeTrackerAlwaysAvailable() throws Exception {
-    Config config = withModules(baseConfig(), modules ->
-        new Config.Modules(
-            modules.ledger(),
-            modules.scheduler(),
-            modules.timezone(),
-            new Config.PlaytimeModule(false)));
+    Config config = baseConfig();
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertNotNull(harness.services().playtime());
@@ -130,8 +122,7 @@ final class ModuleToggleTest {
             new Config.Modules(
                 modules.ledger(),
                 modules.scheduler(),
-                new Config.TimezoneModule(true, new Config.AutoDetect(true, Path.of("missing.mmdb").toString())),
-                modules.playtime()));
+                new Config.TimezoneModule(true, new Config.AutoDetect(true, Path.of("missing.mmdb").toString()))));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
       org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(TimezoneModule.ID));
