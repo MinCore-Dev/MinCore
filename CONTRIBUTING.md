@@ -1,6 +1,6 @@
-# Contributing to MinCore
+# Contributing to Holarki
 
-Welcome! MinCore is a small but opinionated core for Fabric servers. This document summarises the
+Welcome! Holarki is a small but opinionated core for Fabric servers. This document summarises the
 process for proposing changes and ensures they stay aligned with the v1.0.0 master specification.
 
 ## Getting Started
@@ -12,7 +12,7 @@ process for proposing changes and ensures they stay aligned with the v1.0.0 mast
    ```sh
    ./gradlew spotlessApply check
    ```
-4. Configure a local `config/mincore.json5` (the loader writes a commented default on first run).
+4. Configure a local `config/holarki.json5` (the loader writes a commented default on first run).
 
 ## Development Workflow
 
@@ -30,7 +30,7 @@ process for proposing changes and ensures they stay aligned with the v1.0.0 mast
 * Source is formatted using Spotless with Google Java Style. Run `./gradlew spotlessApply` before
   committing.
 * Keep timestamps in UTC seconds and store UUIDs as `BINARY(16)` when writing migrations.
-* New localization keys belong in `assets/mincore/lang/en_us.json`; update translations and run
+* New localization keys belong in `assets/holarki/lang/en_us.json`; update translations and run
   `./gradlew validateI18n`.
 * Surface operator/player messages through the translation files and include appropriate placeholders
   for dynamic data.
@@ -47,9 +47,9 @@ Before submitting a pull request:
 
 ## Reporting Issues
 
-* Include server logs around the failure with `(mincore)` tags.
+* Include server logs around the failure with `(holarki)` tags.
 * Provide schema version, Minecraft/Fabric versions, and MariaDB server version.
 * Describe the steps to reproduce, including relevant module toggles or other
-  mods interacting with MinCore APIs.
+  mods interacting with Holarki APIs.
 
-Thank you for helping us keep MinCore reliable and operator-friendly!
+Thank you for helping us keep Holarki reliable and operator-friendly!

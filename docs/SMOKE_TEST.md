@@ -1,12 +1,12 @@
-# MinCore Smoke Test (Ops-Grade)
+# Holarki Smoke Test (Ops-Grade)
 
 The script and checklist below exercise the production guarantees described in the v1.0.0 master
 spec. Run it against a staging server before upgrades and after significant configuration changes.
 
 ## Prerequisites
 
-* Fabric server running MinCore with operator access (RCON recommended).
-* MariaDB instance seeded with the MinCore schema.
+* Fabric server running Holarki with operator access (RCON recommended).
+* MariaDB instance seeded with the Holarki schema.
 * Two throwaway player accounts you can join with for verification.
 * `mcrcon` (or any RCON CLI) installed locally.
 
@@ -14,20 +14,20 @@ Export the following environment variables if you want to drive the automated sc
 `scripts/smoke-test.sh`:
 
 ```sh
-export MINCORE_RCON_HOST=127.0.0.1
-export MINCORE_RCON_PORT=25575
-export MINCORE_RCON_PASSWORD=change-me
+export HOLARKI_RCON_HOST=127.0.0.1
+export HOLARKI_RCON_PORT=25575
+export HOLARKI_RCON_PASSWORD=change-me
 ```
 
 ## Manual Checklist
 
 1. **Database connectivity**
-   * `/mincore db ping`
-   * `/mincore db info`
-   * `/mincore diag`
+   * `/holarki db ping`
+   * `/holarki db info`
+   * `/holarki diag`
 2. **Player bootstrap**
    * Join with Player A, run `/playtime me` (should show a few seconds).
-   * Run `/mincore ledger recent 5` and confirm the ledger header prints *(skip if `modules.ledger.enabled` = `false` and log
+   * Run `/holarki ledger recent 5` and confirm the ledger header prints *(skip if `modules.ledger.enabled` = `false` and log
      that the module is intentionally disabled before continuing).* 
 3. **Wallet operations** *(requires `modules.ledger.enabled` = `true`; if the ledger module is disabled, skip these ledger checks
    and verify the configuration flag before expecting ledger output — the automated script will emit the same guidance)*
@@ -38,17 +38,17 @@ export MINCORE_RCON_PASSWORD=change-me
      no-op write with success feedback only).
 4. **Scheduler verification** *(requires `modules.scheduler.enabled` = `true`; when disabled, skip these checks and confirm the
    configuration flag — `scripts/smoke-test.sh` emits the same reminder)*
-   * `/mincore jobs list` – ensure `backup` and `cleanup.idempotencySweep` are present with sane
+   * `/holarki jobs list` – ensure `backup` and `cleanup.idempotencySweep` are present with sane
      next-run timestamps.
-   * `/mincore jobs run backup` – confirm the job queues.
-   * Inspect the backup directory for a new `mincore-*.jsonl.gz` and `.sha256` checksum.
+   * `/holarki jobs run backup` – confirm the job queues.
+   * Inspect the backup directory for a new `holarki-*.jsonl.gz` and `.sha256` checksum.
 5. **Backup + restore**
-   * `/mincore backup now` – expect `mincore.cmd.backup.queued` feedback.
-   * Use `/mincore export --all --out ./backups/mincore --gzip true`.
-   * Copy the generated archive aside; test `/mincore restore --mode fresh --atomic --from <dir>` on a
+   * `/holarki backup now` – expect `holarki.cmd.backup.queued` feedback.
+   * Use `/holarki export --all --out ./backups/holarki --gzip true`.
+   * Copy the generated archive aside; test `/holarki restore --mode fresh --atomic --from <dir>` on a
      staging database.
 6. **Doctor**
-   * `/mincore doctor --counts --fk` – confirm reported counts match expectations and no FK issues.
+   * `/holarki doctor --counts --fk` – confirm reported counts match expectations and no FK issues.
 7. **Timezone & I18n**
    * If you plan to enable GeoIP auto-detect during this run, confirm `core.time.display.allowPlayerOverride = true` first. Enabling `modules.timezone.autoDetect.enabled` now turns on `core.time.display.autoDetect` automatically, so no extra toggle is required—keep the legacy flag only when migrating an older config that still depends on it.
    * If overrides are enabled, run `/timezone set Europe/Berlin` as a player and ensure success.
