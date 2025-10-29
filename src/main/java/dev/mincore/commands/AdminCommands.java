@@ -13,10 +13,10 @@ import dev.mincore.core.BackupExporter;
 import dev.mincore.core.BackupImporter;
 import dev.mincore.core.Config;
 import dev.mincore.core.Migrations;
-import dev.mincore.core.Scheduler;
 import dev.mincore.core.Services;
 import dev.mincore.core.SqlErrorCodes;
 import dev.mincore.core.modules.ModuleStateView;
+import dev.mincore.modules.scheduler.SchedulerService;
 import dev.mincore.util.TimeDisplay;
 import dev.mincore.util.TimePreference;
 import dev.mincore.util.Timezones;
@@ -1000,7 +1000,8 @@ public final class AdminCommands {
   }
 
   private static int cmdJobsList(final ServerCommandSource src, final Services services) {
-    List<Scheduler.JobStatus> jobs = Scheduler.jobs();
+    List<SchedulerService.JobStatus> jobs =
+        schedulerService().map(SchedulerService::jobs).orElse(List.of());
     TimePreference pref = Timezones.preferences(src, services);
     String offset = TimeDisplay.offsetLabel(pref.zone());
     if (jobs.isEmpty()) {
@@ -1015,7 +1016,7 @@ public final class AdminCommands {
                 offset,
                 pref.clock().description()),
         false);
-    for (Scheduler.JobStatus job : jobs) {
+    for (SchedulerService.JobStatus job : jobs) {
       String next = job.nextRun != null ? TimeDisplay.formatDateTime(job.nextRun, pref) : "-";
       String last = job.lastRun != null ? TimeDisplay.formatDateTime(job.lastRun, pref) : "-";
       String error = job.lastError == null ? "" : job.lastError;
@@ -1038,7 +1039,7 @@ public final class AdminCommands {
   }
 
   private static int cmdJobsRun(final ServerCommandSource src, final String job) {
-    boolean scheduled = Scheduler.runNow(job);
+    boolean scheduled = schedulerService().map(s -> s.runNow(job)).orElse(false);
     if (scheduled) {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.run.ok", job), false);
       return 1;
@@ -1048,7 +1049,7 @@ public final class AdminCommands {
   }
 
   private static int cmdBackupNow(final ServerCommandSource src, final Services services) {
-    boolean scheduled = Scheduler.runNow("backup");
+    boolean scheduled = schedulerService().map(s -> s.runNow("backup")).orElse(false);
     if (scheduled) {
       src.sendFeedback(() -> Text.translatable("mincore.cmd.backup.queued"), false);
       return 1;
@@ -1099,6 +1100,14 @@ public final class AdminCommands {
       return SqlErrorCodes.classify(sql);
     }
     return ErrorCode.CONNECTION_LOST;
+  }
+
+  private static java.util.Optional<SchedulerService> schedulerService() {
+    ModuleStateView modules = MODULES;
+    if (modules == null || !modules.isActive(SCHEDULER_MODULE_ID)) {
+      return java.util.Optional.empty();
+    }
+    return modules.service(SchedulerService.class);
   }
 
   private static UUID tryParseUuid(String raw) {

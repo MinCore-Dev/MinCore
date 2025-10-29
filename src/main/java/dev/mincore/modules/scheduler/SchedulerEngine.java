@@ -1,7 +1,11 @@
 /* MinCore © 2025 — MIT */
-package dev.mincore.core;
+package dev.mincore.modules.scheduler;
 
 import dev.mincore.api.ErrorCode;
+import dev.mincore.core.BackupExporter;
+import dev.mincore.core.Config;
+import dev.mincore.core.Services;
+import dev.mincore.core.SqlErrorCodes;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -13,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -21,24 +26,19 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Installs and manages background jobs (backup + idempotency sweep). */
-public final class Scheduler {
+/** Instance-backed scheduling engine owned by the scheduler module. */
+public final class SchedulerEngine implements SchedulerService {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
 
-  private static final Map<String, JobHandle> JOBS = new ConcurrentHashMap<>();
-  private static Services services;
+  private final Map<String, JobHandle> jobs = new ConcurrentHashMap<>();
+  private volatile Services services;
 
-  private Scheduler() {}
+  /** Installs jobs described in config. */
+  public synchronized void start(Services services, Config cfg) {
+    this.services = Objects.requireNonNull(services, "services");
+    Objects.requireNonNull(cfg, "cfg");
 
-  /**
-   * Installs jobs described in config.
-   *
-   * @param s service container exposing the scheduler + database helpers
-   * @param cfg runtime configuration that describes enabled jobs
-   */
-  public static synchronized void install(Services s, Config cfg) {
-    services = s;
-    JOBS.clear();
+    jobs.clear();
 
     if (!cfg.modules().scheduler().enabled()) {
       LOG.info("(mincore) scheduler: disabled by config");
@@ -46,74 +46,75 @@ public final class Scheduler {
     }
 
     if (cfg.jobs().cleanup().idempotencySweep().enabled()) {
+      Config.IdempotencySweep sweep = cfg.jobs().cleanup().idempotencySweep();
       register(
           new JobHandle(
               "cleanup.idempotencySweep",
-              cfg.jobs().cleanup().idempotencySweep().schedule(),
-              () -> runIdempotencySweep(cfg),
+              sweep.schedule(),
+              () -> runIdempotencySweep(sweep),
               "Removes expired core_requests rows"));
     }
 
     if (cfg.jobs().backup().enabled()) {
+      Config.BackupJob backupJob = cfg.jobs().backup();
       register(
           new JobHandle(
               "backup",
-              cfg.jobs().backup().schedule(),
+              backupJob.schedule(),
               () -> runBackup(cfg),
               "Exports JSONL backup"));
 
-      if (cfg.jobs().backup().onMissed() == Config.OnMissed.RUN_AT_NEXT_STARTUP) {
+      if (backupJob.onMissed() == Config.OnMissed.RUN_AT_NEXT_STARTUP) {
         runNow("backup");
       }
     }
   }
 
-  /**
-   * Snapshot view for commands.
-   *
-   * @return immutable list of job status snapshots
-   */
-  public static List<JobStatus> jobs() {
-    return JOBS.values().stream().map(JobHandle::snapshot).sorted().collect(Collectors.toList());
-  }
-
-  /**
-   * Runs the named job immediately.
-   *
-   * @param name job identifier, e.g., {@code "backup"}
-   * @return {@code true} if the job was found and scheduled
-   */
-  public static boolean runNow(String name) {
-    JobHandle job = JOBS.get(name);
-    if (job == null) {
-      return false;
-    }
-    services.scheduler().submit(() -> execute(job));
-    return true;
-  }
-
   /** Cancels all scheduled jobs and clears state. */
-  public static synchronized void shutdown() {
-    for (JobHandle job : JOBS.values()) {
+  public synchronized void stop() {
+    for (JobHandle job : jobs.values()) {
       ScheduledFuture<?> future = job.future;
       if (future != null) {
         future.cancel(false);
       }
     }
-    JOBS.clear();
+    jobs.clear();
     services = null;
   }
 
-  private static void register(JobHandle job) {
-    JOBS.put(job.name, job);
+  @Override
+  public List<JobStatus> jobs() {
+    return jobs.values().stream().map(JobHandle::snapshot).sorted().collect(Collectors.toList());
+  }
+
+  @Override
+  public boolean runNow(String name) {
+    Services svc = services;
+    if (svc == null) {
+      return false;
+    }
+    JobHandle job = jobs.get(name);
+    if (job == null) {
+      return false;
+    }
+    svc.scheduler().submit(() -> execute(job));
+    return true;
+  }
+
+  private void register(JobHandle job) {
+    jobs.put(job.name, job);
     schedule(job, Instant.now());
   }
 
-  private static void schedule(JobHandle job, Instant reference) {
+  private void schedule(JobHandle job, Instant reference) {
+    Services svc = services;
+    if (svc == null) {
+      return;
+    }
     Cron cron = job.cron;
     Instant next = cron.next(reference.plusSeconds(1));
     job.status.nextRun = next;
-    ScheduledExecutorService executor = services.scheduler();
+    ScheduledExecutorService executor = svc.scheduler();
     long delayMs = Math.max(0, Duration.between(Instant.now(), next).toMillis());
     ScheduledFuture<?> future =
         executor.schedule(
@@ -133,7 +134,7 @@ public final class Scheduler {
     }
   }
 
-  private static void execute(JobHandle job) {
+  private void execute(JobHandle job) {
     Instant start = Instant.now();
     job.status.running = true;
     job.status.lastRun = start;
@@ -151,13 +152,16 @@ public final class Scheduler {
     }
   }
 
-  private static void runIdempotencySweep(Config cfg) {
-    Config.IdempotencySweep sweep = cfg.jobs().cleanup().idempotencySweep();
+  private void runIdempotencySweep(Config.IdempotencySweep sweep) {
+    Services svc = services;
+    if (svc == null) {
+      return;
+    }
     int batch = Math.max(1, sweep.batchLimit());
     long cutoff =
         Instant.now().minus(Duration.ofDays(Math.max(0, sweep.retentionDays()))).getEpochSecond();
     int deleted = 0;
-    try (Connection c = services.database().borrowConnection()) {
+    try (Connection c = svc.database().borrowConnection()) {
       c.setAutoCommit(true);
       String sql = "DELETE FROM core_requests WHERE expires_at_s < ? LIMIT ?";
       try (PreparedStatement ps = c.prepareStatement(sql)) {
@@ -179,9 +183,13 @@ public final class Scheduler {
     }
   }
 
-  private static void runBackup(Config cfg) {
+  private void runBackup(Config cfg) {
+    Services svc = services;
+    if (svc == null) {
+      return;
+    }
     try {
-      BackupExporter.Result result = BackupExporter.exportAll(services, cfg);
+      BackupExporter.Result result = BackupExporter.exportAll(svc, cfg);
       LOG.info(
           "(mincore) backup complete: {} players={} attrs={} ledger={}",
           result.file().getFileName(),
@@ -194,55 +202,24 @@ public final class Scheduler {
     }
   }
 
-  /** Immutable job status snapshot. */
-  public static final class JobStatus implements Comparable<JobStatus> {
-    /** Unique job identifier. */
-    public final String name;
-
-    /** Cron expression configured for the job. */
-    public final String schedule;
-
-    /** Short human-readable description. */
-    public final String description;
-
-    /** Next scheduled execution time in UTC. */
-    public volatile Instant nextRun;
-
-    /** Timestamp of the most recent execution. */
-    public volatile Instant lastRun;
-
-    /** Whether the job is currently executing. */
-    public volatile boolean running;
-
-    /** Last error message if execution failed. */
-    public volatile String lastError;
-
-    /** Successful run counter. */
-    public volatile long successCount;
-
-    /** Failed run counter. */
-    public volatile long failureCount;
-
-    private JobStatus(String name, String schedule, String description) {
-      this.name = name;
-      this.schedule = schedule;
-      this.description = description;
-    }
-
-    private JobStatus copy() {
-      JobStatus copy = new JobStatus(name, schedule, description);
-      copy.nextRun = nextRun;
-      copy.lastRun = lastRun;
-      copy.running = running;
-      copy.lastError = lastError;
-      copy.successCount = successCount;
-      copy.failureCount = failureCount;
-      return copy;
-    }
-
-    @Override
-    public int compareTo(JobStatus o) {
-      return this.name.compareToIgnoreCase(o.name);
+  private static void logJobFailure(String jobName, Throwable error) {
+    if (error instanceof SQLException sql) {
+      ErrorCode code = SqlErrorCodes.classify(sql);
+      LOG.warn(
+          "(mincore) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          jobName,
+          sql.getMessage(),
+          sql.getSQLState(),
+          sql.getErrorCode(),
+          sql);
+    } else {
+      LOG.warn(
+          "(mincore) code={} op={} message={}",
+          ErrorCode.CONNECTION_LOST,
+          jobName,
+          error.getMessage(),
+          error);
     }
   }
 
@@ -358,27 +335,6 @@ public final class Scheduler {
         return false;
       }
       return values.contains(value);
-    }
-  }
-
-  private static void logJobFailure(String jobName, Throwable error) {
-    if (error instanceof SQLException sql) {
-      ErrorCode code = SqlErrorCodes.classify(sql);
-      LOG.warn(
-          "(mincore) code={} op={} message={} sqlState={} vendor={}",
-          code,
-          jobName,
-          sql.getMessage(),
-          sql.getSQLState(),
-          sql.getErrorCode(),
-          sql);
-    } else {
-      LOG.warn(
-          "(mincore) code={} op={} message={}",
-          ErrorCode.CONNECTION_LOST,
-          jobName,
-          error.getMessage(),
-          error);
     }
   }
 }

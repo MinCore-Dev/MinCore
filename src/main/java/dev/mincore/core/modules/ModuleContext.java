@@ -14,16 +14,19 @@ public final class ModuleContext {
   private final Services services;
   private final Consumer<Ledger> ledgerPublisher;
   private final Predicate<String> moduleActive;
+  private final ModuleServicePublisher servicePublisher;
 
   ModuleContext(
       Config config,
       Services services,
       Consumer<Ledger> ledgerPublisher,
-      Predicate<String> moduleActive) {
+      Predicate<String> moduleActive,
+      ModuleServicePublisher servicePublisher) {
     this.config = Objects.requireNonNull(config, "config");
     this.services = Objects.requireNonNull(services, "services");
     this.ledgerPublisher = Objects.requireNonNull(ledgerPublisher, "ledgerPublisher");
     this.moduleActive = Objects.requireNonNull(moduleActive, "moduleActive");
+    this.servicePublisher = Objects.requireNonNull(servicePublisher, "servicePublisher");
   }
 
   /** Returns the runtime configuration. */
@@ -44,6 +47,18 @@ public final class ModuleContext {
   /** Whether another module is currently active. */
   public boolean isModuleActive(String moduleId) {
     return moduleActive.test(moduleId);
+  }
+
+  /** Publishes a module-scoped service for other components to consume. */
+  public <T> void publishService(String moduleId, Class<T> type, T service) {
+    Objects.requireNonNull(moduleId, "moduleId");
+    Objects.requireNonNull(type, "type");
+    servicePublisher.publish(moduleId, type, service);
+  }
+
+  @FunctionalInterface
+  interface ModuleServicePublisher {
+    void publish(String moduleId, Class<?> type, Object service);
   }
 
 }
