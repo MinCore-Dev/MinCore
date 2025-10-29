@@ -12,6 +12,10 @@ import dev.holarki.core.Config;
 import dev.holarki.core.Migrations;
 import dev.holarki.core.Services;
 import dev.holarki.core.SqlErrorCodes;
+import dev.holarki.core.modules.LedgerModule;
+import dev.holarki.core.modules.ModuleStateView;
+import dev.holarki.core.modules.SchedulerModule;
+import dev.holarki.modules.scheduler.SchedulerService;
 import dev.holarki.util.TokenBucketRateLimiter;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -24,8 +28,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
@@ -39,25 +41,17 @@ public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
   private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
       new TokenBucketRateLimiter(4, 0.3);
-  private static final List<Consumer<LiteralArgumentBuilder<ServerCommandSource>>> EXTENSIONS =
-      new CopyOnWriteArrayList<>();
 
   private AdminCommands() {}
-
-  /** Adds a module-provided extension to the `/holarki` command tree. */
-  public static void extend(
-      Consumer<LiteralArgumentBuilder<ServerCommandSource>> extension) {
-    Objects.requireNonNull(extension, "extension");
-    EXTENSIONS.add(extension);
-  }
 
   /**
    * Registers the `/holarki` command tree.
    *
    * @param services service container backing command handlers
    */
-  public static void register(final Services services) {
+  public static void register(final Services services, final ModuleStateView modules) {
     Objects.requireNonNull(services, "services");
+    Objects.requireNonNull(modules, "modules");
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
             CommandRegistryAccess registryAccess,
@@ -124,8 +118,16 @@ public final class AdminCommands {
               .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
           root.then(doctor);
 
-          for (Consumer<LiteralArgumentBuilder<ServerCommandSource>> extension : EXTENSIONS) {
-            extension.accept(root);
+          if (modules.isActive(LedgerModule.ID)
+              && HolarkiMod.config() != null
+              && HolarkiMod.config().ledger().enabled()) {
+            LedgerAdminCommands.attach(root, services);
+          }
+
+          if (modules.isActive(SchedulerModule.ID)) {
+            modules
+                .service(SchedulerService.class)
+                .ifPresent(scheduler -> SchedulerAdminCommands.attach(root, scheduler, services));
           }
 
           dispatcher.register(root);

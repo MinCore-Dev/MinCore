@@ -2,7 +2,6 @@
 package dev.holarki.core.modules;
 
 import dev.holarki.core.Config;
-import dev.holarki.modules.scheduler.SchedulerAdminCommands;
 import dev.holarki.modules.scheduler.SchedulerEngine;
 import dev.holarki.modules.scheduler.SchedulerService;
 import org.slf4j.Logger;
@@ -30,7 +29,6 @@ public final class SchedulerModule implements HolarkiModule {
     engine.start(context.services(), cfg);
     this.engine = engine;
     context.publishService(ID, SchedulerService.class, engine);
-    SchedulerAdminCommands.register(engine, context.services());
   }
 
   @Override
