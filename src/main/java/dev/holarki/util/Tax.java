@@ -1,12 +1,17 @@
 /* Holarki © 2025 — MIT */
 package dev.holarki.util;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 /**
  * Simple tax helpers.
  *
  * <p>All operations are pure functions over integer "units".
  */
 public final class Tax {
+  private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100L);
+
   /** Not instantiable. */
   private Tax() {}
 
@@ -19,7 +24,14 @@ public final class Tax {
    * @return tax in units
    */
   public static long calc(long amount, double pct) {
-    if (pct <= 0) return 0L;
-    return (long) Math.floor(amount * (Math.min(100.0, pct) / 100.0));
+    if (Double.isNaN(pct) || pct <= 0.0D) {
+      return 0L;
+    }
+
+    double clampedPct = Math.min(100.0D, pct);
+    BigDecimal amountDecimal = BigDecimal.valueOf(amount);
+    BigDecimal pctDecimal = BigDecimal.valueOf(clampedPct);
+    BigDecimal tax = amountDecimal.multiply(pctDecimal).divide(ONE_HUNDRED, 0, RoundingMode.FLOOR);
+    return tax.longValueExact();
   }
 }
