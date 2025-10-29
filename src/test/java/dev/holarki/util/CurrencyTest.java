@@ -40,6 +40,21 @@ class CurrencyTest {
     }
 
     @Test
+    @DisplayName("parses high magnitude values exactly")
+    void parsesHighMagnitudeExactly() {
+      assertEquals(Long.MAX_VALUE, Currency.parse("9_223_372_036.854775807k"));
+      assertEquals(1_234_567_890_000L, Currency.parse("1_234_567.89m"));
+    }
+
+    @Test
+    @DisplayName("throws when value exceeds long range")
+    void throwsWhenExceedsRange() {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> Currency.parse("9_223_372_036.854775808k"));
+    }
+
+    @Test
     @DisplayName("rejects invalid input")
     void rejectsInvalidInput() {
       assertThrows(IllegalArgumentException.class, () -> Currency.parse("abc"));
