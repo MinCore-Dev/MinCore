@@ -289,12 +289,15 @@ public final class SchedulerEngine implements SchedulerService {
 
     private boolean matches(LocalDateTime time) {
       int dow = time.getDayOfWeek().getValue() % 7; // Sunday=0
+      boolean dayMatches = days.matches(time.getDayOfMonth());
+      boolean dowMatches = dows.matches(dow);
+      boolean domDowMatches =
+          days.wildcard() || dows.wildcard() ? dayMatches && dowMatches : dayMatches || dowMatches;
       return seconds.matches(time.getSecond())
           && minutes.matches(time.getMinute())
           && hours.matches(time.getHour())
-          && days.matches(time.getDayOfMonth())
           && months.matches(time.getMonthValue())
-          && dows.matches(dow);
+          && domDowMatches;
     }
   }
 
