@@ -1,0 +1,54 @@
+/* Holarki © 2025 — MIT */
+package dev.holarki.core;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import dev.holarki.api.ErrorCode;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class ModuleDatabaseImplTest {
+
+  @Mock private DataSource dataSource;
+  @Mock private DbHealth dbHealth;
+  @Mock private Metrics metrics;
+  @Mock private Connection connection;
+  @Mock private PreparedStatement statement;
+  @Mock private ResultSet resultSet;
+
+  @InjectMocks private ModuleDatabaseImpl moduleDatabase;
+
+  @Test
+  void tryAdvisoryLockTreatsNullResultAsFailure() throws Exception {
+    when(dbHealth.allowWrite(anyString())).thenReturn(true);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.prepareStatement("SELECT GET_LOCK(?, 0)")).thenReturn(statement);
+    when(statement.executeQuery()).thenReturn(resultSet);
+    when(resultSet.next()).thenReturn(true);
+    when(resultSet.getInt(1)).thenReturn(0);
+    when(resultSet.wasNull()).thenReturn(true);
+
+    boolean acquired = moduleDatabase.tryAdvisoryLock("test_lock");
+
+    assertFalse(acquired);
+    verify(resultSet).wasNull();
+    verify(dbHealth).markFailure(any(SQLException.class));
+    verify(metrics).recordModuleOperation(false, ErrorCode.CONNECTION_LOST);
+    verify(dbHealth, never()).markSuccess();
+    verify(connection).close();
+  }
+}

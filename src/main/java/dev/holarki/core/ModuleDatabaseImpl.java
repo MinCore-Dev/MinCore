@@ -75,6 +75,24 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
         try (ResultSet rs = ps.executeQuery()) {
           if (rs.next()) {
             int status = rs.getInt(1);
+            if (rs.wasNull()) {
+              SQLException nullResult =
+                  new SQLException("GET_LOCK returned NULL", "08000", 0);
+              ErrorCode code = ErrorCode.CONNECTION_LOST;
+              dbHealth.markFailure(nullResult);
+              if (metrics != null) {
+                metrics.recordModuleOperation(false, code);
+              }
+              LOG.warn(
+                  "(holarki) code={} op={} lock={} message={} sqlState={} vendor={}",
+                  code,
+                  "moduleDb.tryAdvisoryLock",
+                  lock,
+                  nullResult.getMessage(),
+                  nullResult.getSQLState(),
+                  nullResult.getErrorCode());
+              return false;
+            }
             if (status == 1) {
               Connection previous = lockConnections.putIfAbsent(lock, connection);
               if (previous != null) {
