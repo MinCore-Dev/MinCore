@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "mincore",
+  "id": "holarki",
   "version": "1.0.0",
-  "name": "MinCore",
+  "name": "Holarki",
   "description": "MariaDB-backed core services for Fabric servers (players, wallets, attributes, events).",
   "authors": ["YourName"],
   "license": "MIT",
   "environment": "server",
   "entrypoints": {
-    "main": ["dev.mincore.MinCoreMod"]
+    "main": ["dev.holarki.HolarkiMod"]
   },
   "depends": {
     "fabricloader": ">=0.14.0",
