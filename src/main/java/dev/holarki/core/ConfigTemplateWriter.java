@@ -23,7 +23,10 @@ final class ConfigTemplateWriter {
     Objects.requireNonNull(contents, "contents");
 
     try {
-      Files.createDirectories(path.getParent());
+      Path parent = path.getParent();
+      if (parent != null) {
+        Files.createDirectories(parent);
+      }
       byte[] data = contents.getBytes(StandardCharsets.UTF_8);
       if (Files.exists(path)) {
         byte[] current = Files.readAllBytes(path);
