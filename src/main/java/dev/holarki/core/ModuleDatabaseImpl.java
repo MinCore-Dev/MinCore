@@ -49,23 +49,37 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
     return ds.getConnection();
   }
 
+  /**
+   * Attempts to acquire a named advisory lock without waiting.
+   *
+   * <p>Returns {@code true} when the lock is acquired for the current connection. Returns
+   * {@code false} when the lock is already held by another session or when the underlying call
+   * fails. A busy lock is treated as a successful database interaction (no degraded-mode signal),
+   * so module authors can interpret {@code false} strictly as "someone else holds the lock".
+   */
   @Override
   public boolean tryAdvisoryLock(String name) {
     if (!dbHealth.allowWrite("moduleDb.tryAdvisoryLock")) {
       return false;
     }
     String lock = validateLockName(name);
+    boolean lockBusy = false;
     try (Connection c = ds.getConnection();
         PreparedStatement ps = c.prepareStatement("SELECT GET_LOCK(?, 0)")) {
       ps.setString(1, lock);
       try (ResultSet rs = ps.executeQuery()) {
-        if (rs.next() && rs.getInt(1) == 1) {
-          heldLocks.add(lock);
-          dbHealth.markSuccess();
-          if (metrics != null) {
-            metrics.recordModuleOperation(true, null);
+        if (rs.next()) {
+          int status = rs.getInt(1);
+          if (status == 1) {
+            heldLocks.add(lock);
+            dbHealth.markSuccess();
+            if (metrics != null) {
+              metrics.recordModuleOperation(true, null);
+            }
+            return true;
+          } else if (status == 0) {
+            lockBusy = true;
           }
-          return true;
         }
       }
     } catch (SQLException e) {
@@ -82,6 +96,14 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
           e.getSQLState(),
           e.getErrorCode(),
           e);
+      return false;
+    }
+    if (lockBusy) {
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordModuleOperation(false, null);
+      }
+      LOG.debug("(holarki) op={} lock={} busy=true", "moduleDb.tryAdvisoryLock", lock);
       return false;
     }
     dbHealth.markSuccess();
