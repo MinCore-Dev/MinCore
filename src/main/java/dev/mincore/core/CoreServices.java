@@ -182,6 +182,11 @@ public final class CoreServices implements Services, java.io.Closeable {
   }
 
   @Override
+  public Metrics metrics() {
+    return metrics;
+  }
+
+  @Override
   public Playtime playtime() {
     return playtime;
   }
@@ -209,19 +214,6 @@ public final class CoreServices implements Services, java.io.Closeable {
   @Override
   public void close() throws IOException {
     shutdown();
-  }
-
-  // === Package-private accessor needed by LedgerImpl.install(...) ===
-  HikariDataSource pool() {
-    return pool;
-  }
-
-  DbHealth dbHealth() {
-    return dbHealth;
-  }
-
-  Metrics metrics() {
-    return metrics;
   }
 
   private static boolean isLocalHost(String host) {
