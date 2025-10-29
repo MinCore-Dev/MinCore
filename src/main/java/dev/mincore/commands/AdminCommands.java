@@ -2,26 +2,17 @@
 package dev.mincore.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.mincore.MinCoreMod;
 import dev.mincore.api.ErrorCode;
-import dev.mincore.api.Players;
-import dev.mincore.api.Players.PlayerRef;
 import dev.mincore.core.BackupExporter;
 import dev.mincore.core.BackupImporter;
 import dev.mincore.core.Config;
 import dev.mincore.core.Migrations;
 import dev.mincore.core.Services;
 import dev.mincore.core.SqlErrorCodes;
-import dev.mincore.core.modules.ModuleStateView;
-import dev.mincore.modules.scheduler.SchedulerService;
-import dev.mincore.util.TimeDisplay;
-import dev.mincore.util.TimePreference;
-import dev.mincore.util.Timezones;
 import dev.mincore.util.TokenBucketRateLimiter;
-import dev.mincore.util.Uuids;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -29,11 +20,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
+import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
@@ -47,19 +39,25 @@ public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
   private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
       new TokenBucketRateLimiter(4, 0.3);
-  private static final String LEDGER_MODULE_ID = "ledger";
-  private static final String SCHEDULER_MODULE_ID = "scheduler";
-  private static volatile ModuleStateView MODULES;
+  private static final List<Consumer<LiteralArgumentBuilder<ServerCommandSource>>> EXTENSIONS =
+      new CopyOnWriteArrayList<>();
 
   private AdminCommands() {}
+
+  /** Adds a module-provided extension to the `/mincore` command tree. */
+  public static void extend(
+      Consumer<LiteralArgumentBuilder<ServerCommandSource>> extension) {
+    Objects.requireNonNull(extension, "extension");
+    EXTENSIONS.add(extension);
+  }
 
   /**
    * Registers the `/mincore` command tree.
    *
    * @param services service container backing command handlers
    */
-  public static void register(final Services services, final ModuleStateView modules) {
-    MODULES = modules;
+  public static void register(final Services services) {
+    Objects.requireNonNull(services, "services");
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
             CommandRegistryAccess registryAccess,
@@ -126,104 +124,8 @@ public final class AdminCommands {
               .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
           root.then(doctor);
 
-          Config cfg = MinCoreMod.config();
-          boolean ledgerEnabled = cfg != null && cfg.modules().ledger().enabled();
-          if (ledgerEnabled && modules != null && modules.isActive(LEDGER_MODULE_ID)) {
-            LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
-            ledger.then(
-                CommandManager.literal("recent")
-                    .then(
-                        CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                            .executes(
-                                ctx ->
-                                    cmdLedgerRecent(
-                                        ctx.getSource(),
-                                        services,
-                                        IntegerArgumentType.getInteger(ctx, "limit"))))
-                    .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
-            ledger.then(
-                CommandManager.literal("player")
-                    .then(
-                        CommandManager.argument("target", StringArgumentType.string())
-                            .then(
-                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(
-                                        ctx ->
-                                            cmdLedgerByPlayer(
-                                                ctx.getSource(),
-                                                services,
-                                                StringArgumentType.getString(ctx, "target"),
-                                                IntegerArgumentType.getInteger(ctx, "limit"))))
-                            .executes(
-                                ctx ->
-                                    cmdLedgerByPlayer(
-                                        ctx.getSource(),
-                                        services,
-                                        StringArgumentType.getString(ctx, "target"),
-                                        10))));
-            ledger.then(
-                CommandManager.literal("module")
-                    .then(
-                        CommandManager.argument("moduleId", StringArgumentType.string())
-                            .then(
-                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(
-                                        ctx ->
-                                            cmdLedgerByModule(
-                                                ctx.getSource(),
-                                                services,
-                                                StringArgumentType.getString(ctx, "moduleId"),
-                                                IntegerArgumentType.getInteger(ctx, "limit"))))
-                            .executes(
-                                ctx ->
-                                    cmdLedgerByModule(
-                                        ctx.getSource(),
-                                        services,
-                                        StringArgumentType.getString(ctx, "moduleId"),
-                                        10))));
-            ledger.then(
-                CommandManager.literal("reason")
-                    .then(
-                        CommandManager.argument("substring", StringArgumentType.string())
-                            .then(
-                                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(
-                                        ctx ->
-                                            cmdLedgerByReason(
-                                                ctx.getSource(),
-                                                services,
-                                                StringArgumentType.getString(ctx, "substring"),
-                                                IntegerArgumentType.getInteger(ctx, "limit"))))
-                            .executes(
-                                ctx ->
-                                    cmdLedgerByReason(
-                                        ctx.getSource(),
-                                        services,
-                                        StringArgumentType.getString(ctx, "substring"),
-                                        10))));
-            root.then(ledger);
-          }
-
-          if (modules != null && modules.isActive(SCHEDULER_MODULE_ID)) {
-            LiteralArgumentBuilder<ServerCommandSource> jobs = CommandManager.literal("jobs");
-            jobs.then(
-                CommandManager.literal("list")
-                    .executes(ctx -> cmdJobsList(ctx.getSource(), services)));
-            jobs.then(
-                CommandManager.literal("run")
-                    .then(
-                        CommandManager.argument("job", StringArgumentType.string())
-                            .executes(
-                                ctx ->
-                                    cmdJobsRun(
-                                        ctx.getSource(), StringArgumentType.getString(ctx, "job")))));
-            root.then(jobs);
-
-            root.then(
-                CommandManager.literal("backup")
-                    .then(
-                        CommandManager.literal("now")
-                            .executes(ctx -> cmdBackupNow(ctx.getSource(), services))));
+          for (Consumer<LiteralArgumentBuilder<ServerCommandSource>> extension : EXTENSIONS) {
+            extension.accept(root);
           }
 
           dispatcher.register(root);
@@ -802,262 +704,6 @@ public final class AdminCommands {
     }
   }
 
-  private static boolean ensureLedgerEnabled(final ServerCommandSource src) {
-    ModuleStateView modules = MODULES;
-    if (modules != null && modules.isActive(LEDGER_MODULE_ID)) {
-      return true;
-    }
-    src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.disabled"), false);
-    return false;
-  }
-
-  private static int cmdLedgerRecent(
-      final ServerCommandSource src, final Services services, final int limit) {
-    if (!ensureLedgerEnabled(src)) {
-      return 0;
-    }
-    final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger ORDER BY id DESC LIMIT ?";
-    return printLedger(src, services, sql, ps -> ps.setInt(1, Math.max(1, Math.min(200, limit))));
-  }
-
-  private static int cmdLedgerByPlayer(
-      final ServerCommandSource src,
-      final Services services,
-      final String target,
-      final int limit) {
-    if (!ensureLedgerEnabled(src)) {
-      return 0;
-    }
-    UUID resolved = resolvePlayer(src, services, target);
-    if (resolved == null) {
-      return 0;
-    }
-    final UUID u = resolved;
-    final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE from_uuid = ? OR to_uuid = ? ORDER BY id DESC LIMIT ?";
-    return printLedger(
-        src,
-        services,
-        sql,
-        ps -> {
-          byte[] b = Uuids.toBytes(u);
-          ps.setBytes(1, b);
-          ps.setBytes(2, b);
-          ps.setInt(3, Math.max(1, Math.min(200, limit)));
-        });
-  }
-
-  private static int cmdLedgerByModule(
-      final ServerCommandSource src,
-      final Services services,
-      final String moduleId,
-      final int limit) {
-    if (!ensureLedgerEnabled(src)) {
-      return 0;
-    }
-    final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE module_id = ? ORDER BY id DESC LIMIT ?";
-    return printLedger(
-        src,
-        services,
-        sql,
-        ps -> {
-          ps.setString(1, moduleId);
-          ps.setInt(2, Math.max(1, Math.min(200, limit)));
-        });
-  }
-
-  private static int cmdLedgerByReason(
-      final ServerCommandSource src,
-      final Services services,
-      final String needle,
-      final int limit) {
-    if (!ensureLedgerEnabled(src)) {
-      return 0;
-    }
-    final String sql =
-        "SELECT id, ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq,"
-            + " idem_scope, old_units, new_units, server_node, extra_json "
-            + "FROM core_ledger WHERE reason LIKE ? ORDER BY id DESC LIMIT ?";
-    return printLedger(
-        src,
-        services,
-        sql,
-        ps -> {
-          ps.setString(1, "%" + needle + "%");
-          ps.setInt(2, Math.max(1, Math.min(200, limit)));
-        });
-  }
-
-  private static UUID resolvePlayer(
-      final ServerCommandSource src, final Services services, final String target) {
-    UUID uuid = tryParseUuid(target);
-    if (uuid != null) {
-      return uuid;
-    }
-    Players players = services.players();
-    List<PlayerRef> matches = players.byNameAll(target);
-    if (matches.isEmpty()) {
-      src.sendFeedback(() -> Text.translatable("mincore.err.player.unknown"), false);
-      return null;
-    }
-    if (matches.size() > 1) {
-      src.sendFeedback(() -> Text.translatable("mincore.err.player.ambiguous"), false);
-      return null;
-    }
-    return matches.get(0).uuid();
-  }
-
-  private static int printLedger(
-      final ServerCommandSource src,
-      final Services services,
-      final String sql,
-      final Binder binder) {
-    List<LedgerRow> rows = new ArrayList<>();
-    try (Connection c = services.database().borrowConnection();
-        PreparedStatement ps = c.prepareStatement(sql)) {
-      binder.bind(ps);
-      try (ResultSet rs = ps.executeQuery()) {
-        while (rs.next()) {
-          rows.add(
-              new LedgerRow(
-                  rs.getLong(1),
-                  rs.getLong(2),
-                  rs.getString(3),
-                  rs.getString(4),
-                  readUuid(rs, 5),
-                  readUuid(rs, 6),
-                  rs.getLong(7),
-                  rs.getString(8),
-                  rs.getBoolean(9),
-                  rs.getString(10),
-                  rs.getLong(11),
-                  rs.getString(12),
-                  readNullableLong(rs, 13),
-                  readNullableLong(rs, 14),
-                  rs.getString(15),
-                  rs.getString(16)));
-        }
-      }
-    } catch (Exception e) {
-      logAdminFailure("/mincore ledger", e);
-      src.sendFeedback(
-          () -> Text.translatable("mincore.cmd.ledger.error", e.getClass().getSimpleName()), false);
-      return 0;
-    }
-
-    if (rows.isEmpty()) {
-      src.sendFeedback(() -> Text.translatable("mincore.cmd.ledger.none"), false);
-      return 1;
-    }
-
-    TimePreference pref = Timezones.preferences(src, services);
-    Players players = services.players();
-    String offset = TimeDisplay.offsetLabel(pref.zone());
-    src.sendFeedback(
-        () ->
-            Text.translatable(
-                "mincore.cmd.ledger.header",
-                rows.size(),
-                pref.zone().getId(),
-                offset,
-                pref.clock().description()),
-        false);
-    for (LedgerRow row : rows) {
-      String when = TimeDisplay.formatDateTime(Instant.ofEpochSecond(row.ts()), pref);
-      String from = formatPlayer(players, row.from());
-      String to = formatPlayer(players, row.to());
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "mincore.cmd.ledger.line",
-                  row.id(),
-                  when,
-                  row.module(),
-                  row.op(),
-                  row.amount(),
-                  row.ok(),
-                  formatOptional(row.code()),
-                  formatSeq(row.seq()),
-                  formatOptional(row.scope()),
-                  from,
-                  to,
-                  row.reason(),
-                  formatOptional(row.oldUnits()),
-                  formatOptional(row.newUnits()),
-                  formatOptional(row.serverNode()),
-                  formatExtra(row.extraJson())),
-          false);
-    }
-    return 1;
-  }
-
-  private static int cmdJobsList(final ServerCommandSource src, final Services services) {
-    List<SchedulerService.JobStatus> jobs =
-        schedulerService().map(SchedulerService::jobs).orElse(List.of());
-    TimePreference pref = Timezones.preferences(src, services);
-    String offset = TimeDisplay.offsetLabel(pref.zone());
-    if (jobs.isEmpty()) {
-      src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.list.none"), false);
-      return 1;
-    }
-    src.sendFeedback(
-        () ->
-            Text.translatable(
-                "mincore.cmd.jobs.list.header",
-                pref.zone().getId(),
-                offset,
-                pref.clock().description()),
-        false);
-    for (SchedulerService.JobStatus job : jobs) {
-      String next = job.nextRun != null ? TimeDisplay.formatDateTime(job.nextRun, pref) : "-";
-      String last = job.lastRun != null ? TimeDisplay.formatDateTime(job.lastRun, pref) : "-";
-      String error = job.lastError == null ? "" : job.lastError;
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "mincore.cmd.jobs.list.line",
-                  job.name,
-                  job.schedule,
-                  job.description,
-                  next,
-                  last,
-                  job.running,
-                  job.successCount,
-                  job.failureCount,
-                  error),
-          false);
-    }
-    return 1;
-  }
-
-  private static int cmdJobsRun(final ServerCommandSource src, final String job) {
-    boolean scheduled = schedulerService().map(s -> s.runNow(job)).orElse(false);
-    if (scheduled) {
-      src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.run.ok", job), false);
-      return 1;
-    }
-    src.sendFeedback(() -> Text.translatable("mincore.cmd.jobs.run.unknown", job), false);
-    return 0;
-  }
-
-  private static int cmdBackupNow(final ServerCommandSource src, final Services services) {
-    boolean scheduled = schedulerService().map(s -> s.runNow("backup")).orElse(false);
-    if (scheduled) {
-      src.sendFeedback(() -> Text.translatable("mincore.cmd.backup.queued"), false);
-      return 1;
-    }
-    src.sendFeedback(() -> Text.translatable("mincore.cmd.backup.fail", "job"), false);
-    return 0;
-  }
-
   private static String isolationName(int level) {
     return switch (level) {
       case Connection.TRANSACTION_NONE -> "NONE";
@@ -1079,7 +725,7 @@ public final class AdminCommands {
     return false;
   }
 
-  private static void logAdminFailure(String op, Throwable error) {
+  public static void logAdminFailure(String op, Throwable error) {
     ErrorCode code = classifyError(error);
     if (error instanceof SQLException sql) {
       LOG.warn(
@@ -1102,100 +748,4 @@ public final class AdminCommands {
     return ErrorCode.CONNECTION_LOST;
   }
 
-  private static java.util.Optional<SchedulerService> schedulerService() {
-    ModuleStateView modules = MODULES;
-    if (modules == null || !modules.isActive(SCHEDULER_MODULE_ID)) {
-      return java.util.Optional.empty();
-    }
-    return modules.service(SchedulerService.class);
-  }
-
-  private static UUID tryParseUuid(String raw) {
-    try {
-      return UUID.fromString(raw);
-    } catch (Exception ignored) {
-      return null;
-    }
-  }
-
-  private static String formatPlayer(Players players, UUID uuid) {
-    if (uuid == null) {
-      return "-";
-    }
-    PlayerRef ref = players.byUuid(uuid).orElse(null);
-    return ref != null ? ref.name() : uuid.toString();
-  }
-
-  private static String formatOptional(String value) {
-    if (value == null || value.isBlank()) {
-      return "-";
-    }
-    return value;
-  }
-
-  private static String formatOptional(Long value) {
-    if (value == null) {
-      return "-";
-    }
-    return Long.toString(value);
-  }
-
-  private static String formatSeq(long seq) {
-    return seq > 0 ? Long.toString(seq) : "-";
-  }
-
-  private static String formatExtra(String extra) {
-    if (extra == null || extra.isBlank()) {
-      return "-";
-    }
-    String trimmed = extra.trim();
-    if (trimmed.length() > 80) {
-      return trimmed.substring(0, 80) + "…";
-    }
-    return trimmed;
-  }
-
-  private static Long readNullableLong(ResultSet rs, int index) throws SQLException {
-    long value = rs.getLong(index);
-    return rs.wasNull() ? null : value;
-  }
-
-  private static UUID readUuid(ResultSet rs, int index) throws SQLException {
-    byte[] bytes = rs.getBytes(index);
-    if (bytes == null || bytes.length != 16) {
-      return null;
-    }
-    long msb = 0;
-    long lsb = 0;
-    for (int i = 0; i < 8; i++) {
-      msb = (msb << 8) | (bytes[i] & 0xff);
-    }
-    for (int i = 8; i < 16; i++) {
-      lsb = (lsb << 8) | (bytes[i] & 0xff);
-    }
-    return new UUID(msb, lsb);
-  }
-
-  private record LedgerRow(
-      long id,
-      long ts,
-      String module,
-      String op,
-      UUID from,
-      UUID to,
-      long amount,
-      String reason,
-      boolean ok,
-      String code,
-      long seq,
-      String scope,
-      Long oldUnits,
-      Long newUnits,
-      String serverNode,
-      String extraJson) {}
-
-  @FunctionalInterface
-  private interface Binder {
-    void bind(PreparedStatement ps) throws SQLException;
-  }
 }

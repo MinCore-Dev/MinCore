@@ -2,6 +2,7 @@
 package dev.mincore.core.modules;
 
 import dev.mincore.api.Ledger;
+import dev.mincore.modules.ledger.LedgerAdminCommands;
 import dev.mincore.modules.ledger.LedgerService;
 
 /** Optional ledger subsystem module. */
@@ -26,6 +27,9 @@ public final class LedgerModule implements MinCoreModule {
             services.metrics(),
             context.config().ledger());
     context.publishLedger(ledger);
+    if (context.config().ledger().enabled()) {
+      LedgerAdminCommands.register(services);
+    }
   }
 
   @Override
