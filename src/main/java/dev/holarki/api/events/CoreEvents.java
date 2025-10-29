@@ -6,8 +6,11 @@ import java.util.UUID;
 /**
  * Lightweight in-process event bus surface for core events.
  *
- * <p>Handlers run in-process on the server thread that fires them. Modules should keep handlers
- * short, resilient, and mindful of server-thread constraints.
+ * <p>Callbacks are invoked asynchronously by the core {@code EventBus}. Delivery is serialized per
+ * player, but the threads belong to the event executor rather than the Minecraft server thread.
+ * Treat handlers as off-thread work: perform only thread-safe operations directly, and hop back to
+ * the server thread (for example via {@code MinecraftServer#execute}) before touching world state
+ * or APIs that require the main thread.
  */
 public interface CoreEvents {
   /**

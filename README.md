@@ -383,7 +383,12 @@ Use the `withRetry` helpers for deadlocks and timeouts that are safe to retry so
 
 ### Event flow and ordering
 
-Events are delivered off thread after commit. Delivery is at least once and ordered per player. Built-in modules deduplicate with idempotency keys when side effects matter, and operators should follow the same approach for any scripted automations. Hop to the main thread before interacting with the world.
+Events are delivered off thread after commit by the core {@code EventBus}, which uses a worker
+pool and per-player queues to preserve ordering. Delivery is at least once and ordered per player.
+Built-in modules deduplicate with idempotency keys when side effects matter, and operators should
+follow the same approach for any scripted automations. Treat event handlers as asynchronous work:
+perform thread-safe operations directly, then hop to the main thread (for example via
+`MinecraftServer#execute`) before interacting with the world.
 
 ### Localization
 
