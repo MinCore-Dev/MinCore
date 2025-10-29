@@ -546,9 +546,21 @@ public final class LedgerService implements Ledger, AutoCloseable {
   }
 
   private static void ensureParent(Path p) throws IOException {
-    Path parent = Objects.requireNonNull(p.getParent(), "parent");
-    if (!Files.isDirectory(parent)) {
+    Path parent = p.getParent();
+    if (parent == null || Files.isDirectory(parent)) {
+      return;
+    }
+    try {
       Files.createDirectories(parent);
+    } catch (IOException ioe) {
+      LOG.warn(
+          "(holarki) code={} op={} message={} path={}",
+          "FILE_IO",
+          "ledger.ensureParent",
+          ioe.getMessage(),
+          parent,
+          ioe);
+      throw ioe;
     }
   }
 
