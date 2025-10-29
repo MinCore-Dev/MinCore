@@ -15,7 +15,6 @@ import dev.holarki.core.SqlErrorCodes;
 import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.core.modules.ModuleStateView;
 import dev.holarki.util.TokenBucketRateLimiter;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -27,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
@@ -289,74 +289,143 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.fail", "config"), false);
       return 0;
     }
+
+    ExportOptions opts;
     try {
-      ExportOptions opts = ExportOptions.parse(rawOptions);
-      Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
-      src.sendFeedback(
-          () -> Text.translatable("holarki.cmd.export.started", outDir.toString()), false);
-      BackupExporter.Result result =
-          BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.export.ok",
-                  result.file().toString(),
-                  result.players(),
-                  result.attributes(),
-                  result.eventSeq(),
-                  result.ledger()),
-          false);
-      return 1;
+      opts = ExportOptions.parse(rawOptions);
     } catch (IllegalArgumentException e) {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.usage", e.getMessage()), false);
       return 0;
-    } catch (Exception e) {
+    }
+
+    Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
+    var server = src.getServer();
+    if (server == null) {
+      src.sendFeedback(() -> Text.translatable("holarki.cmd.export.fail", "server"), false);
+      return 0;
+    }
+
+    src.sendFeedback(
+        () -> Text.translatable("holarki.cmd.export.started", outDir.toString()), false);
+
+    Runnable task =
+        () -> {
+          try {
+            BackupExporter.Result result =
+                BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
+            server.execute(
+                () ->
+                    src.sendFeedback(
+                        () ->
+                            Text.translatable(
+                                "holarki.cmd.export.ok",
+                                result.file().toString(),
+                                result.players(),
+                                result.attributes(),
+                                result.eventSeq(),
+                                result.ledger()),
+                        false));
+          } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+              Thread.currentThread().interrupt();
+            }
+            logAdminFailure("/holarki export", e);
+            server.execute(
+                () ->
+                    src.sendFeedback(
+                        () ->
+                            Text.translatable("holarki.cmd.export.fail", e.getClass().getSimpleName()),
+                        false));
+          }
+        };
+
+    try {
+      services.scheduler().execute(task);
+    } catch (RejectedExecutionException e) {
       logAdminFailure("/holarki export", e);
       src.sendFeedback(
           () -> Text.translatable("holarki.cmd.export.fail", e.getClass().getSimpleName()), false);
       return 0;
     }
+
+    return 1;
   }
 
   private static int cmdRestore(
       final ServerCommandSource src, final Services services, final String rawOptions) {
+    RestoreOptions opts;
     try {
-      RestoreOptions opts = RestoreOptions.parse(rawOptions);
-      if (opts.from == null) {
-        throw new IllegalArgumentException("--from <dir> required");
-      }
-      if (opts.mode == BackupImporter.Mode.MERGE && !opts.overwrite) {
-        throw new IllegalArgumentException("merge mode requires --overwrite");
-      }
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.restore.started",
-                  opts.mode.name().toLowerCase(Locale.ROOT),
-                  opts.from.toString()),
-          false);
-      BackupImporter.Result result =
-          BackupImporter.restore(
-              services, opts.from, opts.mode, opts.strategy, opts.overwrite, opts.skipFkChecks);
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.restore.ok",
-                  result.source().toString(),
-                  result.players(),
-                  result.attributes(),
-                  result.eventSeq(),
-                  result.ledger()),
-          false);
-      return 1;
+      opts = RestoreOptions.parse(rawOptions);
     } catch (IllegalArgumentException e) {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.usage", e.getMessage()), false);
       return 0;
-    } catch (IOException | SQLException e) {
-      logAdminFailure("/holarki restore", e);
-      src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.fail", e.getMessage()), false);
+    }
+
+    if (opts.from == null) {
+      src.sendFeedback(
+          () -> Text.translatable("holarki.cmd.restore.usage", "--from <dir> required"), false);
       return 0;
     }
+    if (opts.mode == BackupImporter.Mode.MERGE && !opts.overwrite) {
+      src.sendFeedback(
+          () -> Text.translatable("holarki.cmd.restore.usage", "merge mode requires --overwrite"),
+          false);
+      return 0;
+    }
+
+    var server = src.getServer();
+    if (server == null) {
+      src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.fail", "server"), false);
+      return 0;
+    }
+
+    src.sendFeedback(
+        () ->
+            Text.translatable("holarki.cmd.restore.started",
+                opts.mode.name().toLowerCase(Locale.ROOT), opts.from.toString()),
+        false);
+
+    Runnable task =
+        () -> {
+          try {
+            BackupImporter.Result result =
+                BackupImporter.restore(
+                    services, opts.from, opts.mode, opts.strategy, opts.overwrite, opts.skipFkChecks);
+            server.execute(
+                () ->
+                    src.sendFeedback(
+                        () ->
+                            Text.translatable(
+                                "holarki.cmd.restore.ok",
+                                result.source().toString(),
+                                result.players(),
+                                result.attributes(),
+                                result.eventSeq(),
+                                result.ledger()),
+                        false));
+          } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+              Thread.currentThread().interrupt();
+            }
+            logAdminFailure("/holarki restore", e);
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            server.execute(
+                () ->
+                    src.sendFeedback(
+                        () -> Text.translatable("holarki.cmd.restore.fail", message), false));
+          }
+        };
+
+    try {
+      services.scheduler().execute(task);
+    } catch (RejectedExecutionException e) {
+      logAdminFailure("/holarki restore", e);
+      String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+      src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.fail", message), false);
+      return 0;
+    }
+
+    return 1;
   }
 
   private static int cmdDoctor(
