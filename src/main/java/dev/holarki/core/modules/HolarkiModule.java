@@ -21,13 +21,16 @@ public interface HolarkiModule {
 
   /**
    * Starts the module. Implementations should perform registration (commands, listeners) and wire
-   * any subsystem state here.
+   * any subsystem state here. Modules that decline activation should return
+   * {@link ModuleActivation#skipped(String)} with a human-readable reason so operators understand
+   * why the module is inactive.
    *
    * @param context module execution context
+   * @return activation result signalling whether the module is active
    * @throws Exception if startup fails; the module manager will abort boot and unwind already
    *     started modules
    */
-  void start(ModuleContext context) throws Exception;
+  ModuleActivation start(ModuleContext context) throws Exception;
 
   /**
    * Stops the module, releasing resources and unregistering listeners. This is invoked during

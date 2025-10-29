@@ -21,24 +21,25 @@ public final class TimezoneAutoModule implements HolarkiModule {
   }
 
   @Override
-  public void start(ModuleContext context) {
+  public ModuleActivation start(ModuleContext context) {
     Config cfg = context.config();
     if (!cfg.modules().timezone().enabled()) {
       LOG.info("(holarki) timezone.auto skipped because timezone module is disabled");
-      return;
+      return ModuleActivation.skipped("timezone module disabled");
     }
     if (!context.isModuleActive(TimezoneModule.ID)) {
       LOG.info("(holarki) timezone.auto skipped because timezone module is inactive");
-      return;
+      return ModuleActivation.skipped("timezone module inactive");
     }
     detector = TimezoneAutoDetector.create(cfg).orElse(null);
     if (detector == null) {
       LOG.info("(holarki) timezone auto-detect not enabled or unavailable");
-      return;
+      return ModuleActivation.skipped("timezone auto-detect unavailable");
     }
     ServerPlayConnectionEvents.JOIN.register(
         (handler, sender, server) ->
             scheduleAutoDetect(context, handler.player.getUuid(), handler.player.getIp()));
+    return ModuleActivation.activated();
   }
 
   private void scheduleAutoDetect(ModuleContext context, UUID uuid, String remoteAddress) {
