@@ -80,6 +80,16 @@ final class BackupCycleTest {
       assertEquals(baselineCounts.eventSeq(), exportResult.eventSeq());
       assertEquals(baselineCounts.ledger(), exportResult.ledger());
 
+      List<String> exportedLines = Files.readAllLines(exportResult.file());
+      assertTrue(
+          exportedLines.stream()
+              .anyMatch(
+                  line ->
+                      line.contains("\"table\":\"players\"")
+                          && line.contains("\"name\":\"Bravo\"")
+                          && line.contains("\"seenAt\":null")),
+          "expected exported player with null seenAt to remain null");
+
       Path checksum =
           Objects.requireNonNull(exportResult.file().getParent())
               .resolve(exportResult.file().getFileName().toString() + ".sha256");

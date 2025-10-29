@@ -126,6 +126,13 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        long balance = rs.getLong("balance_units");
+        long createdAt = rs.getLong("created_at_s");
+        long updatedAt = rs.getLong("updated_at_s");
+        long seenRaw = rs.getLong("seen_at_s");
+        boolean seenNull = rs.wasNull();
+        String seenValue = seenNull ? "null" : Long.toString(seenRaw);
+
         String line =
             "{"
                 + quote("table")
@@ -142,19 +149,19 @@ public final class BackupExporter {
                 + ','
                 + quote("balance")
                 + ":"
-                + rs.getLong("balance_units")
+                + balance
                 + ','
                 + quote("createdAt")
                 + ":"
-                + rs.getLong("created_at_s")
+                + createdAt
                 + ','
                 + quote("updatedAt")
                 + ":"
-                + rs.getLong("updated_at_s")
+                + updatedAt
                 + ','
                 + quote("seenAt")
                 + ":"
-                + rs.getLong("seen_at_s")
+                + seenValue
                 + "}\n";
         writer.write(line);
         count++;
