@@ -2,6 +2,7 @@
 package dev.holarki.core.modules;
 
 import dev.holarki.api.Ledger;
+import dev.holarki.modules.ledger.LedgerAdminCommands;
 import dev.holarki.modules.ledger.LedgerService;
 
 /** Optional ledger subsystem module. */
@@ -26,6 +27,7 @@ public final class LedgerModule implements HolarkiModule {
             services.metrics(),
             context.config().ledger());
     context.publishLedger(ledger);
+    LedgerAdminCommands.register(context);
   }
 
   @Override

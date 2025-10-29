@@ -1,12 +1,14 @@
 /* Holarki © 2025 — MIT */
 package dev.holarki.core.modules;
 
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.holarki.api.Ledger;
 import dev.holarki.core.Config;
 import dev.holarki.core.Services;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import net.minecraft.server.command.ServerCommandSource;
 
 /** Execution context handed to {@link HolarkiModule} instances during lifecycle events. */
 public final class ModuleContext {
@@ -15,18 +17,22 @@ public final class ModuleContext {
   private final Consumer<Ledger> ledgerPublisher;
   private final Predicate<String> moduleActive;
   private final ModuleServicePublisher servicePublisher;
+  private final Consumer<AdminCommandExtension> adminCommandRegistrar;
 
   ModuleContext(
       Config config,
       Services services,
       Consumer<Ledger> ledgerPublisher,
       Predicate<String> moduleActive,
-      ModuleServicePublisher servicePublisher) {
+      ModuleServicePublisher servicePublisher,
+      Consumer<AdminCommandExtension> adminCommandRegistrar) {
     this.config = Objects.requireNonNull(config, "config");
     this.services = Objects.requireNonNull(services, "services");
     this.ledgerPublisher = Objects.requireNonNull(ledgerPublisher, "ledgerPublisher");
     this.moduleActive = Objects.requireNonNull(moduleActive, "moduleActive");
     this.servicePublisher = Objects.requireNonNull(servicePublisher, "servicePublisher");
+    this.adminCommandRegistrar =
+        Objects.requireNonNull(adminCommandRegistrar, "adminCommandRegistrar");
   }
 
   /** Returns the runtime configuration. */
@@ -56,9 +62,20 @@ public final class ModuleContext {
     servicePublisher.publish(moduleId, type, service);
   }
 
+  /** Registers an admin command extension provided by the calling module. */
+  public void registerAdminCommandExtension(AdminCommandExtension extension) {
+    Objects.requireNonNull(extension, "extension");
+    adminCommandRegistrar.accept(extension);
+  }
+
   @FunctionalInterface
   interface ModuleServicePublisher {
     void publish(String moduleId, Class<?> type, Object service);
+  }
+
+  @FunctionalInterface
+  public interface AdminCommandExtension {
+    void attach(LiteralArgumentBuilder<ServerCommandSource> root);
   }
 
 }

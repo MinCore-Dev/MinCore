@@ -12,10 +12,8 @@ import dev.holarki.core.Config;
 import dev.holarki.core.Migrations;
 import dev.holarki.core.Services;
 import dev.holarki.core.SqlErrorCodes;
-import dev.holarki.core.modules.LedgerModule;
+import dev.holarki.core.modules.ModuleContext;
 import dev.holarki.core.modules.ModuleStateView;
-import dev.holarki.core.modules.SchedulerModule;
-import dev.holarki.modules.scheduler.SchedulerService;
 import dev.holarki.util.TokenBucketRateLimiter;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -28,6 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
@@ -41,8 +41,20 @@ public final class AdminCommands {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
   private static final TokenBucketRateLimiter ADMIN_RATE_LIMITER =
       new TokenBucketRateLimiter(4, 0.3);
+  private static final List<ModuleContext.AdminCommandExtension> EXTENSIONS =
+      new CopyOnWriteArrayList<>();
 
   private AdminCommands() {}
+
+  private static void extend(ModuleContext.AdminCommandExtension extension) {
+    Objects.requireNonNull(extension, "extension");
+    EXTENSIONS.add(extension);
+  }
+
+  /** Returns the registrar used by {@link ModuleContext} to add admin command extensions. */
+  public static Consumer<ModuleContext.AdminCommandExtension> registrar() {
+    return AdminCommands::extend;
+  }
 
   /**
    * Registers the `/holarki` command tree.
@@ -118,16 +130,8 @@ public final class AdminCommands {
               .executes(ctx -> cmdDoctor(ctx.getSource(), services, ""));
           root.then(doctor);
 
-          if (modules.isActive(LedgerModule.ID)
-              && HolarkiMod.config() != null
-              && HolarkiMod.config().ledger().enabled()) {
-            LedgerAdminCommands.attach(root, services);
-          }
-
-          if (modules.isActive(SchedulerModule.ID)) {
-            modules
-                .service(SchedulerService.class)
-                .ifPresent(scheduler -> SchedulerAdminCommands.attach(root, scheduler, services));
+          for (ModuleContext.AdminCommandExtension extension : EXTENSIONS) {
+            extension.attach(root);
           }
 
           dispatcher.register(root);
