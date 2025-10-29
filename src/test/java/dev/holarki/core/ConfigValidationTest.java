@@ -39,6 +39,26 @@ class ConfigValidationTest {
         "modules.scheduler.jobs.backup.schedule must be provided", thrown.getMessage());
   }
 
+  @Test
+  void preservesCommentMarkersInsideStrings(@TempDir Path tempDir) throws IOException {
+    Path configPath = tempDir.resolve("holarki.json5");
+    String config =
+        configJson(0, "0 45 4 * * *")
+            .replace("\"user\": \"holarki\"", "\"user\": \"holarki//primary\"")
+            .replace("\"password\": \"change-me\"", "\"password\": \"pa/*ss*/word\"")
+            .replace(
+                "\"path\": \"./logs/holarki-ledger.jsonl\"",
+                "\"path\": \"https://example.com/logs//file\"")
+            + "\n// trailing comment\n";
+    Files.writeString(configPath, config, StandardCharsets.UTF_8);
+
+    Config parsed = Config.loadOrWriteDefault(configPath);
+
+    assertEquals("holarki//primary", parsed.db().user());
+    assertEquals("pa/*ss*/word", parsed.db().password());
+    assertEquals("https://example.com/logs//file", parsed.ledger().jsonlMirror().path());
+  }
+
   private static String configJson(int retentionDays, String backupSchedule) {
     return (
             """
