@@ -64,7 +64,7 @@ RCON_BIN=${HOLARKI_RCON_BIN:-mcrcon}
 
 run() {
   local cmd=$1
-  echo "[holarki-smoke] $cmd"
+  echo "[holarki] $cmd"
   ${RCON_BIN} -H "${HOST}" -P "${PORT}" -p "${PASS}" "${cmd}"
 }
 
@@ -76,13 +76,13 @@ if [[ $(get_module_enabled scheduler) == "true" ]]; then
   run "holarki jobs run backup"
   run "holarki backup now"
 else
-  echo "[holarki-smoke] Skipping scheduler checks and backup command (modules.scheduler.enabled=false)"
+  echo "[holarki] Skipping scheduler checks and backup command (modules.scheduler.enabled=false)"
 fi
 if [[ $(get_module_enabled ledger) == "true" ]]; then
   run "holarki ledger recent 5"
 else
-  echo "[holarki-smoke] Skipping ledger check (modules.ledger.enabled=false)"
+  echo "[holarki] Skipping ledger check (modules.ledger.enabled=false)"
 fi
 run "holarki doctor --counts"
 
-echo "[holarki-smoke] Automated portion complete. Finish manual steps in docs/SMOKE_TEST.md."
+echo "[holarki] Automated portion complete. Finish manual steps in docs/SMOKE_TEST.md."
