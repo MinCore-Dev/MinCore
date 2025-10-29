@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.slf4j.Logger;
@@ -31,6 +32,8 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
   private final Map<String, MinCoreModule> modules = new HashMap<>();
   private final List<MinCoreModule> startOrder = new ArrayList<>();
   private final LinkedHashSet<String> active = new LinkedHashSet<>();
+  private final Map<Class<?>, Object> services = new HashMap<>();
+  private final Map<String, Set<Class<?>>> moduleServices = new HashMap<>();
   private final ModuleContext context;
   private boolean started;
 
@@ -38,7 +41,8 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     this.config = Objects.requireNonNull(config, "config");
     this.services = Objects.requireNonNull(services, "services");
     Predicate<String> predicate = this::isActive;
-    this.context = new ModuleContext(config, services, this::publishLedger, predicate);
+    this.context =
+        new ModuleContext(config, services, this::publishLedger, predicate, this::publishService);
   }
 
   /** Starts the requested module identifiers. */
@@ -68,6 +72,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
         } catch (Exception suppressed) {
           LOG.debug("(mincore) module cleanup issue: {}", suppressed.getMessage(), suppressed);
         }
+        clearServices(module.id());
       }
       active.clear();
       startOrder.clear();
@@ -96,6 +101,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
         LOG.debug("(mincore) module '{}' shutdown issue: {}", module.id(), e.getMessage(), e);
       }
       active.remove(module.id());
+      clearServices(module.id());
     }
     startOrder.clear();
     started = false;
@@ -110,5 +116,38 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
   @Override
   public synchronized Set<String> activeModules() {
     return Set.copyOf(active);
+  }
+
+  @Override
+  public synchronized <T> Optional<T> service(Class<T> type) {
+    Objects.requireNonNull(type, "type");
+    return Optional.ofNullable(type.cast(services.get(type)));
+  }
+
+  private synchronized void publishService(String moduleId, Class<?> type, Object service) {
+    Objects.requireNonNull(moduleId, "moduleId");
+    Objects.requireNonNull(type, "type");
+    if (service == null) {
+      services.remove(type);
+      Set<Class<?>> published = moduleServices.get(moduleId);
+      if (published != null) {
+        published.remove(type);
+        if (published.isEmpty()) {
+          moduleServices.remove(moduleId);
+        }
+      }
+      return;
+    }
+    services.put(type, service);
+    moduleServices.computeIfAbsent(moduleId, id -> new LinkedHashSet<>()).add(type);
+  }
+
+  private synchronized void clearServices(String moduleId) {
+    Set<Class<?>> published = moduleServices.remove(moduleId);
+    if (published != null) {
+      for (Class<?> type : published) {
+        services.remove(type);
+      }
+    }
   }
 }

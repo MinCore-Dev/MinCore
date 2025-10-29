@@ -2,7 +2,8 @@
 package dev.mincore.core.modules;
 
 import dev.mincore.core.Config;
-import dev.mincore.core.Scheduler;
+import dev.mincore.modules.scheduler.SchedulerEngine;
+import dev.mincore.modules.scheduler.SchedulerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,6 +11,7 @@ import org.slf4j.LoggerFactory;
 public final class SchedulerModule implements MinCoreModule {
   public static final String ID = "scheduler";
   private static final Logger LOG = LoggerFactory.getLogger("mincore");
+  private SchedulerEngine engine;
 
   @Override
   public String id() {
@@ -23,11 +25,19 @@ public final class SchedulerModule implements MinCoreModule {
       LOG.info("(mincore) scheduler module disabled by configuration");
       return;
     }
-    Scheduler.install(context.services(), cfg);
+    SchedulerEngine engine = new SchedulerEngine();
+    engine.start(context.services(), cfg);
+    this.engine = engine;
+    context.publishService(ID, SchedulerService.class, engine);
   }
 
   @Override
   public void stop(ModuleContext context) {
-    Scheduler.shutdown();
+    SchedulerEngine current = this.engine;
+    if (current != null) {
+      current.stop();
+      context.publishService(ID, SchedulerService.class, null);
+      this.engine = null;
+    }
   }
 }
