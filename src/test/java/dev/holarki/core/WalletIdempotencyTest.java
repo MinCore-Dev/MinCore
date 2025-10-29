@@ -11,8 +11,10 @@ import dev.holarki.api.Wallets;
 import dev.holarki.api.Wallets.OperationResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -80,6 +82,55 @@ final class WalletIdempotencyTest {
   }
 
   @Test
+  void expiredKeyTreatsRequestAsNew() throws Exception {
+    UUID player = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    String key = "expired-key";
+    OperationResult first = wallets.depositResult(player, 750L, "expiry", key);
+    assertTrue(first.ok());
+
+    long now = Instant.now().getEpochSecond();
+    long expiredCreated = now - 120;
+    long expiredAt = now - 30;
+    try (Connection c =
+            DriverManager.getConnection(
+                MariaDbTestSupport.jdbcUrl(DB_NAME),
+                MariaDbTestSupport.USER,
+                MariaDbTestSupport.PASSWORD);
+        PreparedStatement ps =
+            c.prepareStatement(
+                "UPDATE core_requests SET created_at_s=?, expires_at_s=? WHERE scope=? AND key_hash=?")) {
+      ps.setLong(1, expiredCreated);
+      ps.setLong(2, expiredAt);
+      ps.setString(3, "core:deposit");
+      ps.setBytes(4, sha256(key));
+      ps.executeUpdate();
+    }
+
+    OperationResult second = wallets.depositResult(player, 1_250L, "expiry", key);
+    assertTrue(second.ok());
+    assertNull(second.code());
+    assertEquals(2_000L, wallets.getBalance(player));
+
+    long refreshedExpires;
+    try (Connection c =
+            DriverManager.getConnection(
+                MariaDbTestSupport.jdbcUrl(DB_NAME),
+                MariaDbTestSupport.USER,
+                MariaDbTestSupport.PASSWORD);
+        PreparedStatement ps =
+            c.prepareStatement(
+                "SELECT expires_at_s FROM core_requests WHERE scope=? AND key_hash=?")) {
+      ps.setString(1, "core:deposit");
+      ps.setBytes(2, sha256(key));
+      try (var rs = ps.executeQuery()) {
+        assertTrue(rs.next());
+        refreshedExpires = rs.getLong(1);
+      }
+    }
+    assertTrue(refreshedExpires > now, "expiry should be refreshed into the future");
+  }
+
+  @Test
   void depositWithNullKeyDoesNotReplay() {
     UUID player = UUID.fromString("00000000-0000-0000-0000-000000000001");
     OperationResult first = wallets.depositResult(player, 500L, "null-key", null);
@@ -134,5 +185,10 @@ final class WalletIdempotencyTest {
       st.executeUpdate("DELETE FROM core_requests");
       st.executeUpdate("DELETE FROM players");
     }
+  }
+
+  private static byte[] sha256(String input) throws Exception {
+    MessageDigest md = MessageDigest.getInstance("SHA-256");
+    return md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
   }
 }

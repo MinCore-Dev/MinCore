@@ -270,9 +270,14 @@ public final class WalletsImpl implements Wallets {
       String scope, String idemKey, String payload, OpWork work) {
     String insert =
         "INSERT INTO core_requests(key_hash,scope,payload_hash,ok,created_at_s,expires_at_s) "
-            + "VALUES(?, ?, ?, 0, ?, ?) ON DUPLICATE KEY UPDATE key_hash=VALUES(key_hash)";
+            + "VALUES(?, ?, ?, 0, ?, ?) "
+            + "ON DUPLICATE KEY UPDATE created_at_s=VALUES(created_at_s), "
+            + "expires_at_s=VALUES(expires_at_s)";
     String select =
-        "SELECT payload_hash, ok FROM core_requests WHERE key_hash=? AND scope=? FOR UPDATE";
+        "SELECT payload_hash, ok, expires_at_s FROM core_requests WHERE key_hash=? AND scope=? FOR UPDATE";
+    String resetExpired =
+        "UPDATE core_requests SET payload_hash=?, ok=0, created_at_s=?, expires_at_s=? "
+            + "WHERE key_hash=? AND scope=?";
     String markOk = "UPDATE core_requests SET ok=1 WHERE key_hash=? AND scope=?";
     long now = Instant.now().getEpochSecond();
     long ttl = idempotencyTtlSeconds;
@@ -283,6 +288,24 @@ public final class WalletsImpl implements Wallets {
       byte[] keyHash = sha256(effectiveKey);
       byte[] payloadHash = sha256(payload);
 
+      boolean hadRow = false;
+      byte[] storedPayload = null;
+      int storedOk = 0;
+      long storedExpiresAt = Long.MIN_VALUE;
+
+      try (PreparedStatement check = c.prepareStatement(select)) {
+        check.setBytes(1, keyHash);
+        check.setString(2, scope);
+        try (ResultSet rs = check.executeQuery()) {
+          if (rs.next()) {
+            hadRow = true;
+            storedPayload = rs.getBytes(1);
+            storedOk = rs.getInt(2);
+            storedExpiresAt = rs.getLong(3);
+          }
+        }
+      }
+
       try (PreparedStatement ins = c.prepareStatement(insert)) {
         ins.setBytes(1, keyHash);
         ins.setString(2, scope);
@@ -292,40 +315,46 @@ public final class WalletsImpl implements Wallets {
         ins.executeUpdate();
       }
 
-      try (PreparedStatement check = c.prepareStatement(select)) {
-        check.setBytes(1, keyHash);
-        check.setString(2, scope);
-        try (ResultSet rs = check.executeQuery()) {
-          if (rs.next()) {
-            byte[] ph = rs.getBytes(1);
-            int ok = rs.getInt(2);
-            if (!java.util.Arrays.equals(ph, payloadHash)) {
-              c.rollback();
-              logIdem(
-                  scope + ":mismatch",
-                  "(holarki) code={} op={} message={} key={}",
-                  ErrorCode.IDEMPOTENCY_MISMATCH,
-                  scope,
-                  "idempotency payload mismatch",
-                  effectiveKey);
-              dbHealth.markSuccess();
-              return OperationResult.failure(
-                  ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
-            }
-            if (ok == 1) {
-              c.commit();
-              logIdem(
-                  scope + ":replay",
-                  "(holarki) code={} op={} message={} key={}",
-                  ErrorCode.IDEMPOTENCY_REPLAY,
-                  scope,
-                  "idempotent replay",
-                  effectiveKey);
-              dbHealth.markSuccess();
-              return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
-            }
-          }
+      if (!hadRow) {
+        storedPayload = payloadHash;
+        storedOk = 0;
+      } else if (storedExpiresAt <= now) {
+        try (PreparedStatement reset = c.prepareStatement(resetExpired)) {
+          reset.setBytes(1, payloadHash);
+          reset.setLong(2, now);
+          reset.setLong(3, exp);
+          reset.setBytes(4, keyHash);
+          reset.setString(5, scope);
+          reset.executeUpdate();
         }
+        storedPayload = payloadHash;
+        storedOk = 0;
+      }
+
+      if (!java.util.Arrays.equals(storedPayload, payloadHash)) {
+        c.rollback();
+        logIdem(
+            scope + ":mismatch",
+            "(holarki) code={} op={} message={} key={}",
+            ErrorCode.IDEMPOTENCY_MISMATCH,
+            scope,
+            "idempotency payload mismatch",
+            effectiveKey);
+        dbHealth.markSuccess();
+        return OperationResult.failure(
+            ErrorCode.IDEMPOTENCY_MISMATCH, "idempotency payload mismatch");
+      }
+      if (storedOk == 1) {
+        c.commit();
+        logIdem(
+            scope + ":replay",
+            "(holarki) code={} op={} message={} key={}",
+            ErrorCode.IDEMPOTENCY_REPLAY,
+            scope,
+            "idempotent replay",
+            effectiveKey);
+        dbHealth.markSuccess();
+        return OperationResult.success(ErrorCode.IDEMPOTENCY_REPLAY, null);
       }
 
       Mutation mutation;
