@@ -30,7 +30,10 @@ final class TestConfigFactory {
             Locale.forLanguageTag("en-US"), List.of("en_US"), Locale.forLanguageTag("en-US"));
     Config.Ledger ledger =
         new Config.Ledger(
-            true, 0, new Config.JsonlMirror(false, backupDir.resolve("ledger.jsonl").toString()));
+            true,
+            0,
+            new Config.JsonlMirror(
+                false, backupDir.resolve("holarki-ledger.jsonl").toString()));
     Config.Backup backup =
         new Config.Backup(
             true,
