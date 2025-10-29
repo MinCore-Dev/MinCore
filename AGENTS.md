@@ -602,6 +602,8 @@ FLUSH PRIVILEGES;
 
 All built-in modules must support three phases: **bootstrap**, **active**, and **disabled**.
 
+> **Module naming convention:** top-level modules use a single lowercase segment (e.g., `timezone`), while sub-modules append dotted suffixes (e.g., `timezone.auto`). Sub-modules may depend on their parent module while remaining optional, so planners understand the relationship without implying cross-module coupling.
+
 1. **Bootstrap** — Register config schema, commands, scheduled jobs, and database components. Validate configuration before enabling stateful behavior.
 2. **Active** — Execute business logic with full telemetry (structured logs, metrics). Respect advisory locks around long-running jobs and ensure event handlers are idempotent.
 3. **Disabled** — Commands should report module-disabled messages, scheduled jobs must unschedule or short-circuit, and services should return safe defaults or no-ops without throwing.
