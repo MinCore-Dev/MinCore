@@ -156,7 +156,7 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
     if (lockBusy) {
       dbHealth.markSuccess();
       if (metrics != null) {
-        metrics.recordModuleOperation(false, null);
+        metrics.recordModuleOperation(true, null);
       }
       LOG.debug("(holarki) op={} lock={} busy=true", "moduleDb.tryAdvisoryLock", lock);
       return false;
