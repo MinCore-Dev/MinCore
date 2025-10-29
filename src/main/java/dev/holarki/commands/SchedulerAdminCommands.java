@@ -1,57 +1,48 @@
 /* Holarki © 2025 — MIT */
-package dev.holarki.modules.scheduler;
+package dev.holarki.commands;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import dev.holarki.commands.AdminCommands;
 import dev.holarki.core.Services;
+import dev.holarki.modules.scheduler.SchedulerService;
 import dev.holarki.util.TimeDisplay;
 import dev.holarki.util.TimePreference;
 import dev.holarki.util.Timezones;
 import java.util.List;
-import java.util.Objects;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
 
 /** Scheduler-specific admin commands under `/holarki`. */
-public final class SchedulerAdminCommands {
+final class SchedulerAdminCommands {
 
   private SchedulerAdminCommands() {}
 
-  /**
-   * Registers scheduler admin commands against the `/holarki` command tree.
-   *
-   * @param scheduler active scheduler service for this module
-   * @param services shared service container for aux lookups
-   */
-  public static void register(final SchedulerService scheduler, final Services services) {
-    Objects.requireNonNull(scheduler, "scheduler");
-    Objects.requireNonNull(services, "services");
-    AdminCommands.extend(
-        root -> {
-          LiteralArgumentBuilder<ServerCommandSource> jobs = CommandManager.literal("jobs");
-          jobs.then(
-              CommandManager.literal("list")
-                  .executes(ctx -> cmdJobsList(ctx.getSource(), scheduler, services)));
-          jobs.then(
-              CommandManager.literal("run")
-                  .then(
-                      CommandManager.argument("job", StringArgumentType.string())
-                          .executes(
-                              ctx ->
-                                  cmdJobsRun(
-                                      ctx.getSource(),
-                                      scheduler,
-                                      StringArgumentType.getString(ctx, "job")))));
-          root.then(jobs);
+  static void attach(
+      final LiteralArgumentBuilder<ServerCommandSource> root,
+      final SchedulerService scheduler,
+      final Services services) {
+    LiteralArgumentBuilder<ServerCommandSource> jobs = CommandManager.literal("jobs");
+    jobs.then(
+        CommandManager.literal("list")
+            .executes(ctx -> cmdJobsList(ctx.getSource(), scheduler, services)));
+    jobs.then(
+        CommandManager.literal("run")
+            .then(
+                CommandManager.argument("job", StringArgumentType.string())
+                    .executes(
+                        ctx ->
+                            cmdJobsRun(
+                                ctx.getSource(),
+                                scheduler,
+                                StringArgumentType.getString(ctx, "job")))));
+    root.then(jobs);
 
-          root.then(
-              CommandManager.literal("backup")
-                  .then(
-                      CommandManager.literal("now")
-                          .executes(ctx -> cmdBackupNow(ctx.getSource(), scheduler))));
-        });
+    root.then(
+        CommandManager.literal("backup")
+            .then(
+                CommandManager.literal("now")
+                    .executes(ctx -> cmdBackupNow(ctx.getSource(), scheduler))));
   }
 
   private static int cmdJobsList(

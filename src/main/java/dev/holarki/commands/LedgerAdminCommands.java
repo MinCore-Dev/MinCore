@@ -1,12 +1,11 @@
 /* Holarki © 2025 — MIT */
-package dev.holarki.modules.ledger;
+package dev.holarki.commands;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import dev.holarki.api.Players;
 import dev.holarki.api.Players.PlayerRef;
-import dev.holarki.commands.AdminCommands;
 import dev.holarki.core.Services;
 import dev.holarki.util.TimeDisplay;
 import dev.holarki.util.TimePreference;
@@ -19,101 +18,91 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
 
 /** Registers the `/holarki ledger` admin command hierarchy. */
-public final class LedgerAdminCommands {
+final class LedgerAdminCommands {
 
   private LedgerAdminCommands() {}
 
-  /**
-   * Installs the ledger command registrar onto the `/holarki` command tree.
-   *
-   * @param services service container backing command handlers
-   */
-  public static void register(final Services services) {
-    Objects.requireNonNull(services, "services");
-    AdminCommands.extend(
-        root -> {
-          LiteralArgumentBuilder<ServerCommandSource> ledger =
-              CommandManager.literal("ledger");
-          ledger.then(
-              CommandManager.literal("recent")
-                  .then(
-                      CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerRecent(
-                                      ctx.getSource(),
-                                      services,
-                                      IntegerArgumentType.getInteger(ctx, "limit"))))
-                  .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
-          ledger.then(
-              CommandManager.literal("player")
-                  .then(
-                      CommandManager.argument("target", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByPlayer(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "target"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByPlayer(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "target"),
-                                      10))));
-          ledger.then(
-              CommandManager.literal("module")
-                  .then(
-                      CommandManager.argument("moduleId", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByModule(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "moduleId"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByModule(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "moduleId"),
-                                      10))));
-          ledger.then(
-              CommandManager.literal("reason")
-                  .then(
-                      CommandManager.argument("substring", StringArgumentType.string())
-                          .then(
-                              CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
-                                  .executes(
-                                      ctx ->
-                                          cmdLedgerByReason(
-                                              ctx.getSource(),
-                                              services,
-                                              StringArgumentType.getString(ctx, "substring"),
-                                              IntegerArgumentType.getInteger(ctx, "limit"))))
-                          .executes(
-                              ctx ->
-                                  cmdLedgerByReason(
-                                      ctx.getSource(),
-                                      services,
-                                      StringArgumentType.getString(ctx, "substring"),
-                                      10))));
-          root.then(ledger);
-        });
+  static void attach(
+      final LiteralArgumentBuilder<ServerCommandSource> root, final Services services) {
+    LiteralArgumentBuilder<ServerCommandSource> ledger = CommandManager.literal("ledger");
+    ledger.then(
+        CommandManager.literal("recent")
+            .then(
+                CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                    .executes(
+                        ctx ->
+                            cmdLedgerRecent(
+                                ctx.getSource(),
+                                services,
+                                IntegerArgumentType.getInteger(ctx, "limit"))))
+            .executes(ctx -> cmdLedgerRecent(ctx.getSource(), services, 10)));
+    ledger.then(
+        CommandManager.literal("player")
+            .then(
+                CommandManager.argument("target", StringArgumentType.string())
+                    .then(
+                        CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByPlayer(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "target"),
+                                        IntegerArgumentType.getInteger(ctx, "limit"))))
+                    .executes(
+                        ctx ->
+                            cmdLedgerByPlayer(
+                                ctx.getSource(),
+                                services,
+                                StringArgumentType.getString(ctx, "target"),
+                                10))));
+    ledger.then(
+        CommandManager.literal("module")
+            .then(
+                CommandManager.argument("moduleId", StringArgumentType.string())
+                    .then(
+                        CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByModule(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "moduleId"),
+                                        IntegerArgumentType.getInteger(ctx, "limit"))))
+                    .executes(
+                        ctx ->
+                            cmdLedgerByModule(
+                                ctx.getSource(),
+                                services,
+                                StringArgumentType.getString(ctx, "moduleId"),
+                                10))));
+    ledger.then(
+        CommandManager.literal("reason")
+            .then(
+                CommandManager.argument("substring", StringArgumentType.string())
+                    .then(
+                        CommandManager.argument("limit", IntegerArgumentType.integer(1, 200))
+                            .executes(
+                                ctx ->
+                                    cmdLedgerByReason(
+                                        ctx.getSource(),
+                                        services,
+                                        StringArgumentType.getString(ctx, "substring"),
+                                        IntegerArgumentType.getInteger(ctx, "limit"))))
+                    .executes(
+                        ctx ->
+                            cmdLedgerByReason(
+                                ctx.getSource(),
+                                services,
+                                StringArgumentType.getString(ctx, "substring"),
+                                10))));
+    root.then(ledger);
   }
 
   private static int cmdLedgerRecent(
