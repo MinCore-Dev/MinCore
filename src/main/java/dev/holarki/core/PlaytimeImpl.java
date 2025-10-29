@@ -5,6 +5,7 @@ import dev.holarki.api.Playtime;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,31 +66,18 @@ public final class PlaytimeImpl implements Playtime {
   @Override
   public List<Playtime.Entry> top(int limit) {
     int lim = Math.max(1, Math.min(1000, limit));
-    List<Playtime.Entry> all = new ArrayList<>(totalSeconds.size() + liveSessionStartS.size());
+    Map<UUID, Long> merged = new HashMap<>(totalSeconds.size() + liveSessionStartS.size());
+    merged.putAll(totalSeconds);
 
-    // Start with finished totals
-    for (Map.Entry<UUID, Long> e : totalSeconds.entrySet()) {
-      all.add(new Playtime.Entry(e.getKey(), e.getValue()));
-    }
-
-    // Fold in live deltas
     long now = nowS();
-    for (Map.Entry<UUID, Long> e : liveSessionStartS.entrySet()) {
-      long live = Math.max(0, now - e.getValue());
-      boolean merged = false;
-      for (int i = 0; i < all.size(); i++) {
-        Playtime.Entry ex = all.get(i);
-        if (ex.player().equals(e.getKey())) {
-          all.set(i, new Playtime.Entry(ex.player(), ex.seconds() + live));
-          merged = true;
-          break;
-        }
-      }
-      if (!merged) {
-        all.add(new Playtime.Entry(e.getKey(), live));
-      }
-    }
+    liveSessionStartS.forEach(
+        (player, start) -> {
+          long live = Math.max(0, now - start);
+          merged.merge(player, live, Long::sum);
+        });
 
+    List<Playtime.Entry> all = new ArrayList<>(merged.size());
+    merged.forEach((player, seconds) -> all.add(new Playtime.Entry(player, seconds)));
     all.sort(Comparator.comparingLong(Playtime.Entry::seconds).reversed());
     return all.size() > lim ? List.copyOf(all.subList(0, lim)) : List.copyOf(all);
   }
