@@ -7,8 +7,9 @@ import java.util.Locale;
 
 /** Minimal currency helper for integer units (no floating point). */
 public final class Currency {
-  private static final DecimalFormat GROUP =
-      new DecimalFormat("#,###", DecimalFormatSymbols.getInstance(Locale.ROOT));
+  private static final ThreadLocal<DecimalFormat> GROUP =
+      ThreadLocal.withInitial(
+          () -> new DecimalFormat("#,###", DecimalFormatSymbols.getInstance(Locale.ROOT)));
 
   private Currency() {}
 
@@ -19,7 +20,7 @@ public final class Currency {
    * @return formatted amount like "1,234"
    */
   public static String format(long units) {
-    return GROUP.format(units);
+    return GROUP.get().format(units);
   }
 
   /**
