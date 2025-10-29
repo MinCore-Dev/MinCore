@@ -302,10 +302,10 @@ Restore fresh into an empty database
 /holarki restore --mode fresh --atomic --from ./backups/holarki/2025-09-25
 ```
 
-Merge with overwrite semantics
+Merge into existing data
 
 ```bash
-/holarki restore --mode merge --overwrite --from ./backups/holarki/2025-09-25
+/holarki restore --mode merge [--overwrite] --from ./backups/holarki/2025-09-25
 ```
 
 For large servers, consider `mariadb-dump` or `mariabackup` for point in time recovery. The JSONL export is best for portability and small to medium sized servers.
