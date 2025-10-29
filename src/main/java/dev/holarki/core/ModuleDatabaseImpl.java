@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -26,6 +27,7 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
   private final DbHealth dbHealth;
   private final Metrics metrics;
   private final Set<String> heldLocks = ConcurrentHashMap.newKeySet();
+  private final Map<String, Connection> lockConnections = new ConcurrentHashMap<>();
   private static final Pattern LOCK_NAME_PATTERN = Pattern.compile("[A-Za-z0-9:_\\-\\.]{1,64}");
 
   /**
@@ -64,21 +66,59 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
     }
     String lock = validateLockName(name);
     boolean lockBusy = false;
-    try (Connection c = ds.getConnection();
-        PreparedStatement ps = c.prepareStatement("SELECT GET_LOCK(?, 0)")) {
-      ps.setString(1, lock);
-      try (ResultSet rs = ps.executeQuery()) {
-        if (rs.next()) {
-          int status = rs.getInt(1);
-          if (status == 1) {
-            heldLocks.add(lock);
-            dbHealth.markSuccess();
-            if (metrics != null) {
-              metrics.recordModuleOperation(true, null);
+    Connection connection = null;
+    boolean retainConnection = false;
+    try {
+      connection = ds.getConnection();
+      try (PreparedStatement ps = connection.prepareStatement("SELECT GET_LOCK(?, 0)")) {
+        ps.setString(1, lock);
+        try (ResultSet rs = ps.executeQuery()) {
+          if (rs.next()) {
+            int status = rs.getInt(1);
+            if (status == 1) {
+              Connection previous = lockConnections.putIfAbsent(lock, connection);
+              if (previous != null) {
+                LOG.warn(
+                    "(holarki) op={} lock={} duplicate-acquire detected; releasing new session",
+                    "moduleDb.tryAdvisoryLock",
+                    lock);
+                try (PreparedStatement release =
+                        connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+                  release.setString(1, lock);
+                  release.executeQuery();
+                  dbHealth.markSuccess();
+                  if (metrics != null) {
+                    metrics.recordModuleOperation(false, null);
+                  }
+                } catch (SQLException releaseError) {
+                  ErrorCode code = SqlErrorCodes.classify(releaseError);
+                  dbHealth.markFailure(releaseError);
+                  if (metrics != null) {
+                    metrics.recordModuleOperation(false, code);
+                  }
+                  LOG.warn(
+                      "(holarki) op={} lock={} release-on-duplicate failed message={} sqlState={} vendor={}",
+                      "moduleDb.tryAdvisoryLock",
+                      lock,
+                      releaseError.getMessage(),
+                      releaseError.getSQLState(),
+                      releaseError.getErrorCode(),
+                      releaseError);
+                }
+                return false;
+              } else {
+                heldLocks.add(lock);
+                retainConnection = true;
+                connection = null;
+                dbHealth.markSuccess();
+                if (metrics != null) {
+                  metrics.recordModuleOperation(true, null);
+                }
+                return true;
+              }
+            } else if (status == 0) {
+              lockBusy = true;
             }
-            return true;
-          } else if (status == 0) {
-            lockBusy = true;
           }
         }
       }
@@ -97,6 +137,21 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
           e.getErrorCode(),
           e);
       return false;
+    } finally {
+      if (!retainConnection && connection != null) {
+        try {
+          connection.close();
+        } catch (SQLException closeError) {
+          LOG.warn(
+              "(holarki) op={} message={} sqlState={} vendor={} lock={} phase=close",
+              "moduleDb.tryAdvisoryLock",
+              closeError.getMessage(),
+              closeError.getSQLState(),
+              closeError.getErrorCode(),
+              lock,
+              closeError);
+        }
+      }
     }
     if (lockBusy) {
       dbHealth.markSuccess();
@@ -171,12 +226,22 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
   }
 
   private void releaseInternal(String name, boolean checkHealth) {
+    Connection connection = lockConnections.remove(name);
     try {
-      if (checkHealth && !dbHealth.allowWrite("moduleDb.releaseAdvisoryLock")) {
+      if (connection == null) {
+        if (heldLocks.remove(name)) {
+          LOG.warn(
+              "(holarki) op={} lock={} missing-connection",
+              "moduleDb.releaseAdvisoryLock",
+              name);
+        }
         return;
       }
-      try (Connection c = ds.getConnection();
-          PreparedStatement ps = c.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+      if (checkHealth && !dbHealth.allowWrite("moduleDb.releaseAdvisoryLock")) {
+        LOG.debug(
+            "(holarki) op={} lock={} health-check=false", "moduleDb.releaseAdvisoryLock", name);
+      }
+      try (PreparedStatement ps = connection.prepareStatement("SELECT RELEASE_LOCK(?)")) {
         ps.setString(1, name);
         ps.executeQuery();
         dbHealth.markSuccess();
@@ -200,6 +265,20 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
           name,
           e);
     } finally {
+      if (connection != null) {
+        try {
+          connection.close();
+        } catch (SQLException closeError) {
+          LOG.warn(
+              "(holarki) op={} message={} sqlState={} vendor={} lock={} phase=close",
+              "moduleDb.releaseAdvisoryLock",
+              closeError.getMessage(),
+              closeError.getSQLState(),
+              closeError.getErrorCode(),
+              name,
+              closeError);
+        }
+      }
       heldLocks.remove(name);
     }
   }
