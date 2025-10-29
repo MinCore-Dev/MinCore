@@ -2,6 +2,7 @@
 package dev.mincore.core.modules;
 
 import dev.mincore.core.Config;
+import dev.mincore.modules.scheduler.SchedulerAdminCommands;
 import dev.mincore.modules.scheduler.SchedulerEngine;
 import dev.mincore.modules.scheduler.SchedulerService;
 import org.slf4j.Logger;
@@ -29,6 +30,7 @@ public final class SchedulerModule implements MinCoreModule {
     engine.start(context.services(), cfg);
     this.engine = engine;
     context.publishService(ID, SchedulerService.class, engine);
+    SchedulerAdminCommands.register(engine, context.services());
   }
 
   @Override

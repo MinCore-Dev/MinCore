@@ -102,7 +102,7 @@ public final class MinCoreMod implements ModInitializer {
         (handler, server) -> services.playtime().onQuit(handler.player.getUuid()));
 
     // 7) Admin commands (db diag + ledger peek)
-    AdminCommands.register(services, MODULES);
+    AdminCommands.register(services);
 
     // 8) Graceful shutdown
     ServerLifecycleEvents.SERVER_STOPPING.register(
