@@ -1,6 +1,7 @@
 /* Holarki © 2025 — MIT */
 package dev.holarki.core;
 
+import com.google.gson.JsonPrimitive;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -401,7 +402,7 @@ public final class BackupExporter {
     if (in == null) {
       return "\"\"";
     }
-    return "\"" + in.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    return new JsonPrimitive(in).toString();
   }
 
   /**

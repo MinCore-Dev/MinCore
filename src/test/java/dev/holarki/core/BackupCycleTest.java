@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import dev.holarki.api.Attributes;
 import dev.holarki.api.Players;
 import dev.holarki.api.Playtime;
@@ -159,6 +161,56 @@ final class BackupCycleTest {
       byte[] data = Files.readAllBytes(exportResult.file());
       String actual = HexFormat.of().formatHex(sha.digest(data));
       assertEquals(expected, actual, "export checksum should match file digest");
+    } finally {
+      services.shutdown();
+      deleteRecursively(backupDir);
+    }
+  }
+
+  @Test
+  void exportEscapesControlCharacters() throws Exception {
+    Path backupDir = Files.createTempDirectory("holarki-backup-control-test");
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+    Config config = TestConfigFactory.create(DB_NAME, backupDir);
+
+    UUID playerId = UUID.fromString("00000000-0000-0000-0000-00000000cafe");
+    String playerName = "Control\nPlayer\r\tName";
+    String ledgerReason = "Reason with\nnewline\rand\ttab";
+    String scopeValue = "scope-with\nnewline";
+    String serverNode = "node-\twith-control";
+
+    try {
+      Migrations.apply(services);
+      truncateAllTables();
+      seedControlCharacterData(playerId, playerName, ledgerReason, scopeValue, serverNode);
+
+      BackupExporter.Result exportResult =
+          BackupExporter.exportAll(services, config, backupDir, Boolean.FALSE);
+
+      List<String> lines = Files.readAllLines(exportResult.file());
+      boolean sawPlayer = false;
+      boolean sawLedger = false;
+
+      for (String line : lines) {
+        JsonObject obj = JsonParser.parseString(line).getAsJsonObject();
+        if (!obj.has("table")) {
+          continue;
+        }
+        String table = obj.get("table").getAsString();
+        if ("players".equals(table) && playerId.toString().equals(obj.get("uuid").getAsString())) {
+          assertEquals(playerName, obj.get("name").getAsString());
+          sawPlayer = true;
+        } else if ("core_ledger".equals(table)) {
+          assertEquals(ledgerReason, obj.get("reason").getAsString());
+          assertEquals(scopeValue, obj.get("idemScope").getAsString());
+          assertEquals(serverNode, obj.get("serverNode").getAsString());
+          sawLedger = true;
+        }
+      }
+
+      assertTrue(sawPlayer, "expected exported player row with control characters");
+      assertTrue(sawLedger, "expected exported ledger row with control characters");
     } finally {
       services.shutdown();
       deleteRecursively(backupDir);
@@ -349,6 +401,68 @@ final class BackupCycleTest {
         ps.setNull(13, java.sql.Types.BIGINT);
         ps.setNull(14, java.sql.Types.BIGINT);
         ps.setString(15, "node-b");
+        ps.setNull(16, java.sql.Types.VARCHAR);
+        ps.executeUpdate();
+      }
+
+      c.commit();
+    }
+  }
+
+  private static void seedControlCharacterData(
+      UUID playerId,
+      String playerName,
+      String ledgerReason,
+      String scopeValue,
+      String serverNode)
+      throws SQLException {
+    try (Connection c =
+        DriverManager.getConnection(
+            jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD)) {
+      c.setAutoCommit(false);
+
+      try (PreparedStatement ps =
+          c.prepareStatement(
+              "INSERT INTO players(" +
+                  "uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s) " +
+                  "VALUES(?, ?, ?, ?, ?, ?)")) {
+        ps.setBytes(1, Uuids.toBytes(playerId));
+        ps.setString(2, playerName);
+        ps.setLong(3, 1_000L);
+        ps.setLong(4, 1_000L);
+        ps.setLong(5, 1_005L);
+        ps.setLong(6, 1_010L);
+        ps.executeUpdate();
+      }
+
+      try (PreparedStatement ps =
+          c.prepareStatement("INSERT INTO player_event_seq(uuid, seq) VALUES(?, ?)"); ) {
+        ps.setBytes(1, Uuids.toBytes(playerId));
+        ps.setLong(2, 7L);
+        ps.executeUpdate();
+      }
+
+      try (PreparedStatement ps =
+          c.prepareStatement(
+              "INSERT INTO core_ledger(" +
+                  "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, " +
+                  "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) " +
+                  "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")); ) {
+        ps.setLong(1, 9_000L);
+        ps.setString(2, "control-module");
+        ps.setString(3, "deposit");
+        ps.setNull(4, java.sql.Types.BINARY);
+        ps.setBytes(5, Uuids.toBytes(playerId));
+        ps.setLong(6, 250L);
+        ps.setString(7, ledgerReason);
+        ps.setBoolean(8, true);
+        ps.setString(9, "OK");
+        ps.setLong(10, 99L);
+        ps.setString(11, scopeValue);
+        ps.setNull(12, java.sql.Types.BINARY);
+        ps.setNull(13, java.sql.Types.BIGINT);
+        ps.setNull(14, java.sql.Types.BIGINT);
+        ps.setString(15, serverNode);
         ps.setNull(16, java.sql.Types.VARCHAR);
         ps.executeUpdate();
       }
