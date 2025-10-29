@@ -325,9 +325,6 @@ public final class AdminCommands {
       if (opts.from == null) {
         throw new IllegalArgumentException("--from <dir> required");
       }
-      if (opts.mode == BackupImporter.Mode.MERGE && !opts.overwrite) {
-        throw new IllegalArgumentException("merge mode requires --overwrite");
-      }
       src.sendFeedback(
           () ->
               Text.translatable(
