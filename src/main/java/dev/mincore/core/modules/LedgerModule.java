@@ -2,14 +2,13 @@
 package dev.mincore.core.modules;
 
 import dev.mincore.api.Ledger;
-import dev.mincore.core.Config;
-import dev.mincore.core.LedgerImpl;
+import dev.mincore.modules.ledger.LedgerService;
 
 /** Optional ledger subsystem module. */
 public final class LedgerModule implements MinCoreModule {
   public static final String ID = "ledger";
 
-  private LedgerImpl ledger;
+  private LedgerService ledger;
 
   @Override
   public String id() {
@@ -18,14 +17,20 @@ public final class LedgerModule implements MinCoreModule {
 
   @Override
   public void start(ModuleContext context) throws Exception {
-    Config cfg = context.config();
-    ledger = LedgerImpl.install(context.services(), cfg);
+    var services = context.services();
+    ledger =
+        LedgerService.install(
+            services.database(),
+            services.events(),
+            services.scheduler(),
+            services.metrics(),
+            context.config().ledger());
     context.publishLedger(ledger);
   }
 
   @Override
   public void stop(ModuleContext context) throws Exception {
-    LedgerImpl local = this.ledger;
+    LedgerService local = this.ledger;
     this.ledger = null;
     try {
       if (local != null) {

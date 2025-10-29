@@ -55,6 +55,15 @@ public interface Services {
   java.util.concurrent.ScheduledExecutorService scheduler();
 
   /**
+   * Internal metrics registry for bundled modules.
+   *
+   * @return metrics registry or {@code null} when unavailable
+   */
+  default Metrics metrics() {
+    return null;
+  }
+
+  /**
    * In-memory playtime tracker API (session starts/stops and aggregation).
    *
    * @return the playtime tracker singleton
