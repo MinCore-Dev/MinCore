@@ -51,6 +51,7 @@ export HOLARKI_RCON_PASSWORD=change-me
    * `/holarki doctor --counts --fk` – confirm reported counts match expectations and no FK issues.
 7. **Timezone & I18n**
    * If you plan to enable GeoIP auto-detect during this run, confirm `core.time.display.allowPlayerOverride = true` first. Enabling `modules.timezone.autoDetect.enabled` now turns on `core.time.display.autoDetect` automatically, so no extra toggle is required—keep the legacy flag only when migrating an older config that still depends on it.
+   * Auto-detection remembers successful lookups per player/IP for roughly 12 hours to avoid redundant queries while still allowing other players behind the same address to receive automatic zones. Rejoin after the cooldown if you want to verify re-detection for the same account.
    * If overrides are enabled, run `/timezone set Europe/Berlin` as a player and ensure success.
    * Toggle `/timezone clock 12` and `/timezone clock 24` to confirm the clock format updates and feedback shows the zone abbreviation + UTC offset label.
    * Toggle JSON logging and ensure locale messages render correctly in your configured language.
