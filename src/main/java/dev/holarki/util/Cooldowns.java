@@ -3,6 +3,7 @@ package dev.holarki.util;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Tiny in-memory cooldown map (key → next-allowed epoch second).
@@ -29,10 +30,19 @@ public final class Cooldowns {
    * @return {@code true} if allowed now and the cooldown was (re)started; {@code false} otherwise
    */
   public boolean tryAcquire(String key, long cooldownSeconds, long nowS) {
-    long next = nextAt.getOrDefault(key, 0L);
-    if (nowS < next) return false;
-    nextAt.put(key, nowS + Math.max(0, cooldownSeconds));
-    return true;
+    long clampedCooldown = Math.max(0L, cooldownSeconds);
+    AtomicBoolean acquired = new AtomicBoolean(false);
+    nextAt.compute(
+        key,
+        (ignoredKey, existingNext) -> {
+          long nextAllowed = existingNext == null ? 0L : existingNext;
+          if (nowS < nextAllowed) {
+            return nextAllowed;
+          }
+          acquired.set(true);
+          return nowS + clampedCooldown;
+        });
+    return acquired.get();
   }
 
   /**
