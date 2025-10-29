@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -88,17 +89,26 @@ public final class SchedulerEngine implements SchedulerService {
   }
 
   @Override
-  public boolean runNow(String name) {
+  public RunResult runNow(String name) {
     Services svc = services;
     if (svc == null) {
-      return false;
+      return RunResult.DISABLED;
     }
     JobHandle job = jobs.get(name);
     if (job == null) {
-      return false;
+      return RunResult.UNKNOWN;
     }
-    svc.scheduler().submit(() -> execute(job));
-    return true;
+    if (!job.tryQueueManual()) {
+      return RunResult.IN_PROGRESS;
+    }
+    try {
+      svc.scheduler().submit(() -> execute(job));
+      return RunResult.QUEUED;
+    } catch (RejectedExecutionException e) {
+      job.clearManualQueued();
+      LOG.warn("(holarki) scheduler: executor rejected job {}", job.name, e);
+      return RunResult.UNKNOWN;
+    }
   }
 
   private void register(JobHandle job) {
@@ -136,6 +146,7 @@ public final class SchedulerEngine implements SchedulerService {
 
   private void execute(JobHandle job) {
     Instant start = Instant.now();
+    job.clearManualQueued();
     job.status.running = true;
     job.status.lastRun = start;
     try {
@@ -148,6 +159,7 @@ public final class SchedulerEngine implements SchedulerService {
       logJobFailure(job.name, e);
     } finally {
       job.status.running = false;
+      job.clearManualQueued();
       schedule(job, Instant.now());
     }
   }
@@ -244,6 +256,8 @@ public final class SchedulerEngine implements SchedulerService {
     final String description;
     final JobStatus status;
     volatile ScheduledFuture<?> future;
+    volatile boolean manualQueued;
+    final Object lock = new Object();
 
     JobHandle(String name, String cronExpr, Runnable task, String description) {
       this.name = name;
@@ -255,6 +269,22 @@ public final class SchedulerEngine implements SchedulerService {
 
     JobStatus snapshot() {
       return status.copy();
+    }
+
+    boolean tryQueueManual() {
+      synchronized (lock) {
+        if (status.running || manualQueued) {
+          return false;
+        }
+        manualQueued = true;
+        return true;
+      }
+    }
+
+    void clearManualQueued() {
+      synchronized (lock) {
+        manualQueued = false;
+      }
     }
   }
 

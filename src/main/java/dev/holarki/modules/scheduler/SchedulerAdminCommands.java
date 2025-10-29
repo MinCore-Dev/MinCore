@@ -94,23 +94,47 @@ final class SchedulerAdminCommands {
 
   private static int cmdJobsRun(
       final ServerCommandSource src, final SchedulerService scheduler, final String job) {
-    boolean scheduled = scheduler.runNow(job);
-    if (scheduled) {
-      src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.ok", job), false);
-      return 1;
-    }
-    src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.unknown", job), false);
-    return 0;
+    SchedulerService.RunResult result = scheduler.runNow(job);
+    return switch (result) {
+      case QUEUED -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.ok", job), false);
+        yield 1;
+      }
+      case IN_PROGRESS -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.active", job), false);
+        yield 0;
+      }
+      case DISABLED -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.disabled", job), false);
+        yield 0;
+      }
+      case UNKNOWN -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.jobs.run.unknown", job), false);
+        yield 0;
+      }
+    };
   }
 
   private static int cmdBackupNow(
       final ServerCommandSource src, final SchedulerService scheduler) {
-    boolean scheduled = scheduler.runNow("backup");
-    if (scheduled) {
-      src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.queued"), false);
-      return 1;
-    }
-    src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.fail", "job"), false);
-    return 0;
+    SchedulerService.RunResult result = scheduler.runNow("backup");
+    return switch (result) {
+      case QUEUED -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.queued"), false);
+        yield 1;
+      }
+      case IN_PROGRESS -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.busy"), false);
+        yield 0;
+      }
+      case DISABLED -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.fail", "disabled"), false);
+        yield 0;
+      }
+      case UNKNOWN -> {
+        src.sendFeedback(() -> Text.translatable("holarki.cmd.backup.fail", "job"), false);
+        yield 0;
+      }
+    };
   }
 }

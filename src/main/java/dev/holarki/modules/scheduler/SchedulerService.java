@@ -18,9 +18,10 @@ public interface SchedulerService {
    * Schedules the named job for immediate execution.
    *
    * @param name job identifier
-   * @return {@code true} if the job was found and submitted
+   * @return {@link RunResult#QUEUED} when the job was submitted, or another value describing why it
+   *     could not be queued
    */
-  boolean runNow(String name);
+  RunResult runNow(String name);
 
   /** Immutable view of a scheduled job's current state. */
   public static final class JobStatus implements Comparable<JobStatus> {
@@ -77,5 +78,20 @@ public interface SchedulerService {
     public int compareTo(JobStatus o) {
       return this.name.compareToIgnoreCase(o.name);
     }
+  }
+
+  /** Outcome of a {@link #runNow(String)} request. */
+  enum RunResult {
+    /** The job was accepted and queued for immediate execution. */
+    QUEUED,
+
+    /** The job is already running or waiting to run. */
+    IN_PROGRESS,
+
+    /** The job could not be found. */
+    UNKNOWN,
+
+    /** The scheduler service is unavailable (module stopped or disabled). */
+    DISABLED
   }
 }
