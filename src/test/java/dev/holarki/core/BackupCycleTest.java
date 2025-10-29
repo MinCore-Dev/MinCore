@@ -19,19 +19,21 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.time.Instant;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -126,6 +128,37 @@ final class BackupCycleTest {
               .anyMatch(row -> row.oldUnits() == null && row.newUnits() == null),
           "ledger row with null balances should remain null after restore");
       assertEquals(Migrations.currentVersion(), readSchemaVersion());
+    } finally {
+      services.shutdown();
+      deleteRecursively(backupDir);
+    }
+  }
+
+  @Test
+  void exportChecksumMatchesActualFileWhenGzipped() throws Exception {
+    Path backupDir = Files.createTempDirectory("holarki-backup-gzip-test");
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+    Config config = TestConfigFactory.create(DB_NAME, backupDir);
+
+    try {
+      Migrations.apply(services);
+      truncateAllTables();
+      seedTestData();
+
+      BackupExporter.Result exportResult =
+          BackupExporter.exportAll(services, config, backupDir, Boolean.TRUE);
+
+      Path checksumPath =
+          Objects.requireNonNull(exportResult.file().getParent())
+              .resolve(exportResult.file().getFileName().toString() + ".sha256");
+      assertTrue(Files.exists(checksumPath));
+
+      String expected = Files.readString(checksumPath).trim();
+      MessageDigest sha = MessageDigest.getInstance("SHA-256");
+      byte[] data = Files.readAllBytes(exportResult.file());
+      String actual = HexFormat.of().formatHex(sha.digest(data));
+      assertEquals(expected, actual, "export checksum should match file digest");
     } finally {
       services.shutdown();
       deleteRecursively(backupDir);
