@@ -367,6 +367,11 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.usage", e.getMessage()), false);
       return 0;
     }
+    boolean lockAcquired = services.database().tryAdvisoryLock("holarki_restore");
+    if (!lockAcquired) {
+      src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.locked"), false);
+      return 0;
+    }
     src.sendFeedback(
         () ->
             Text.translatable(
@@ -429,9 +434,16 @@ public final class AdminCommands {
                                       "holarki.cmd.restore.fail", e.getClass().getSimpleName()),
                               false),
                       "restore failure feedback");
+                } finally {
+                  if (lockAcquired) {
+                    services.database().releaseAdvisoryLock("holarki_restore");
+                  }
                 }
               });
     } catch (RuntimeException e) {
+      if (lockAcquired) {
+        services.database().releaseAdvisoryLock("holarki_restore");
+      }
       logAdminFailure("/holarki restore", e);
       src.sendFeedback(
           () -> Text.translatable("holarki.cmd.restore.fail", e.getClass().getSimpleName()), false);

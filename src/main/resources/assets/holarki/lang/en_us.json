@@ -43,6 +43,7 @@
   "holarki.cmd.migrate.check.ok": "Schema up to date (current %s, target %s).",
   "holarki.cmd.migrate.check.pending": "Schema upgrade available (current %s, target %s).",
   "holarki.cmd.migrate.locked": "Another migration is already running.",
+  "holarki.cmd.restore.locked": "Restore already running.",
   "holarki.cmd.pt.me": "Your playtime: %s",
   "holarki.cmd.pt.reset.ok": "Playtime reset.",
   "holarki.cmd.pt.top.empty": "No playtime records found.",
