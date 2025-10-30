@@ -114,7 +114,11 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
                   }
                 } catch (SQLException releaseError) {
                   ErrorCode code = SqlErrorCodes.classify(releaseError);
-                  dbHealth.markFailure(releaseError);
+                  if (code == ErrorCode.CONNECTION_LOST) {
+                    dbHealth.markFailure(releaseError);
+                  } else {
+                    dbHealth.markSuccess();
+                  }
                   if (metrics != null) {
                     metrics.recordModuleOperation(false, code);
                   }
@@ -147,7 +151,11 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordModuleOperation(false, code);
       }
@@ -191,7 +199,11 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
             "08000",
             unexpectedStatus != null ? unexpectedStatus : 0);
     ErrorCode code = SqlErrorCodes.classify(unexpected);
-    dbHealth.markFailure(unexpected);
+    if (code == ErrorCode.CONNECTION_LOST) {
+      dbHealth.markFailure(unexpected);
+    } else {
+      dbHealth.markSuccess();
+    }
     if (metrics != null) {
       metrics.recordModuleOperation(false, code);
     }
@@ -229,7 +241,11 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
       } catch (SQLException e) {
         last = e;
         ErrorCode code = SqlErrorCodes.classify(e);
-        dbHealth.markFailure(e);
+        if (code == ErrorCode.CONNECTION_LOST) {
+          dbHealth.markFailure(e);
+        } else {
+          dbHealth.markSuccess();
+        }
         if (metrics != null) {
           metrics.recordModuleOperation(false, code);
         }
@@ -290,7 +306,11 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordModuleOperation(false, code);
       }

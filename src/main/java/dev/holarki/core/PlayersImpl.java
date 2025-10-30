@@ -70,7 +70,11 @@ public final class PlayersImpl implements Players {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerLookup(false, code);
       }
@@ -132,7 +136,11 @@ public final class PlayersImpl implements Players {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerLookup(false, code);
       }
@@ -168,7 +176,11 @@ public final class PlayersImpl implements Players {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerLookup(false, code);
       }
@@ -206,7 +218,11 @@ public final class PlayersImpl implements Players {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerLookup(false, code);
       }
@@ -280,12 +296,21 @@ public final class PlayersImpl implements Players {
           c.rollback();
         } catch (SQLException ignore) {
         }
-        dbHealth.markFailure(e);
+        ErrorCode code = SqlErrorCodes.classify(e);
+        if (code == ErrorCode.CONNECTION_LOST) {
+          dbHealth.markFailure(e);
+        } else {
+          dbHealth.markSuccess();
+        }
         throw e;
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerMutation(false, code);
       }
@@ -317,7 +342,11 @@ public final class PlayersImpl implements Players {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordPlayerLookup(false, code);
       }
