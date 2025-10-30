@@ -9,8 +9,10 @@ import java.io.OutputStreamWriter;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -68,38 +70,46 @@ public final class BackupExporter {
     Files.createDirectories(outDir);
     String stamp = TS.format(Instant.now());
     boolean gzip = gzipOverride != null ? gzipOverride.booleanValue() : backupCfg.gzip();
-    String baseName = "holarki-" + stamp + ".jsonl" + (gzip ? ".gz" : "");
-    Path outFile = outDir.resolve(baseName);
-
-    MessageDigest sha = sha256();
+    Path outFile;
+    String baseName;
 
     try (Connection c = services.database().borrowConnection()) {
       c.setAutoCommit(false);
       c.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
 
-      long players;
-      long attrs;
-      long seq;
-      long ledger;
-      try (DigestOutputStream digestStream =
-              new DigestOutputStream(Files.newOutputStream(outFile), sha);
-          OutputStream dataOut = gzip ? new GZIPOutputStream(digestStream) : digestStream;
-          BufferedWriter writer =
-              new BufferedWriter(new OutputStreamWriter(dataOut, StandardCharsets.UTF_8))) {
+      while (true) {
+        String uniqueSuffix = UUID.randomUUID().toString().replace("-", "");
+        baseName = "holarki-" + stamp + "-" + uniqueSuffix + ".jsonl" + (gzip ? ".gz" : "");
+        outFile = outDir.resolve(baseName);
+        MessageDigest sha = sha256();
+        long players = 0L;
+        long attrs = 0L;
+        long seq = 0L;
+        long ledger = 0L;
+        try (DigestOutputStream digestStream =
+                new DigestOutputStream(
+                    Files.newOutputStream(outFile, StandardOpenOption.CREATE_NEW), sha);
+            OutputStream dataOut = gzip ? new GZIPOutputStream(digestStream) : digestStream;
+            BufferedWriter writer =
+                new BufferedWriter(new OutputStreamWriter(dataOut, StandardCharsets.UTF_8))) {
 
-        writeHeader(writer, cfg);
-        players = dumpPlayers(writer, c);
-        attrs = dumpAttributes(writer, c);
-        seq = dumpEventSequences(writer, c);
-        ledger = dumpLedger(writer, c);
-        writer.flush();
+          writeHeader(writer, cfg);
+          players = dumpPlayers(writer, c);
+          attrs = dumpAttributes(writer, c);
+          seq = dumpEventSequences(writer, c);
+          ledger = dumpLedger(writer, c);
+          writer.flush();
+
+          String checksumHex = HexFormat.of().formatHex(sha.digest());
+          Files.writeString(outDir.resolve(baseName + ".sha256"), checksumHex);
+          prune(outDir, backupCfg.prune(), outFile);
+          c.rollback();
+          return new Result(outFile, players, attrs, seq, ledger);
+        } catch (FileAlreadyExistsException exists) {
+          // Retry with a new suffix if a file collides between existence check and creation.
+          continue;
+        }
       }
-
-      String checksumHex = HexFormat.of().formatHex(sha.digest());
-      Files.writeString(outDir.resolve(baseName + ".sha256"), checksumHex);
-      prune(outDir, backupCfg.prune(), outFile);
-      c.rollback();
-      return new Result(outFile, players, attrs, seq, ledger);
     }
   }
 
