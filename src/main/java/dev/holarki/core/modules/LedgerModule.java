@@ -19,14 +19,18 @@ public final class LedgerModule implements HolarkiModule {
   @Override
   public ModuleActivation start(ModuleContext context) throws Exception {
     var services = context.services();
+    var config = context.config().ledger();
     ledger =
         LedgerService.install(
             services.database(),
             services.events(),
             services.scheduler(),
             services.metrics(),
-            context.config().ledger());
+            config);
     context.publishLedger(ledger);
+    if (!config.enabled()) {
+      return ModuleActivation.skipped("ledger module disabled by configuration");
+    }
     LedgerAdminCommands.register(context);
     return ModuleActivation.activated();
   }
