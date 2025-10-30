@@ -31,9 +31,11 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -65,6 +67,7 @@ final class BackupCycleTest {
 
     try {
       Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
       seedTestData();
 
       Counts baselineCounts = readCounts();
@@ -147,6 +150,7 @@ final class BackupCycleTest {
 
     try {
       Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
       truncateAllTables();
       seedTestData();
 
@@ -184,6 +188,7 @@ final class BackupCycleTest {
 
     try {
       Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
       truncateAllTables();
       seedControlCharacterData(playerId, playerName, ledgerReason, scopeValue, serverNode);
 
@@ -227,6 +232,7 @@ final class BackupCycleTest {
 
     try {
       Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
       truncateAllTables();
 
       UUID fromOne = UUID.fromString("00000000-0000-0000-0000-00000000aa01");
@@ -291,6 +297,7 @@ final class BackupCycleTest {
 
     try {
       Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
       truncateAllTables();
 
       try (BufferedWriter writer = Files.newBufferedWriter(snapshot, StandardCharsets.UTF_8)) {
@@ -338,6 +345,36 @@ final class BackupCycleTest {
 
   private static String jdbcUrl() {
     return MariaDbTestSupport.jdbcUrl(DB_NAME);
+  }
+
+  private static void assertLedgerUnitColumnsUnsigned() throws SQLException {
+    String sql =
+        """
+      SELECT column_name, column_type
+      FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND table_name = 'core_ledger'
+        AND column_name IN ('old_units', 'new_units')
+      """;
+
+    try (Connection c =
+            DriverManager.getConnection(
+                jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+        PreparedStatement ps = c.prepareStatement(sql);
+        ResultSet rs = ps.executeQuery()) {
+      Map<String, String> columns = new HashMap<>();
+      while (rs.next()) {
+        columns.put(rs.getString("column_name"), rs.getString("column_type"));
+      }
+
+      assertEquals(2, columns.size(), "expected ledger unit columns to exist");
+      for (String type : columns.values()) {
+        assertNotNull(type, "ledger unit column type should not be null");
+        assertTrue(
+            type.toLowerCase(Locale.ROOT).contains("unsigned"),
+            "ledger unit columns must be unsigned: " + type);
+      }
+    }
   }
 
   private static void seedTestData() throws SQLException {
