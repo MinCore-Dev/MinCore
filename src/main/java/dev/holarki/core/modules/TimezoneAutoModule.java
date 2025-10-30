@@ -3,6 +3,7 @@ package dev.holarki.core.modules;
 
 import dev.holarki.core.Config;
 import dev.holarki.util.TimezoneAutoDetector;
+import java.util.Objects;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import org.slf4j.Logger;
@@ -14,6 +15,18 @@ public final class TimezoneAutoModule implements HolarkiModule {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
 
   private TimezoneAutoDetector detector;
+  private final JoinRegistrar joinRegistrar;
+  private ServerJoinListener joinListener;
+  private boolean joinRegistered;
+  private ModuleContext activeContext;
+
+  public TimezoneAutoModule() {
+    this(defaultJoinRegistrar());
+  }
+
+  TimezoneAutoModule(JoinRegistrar joinRegistrar) {
+    this.joinRegistrar = Objects.requireNonNull(joinRegistrar, "joinRegistrar");
+  }
 
   @Override
   public String id() {
@@ -31,19 +44,26 @@ public final class TimezoneAutoModule implements HolarkiModule {
       LOG.info("(holarki) timezone.auto skipped because timezone module is inactive");
       return ModuleActivation.skipped("timezone module inactive");
     }
+    activeContext = context;
     detector = TimezoneAutoDetector.create(cfg).orElse(null);
     if (detector == null) {
       LOG.info("(holarki) timezone auto-detect not enabled or unavailable");
+      activeContext = null;
       return ModuleActivation.skipped("timezone auto-detect unavailable");
     }
-    ServerPlayConnectionEvents.JOIN.register(
-        (handler, sender, server) ->
-            scheduleAutoDetect(context, handler.player.getUuid(), handler.player.getIp()));
+    if (!joinRegistered) {
+      if (joinListener == null) {
+        joinListener = (uuid, remoteAddress) -> scheduleAutoDetect(uuid, remoteAddress);
+      }
+      joinRegistrar.register(joinListener);
+      joinRegistered = true;
+    }
     return ModuleActivation.activated();
   }
 
-  private void scheduleAutoDetect(ModuleContext context, UUID uuid, String remoteAddress) {
-    if (detector == null) {
+  private void scheduleAutoDetect(UUID uuid, String remoteAddress) {
+    ModuleContext context = activeContext;
+    if (detector == null || context == null) {
       return;
     }
     detector.scheduleDetect(context.services(), uuid, remoteAddress);
@@ -55,5 +75,23 @@ public final class TimezoneAutoModule implements HolarkiModule {
       detector.close();
       detector = null;
     }
+    activeContext = null;
+  }
+
+  private static JoinRegistrar defaultJoinRegistrar() {
+    return listener ->
+        ServerPlayConnectionEvents.JOIN.register(
+            (handler, sender, server) ->
+                listener.onJoin(handler.player.getUuid(), handler.player.getIp()));
+  }
+
+  @FunctionalInterface
+  interface JoinRegistrar {
+    void register(ServerJoinListener listener);
+  }
+
+  @FunctionalInterface
+  interface ServerJoinListener {
+    void onJoin(UUID uuid, String remoteAddress);
   }
 }
