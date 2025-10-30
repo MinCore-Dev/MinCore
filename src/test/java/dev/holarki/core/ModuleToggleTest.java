@@ -87,7 +87,9 @@ final class ModuleToggleTest {
             modules.timezone()));
     try (TestHarness harness = new TestHarness(config)) {
       harness.start(allModules(config));
-      org.junit.jupiter.api.Assertions.assertTrue(harness.manager.isActive(LedgerModule.ID));
+      org.junit.jupiter.api.Assertions.assertFalse(harness.manager.isActive(LedgerModule.ID));
+      org.junit.jupiter.api.Assertions.assertFalse(
+          harness.manager.activeModules().contains(LedgerModule.ID));
       var ledger = HolarkiApi.ledger();
       org.junit.jupiter.api.Assertions.assertNotNull(ledger);
       ledger.log("test", "noop", null, null, 1L, "disabled", true, null, null, null, null);
