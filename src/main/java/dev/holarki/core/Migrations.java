@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 /** Idempotent schema migrations for Holarki core tables. */
 public final class Migrations {
   private static final Logger LOG = LoggerFactory.getLogger("holarki");
-  private static final int CURRENT_VERSION = 2;
+  private static final int CURRENT_VERSION = 3;
 
   private Migrations() {}
 
@@ -32,6 +32,7 @@ public final class Migrations {
         PRIMARY KEY (version)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC
       """,
+
 
       // Player directory + wallet balance
       """
@@ -104,8 +105,8 @@ public final class Migrations {
         seq             BIGINT UNSIGNED NOT NULL DEFAULT 0,
         idem_scope      VARCHAR(64)     NULL,
         idem_key_hash   BINARY(32)      NULL,
-        old_units       BIGINT          NULL,
-        new_units       BIGINT          NULL,
+        old_units       BIGINT UNSIGNED NULL,
+        new_units       BIGINT UNSIGNED NULL,
         server_node     VARCHAR(64)     NULL,
         extra_json      MEDIUMTEXT      NULL,
         PRIMARY KEY (id),
@@ -118,6 +119,13 @@ public final class Migrations {
         KEY idx_core_ledger_seq (seq),
         KEY idx_core_ledger_idem_scope (idem_scope)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC
+      """,
+
+      // Ensure legacy deployments upgrade balance columns to unsigned
+      """
+      ALTER TABLE core_ledger
+        MODIFY old_units BIGINT UNSIGNED NULL,
+        MODIFY new_units BIGINT UNSIGNED NULL
       """
     };
 
