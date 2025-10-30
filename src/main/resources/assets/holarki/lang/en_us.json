@@ -59,6 +59,7 @@
   "holarki.cmd.export.usage": "Export options error: %s",
   "holarki.cmd.restore.started": "Restore started (mode=%s from=%s)…",
   "holarki.cmd.restore.queued": "Restore job queued (mode=%s from=%s).",
+  "holarki.cmd.restore.checksum_override": "WARNING: Proceeding without verifying snapshot checksum; data integrity is not guaranteed.",
   "holarki.cmd.restore.ok": "Restore complete from %s players=%s attrs=%s seq=%s ledger=%s",
   "holarki.cmd.restore.fail": "Restore failed: %s",
   "holarki.cmd.restore.usage": "Restore options error: %s",

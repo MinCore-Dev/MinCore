@@ -80,6 +80,8 @@ public final class BackupImporter {
    * @param strategy strategy for {@link Mode#FRESH}
    * @param overwrite if {@code true}, merge mode replaces conflicting ledger rows
    * @param skipForeignKeys if {@code true}, temporarily disable foreign key checks during import
+   * @param allowMissingChecksum if {@code true}, continue when the checksum file is missing or
+   *     unreadable
    * @return summary of imported rows
    * @throws IOException if reading the snapshot fails
    * @throws SQLException if database access fails
@@ -90,10 +92,11 @@ public final class BackupImporter {
       Mode mode,
       FreshStrategy strategy,
       boolean overwrite,
-      boolean skipForeignKeys)
+      boolean skipForeignKeys,
+      boolean allowMissingChecksum)
       throws IOException, SQLException {
     Path file = resolveInput(source);
-    verifyChecksum(file);
+    verifyChecksum(file, allowMissingChecksum);
     Header header = peekHeader(file);
     return switch (Objects.requireNonNull(mode, "mode")) {
       case FRESH -> restoreFresh(services, file, strategy, skipForeignKeys, header);
@@ -280,12 +283,29 @@ public final class BackupImporter {
     return in;
   }
 
-  private static void verifyChecksum(Path file) throws IOException {
+  private static void verifyChecksum(Path file, boolean allowMissingChecksum) throws IOException {
     Path checksum = file.resolveSibling(file.getFileName().toString() + ".sha256");
     if (!Files.exists(checksum)) {
-      return;
+      if (allowMissingChecksum) {
+        LOG.warn(
+            "(holarki) checksum file missing for {}; continuing without verification", file);
+        return;
+      }
+      throw new IOException("snapshot checksum missing: " + checksum);
     }
-    String expected = Files.readString(checksum, StandardCharsets.UTF_8).trim();
+    final String expected;
+    try {
+      expected = Files.readString(checksum, StandardCharsets.UTF_8).trim();
+    } catch (IOException e) {
+      if (allowMissingChecksum) {
+        LOG.warn(
+            "(holarki) checksum file unreadable for {}; continuing without verification ({})",
+            file,
+            e.getMessage());
+        return;
+      }
+      throw new IOException("snapshot checksum unreadable: " + checksum, e);
+    }
     if (expected.isEmpty()) {
       throw new IOException("snapshot checksum file is empty: " + checksum);
     }

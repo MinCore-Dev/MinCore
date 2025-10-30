@@ -136,6 +136,7 @@ class BackupExportImportTest {
           BackupImporter.Mode.FRESH,
           BackupImporter.FreshStrategy.ATOMIC,
           false,
+          false,
           false);
 
       try (Connection c = dataSource.getConnection()) {
