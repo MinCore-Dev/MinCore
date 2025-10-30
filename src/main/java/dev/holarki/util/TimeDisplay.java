@@ -1,23 +1,22 @@
 /* Holarki © 2025 Holarki Devs — MIT */
 package dev.holarki.util;
 
+import dev.holarki.core.LocaleManager;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.TextStyle;
-import java.util.Locale;
 
 /** Utility for rendering times with per-player preferences. */
 public final class TimeDisplay {
-  private static final DateTimeFormatter DATE =
-      DateTimeFormatter.ofPattern("yyyy-MM-dd").withLocale(Locale.ENGLISH);
+  private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
   private static final DateTimeFormatter OFFSET =
       new DateTimeFormatterBuilder()
           .appendLiteral("UTC")
           .appendOffset("+HH:mm", "+00:00")
-          .toFormatter(Locale.ENGLISH);
+          .toFormatter();
 
   private TimeDisplay() {}
 
@@ -34,7 +33,8 @@ public final class TimeDisplay {
     }
     TimePreference effective = pref != null ? pref : Timezones.defaults();
     ZonedDateTime zoned = instant.atZone(effective.zone());
-    return DATE.format(zoned)
+    DateTimeFormatter dateFormatter = DATE.withLocale(LocaleManager.defaultLocale());
+    return dateFormatter.format(zoned)
         + " "
         + effective.clock().longFormatter().format(zoned)
         + " "
@@ -65,11 +65,11 @@ public final class TimeDisplay {
       return "UTC";
     }
     ZoneId zone = zoned.getZone();
-    String shortName = zone.getDisplayName(TextStyle.SHORT, Locale.ENGLISH);
+    String shortName = zone.getDisplayName(TextStyle.SHORT, LocaleManager.defaultLocale());
     if (shortName.startsWith("GMT") && shortName.length() > 3) {
       shortName = "UTC" + shortName.substring(3);
     }
-    String offset = OFFSET.format(zoned);
+    String offset = OFFSET.withLocale(LocaleManager.defaultLocale()).format(zoned);
     if ("UTC".equals(shortName)) {
       return "UTC";
     }

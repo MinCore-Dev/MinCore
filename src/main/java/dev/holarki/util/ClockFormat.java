@@ -1,6 +1,7 @@
 /* Holarki © 2025 Holarki Devs — MIT */
 package dev.holarki.util;
 
+import dev.holarki.core.LocaleManager;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
@@ -20,8 +21,8 @@ public enum ClockFormat {
   ClockFormat(
       String description, DateTimeFormatter shortFormatter, DateTimeFormatter longFormatter) {
     this.description = description;
-    this.shortFormatter = shortFormatter.withLocale(Locale.ENGLISH);
-    this.longFormatter = longFormatter.withLocale(Locale.ENGLISH);
+    this.shortFormatter = shortFormatter;
+    this.longFormatter = longFormatter;
   }
 
   /** Human-readable description ("12-hour" or "24-hour"). */
@@ -31,12 +32,12 @@ public enum ClockFormat {
 
   /** Formatter without seconds. */
   public DateTimeFormatter shortFormatter() {
-    return shortFormatter;
+    return shortFormatter.withLocale(LocaleManager.defaultLocale());
   }
 
   /** Formatter including seconds. */
   public DateTimeFormatter longFormatter() {
-    return longFormatter;
+    return longFormatter.withLocale(LocaleManager.defaultLocale());
   }
 
   /** Parses user-provided strings into a {@link ClockFormat}. */
