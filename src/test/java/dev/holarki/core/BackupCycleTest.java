@@ -2,6 +2,7 @@
 package dev.holarki.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -167,6 +168,44 @@ final class BackupCycleTest {
       byte[] data = Files.readAllBytes(exportResult.file());
       String actual = HexFormat.of().formatHex(sha.digest(data));
       assertEquals(expected, actual, "export checksum should match file digest");
+    } finally {
+      services.shutdown();
+      deleteRecursively(backupDir);
+    }
+  }
+
+  @Test
+  void backToBackExportsProduceUniqueFiles() throws Exception {
+    Path backupDir = Files.createTempDirectory("holarki-back-to-back");
+    TestServices services =
+        new TestServices(jdbcUrl(), MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+    Config config = TestConfigFactory.create(DB_NAME, backupDir);
+
+    try {
+      Migrations.apply(services);
+      assertLedgerUnitColumnsUnsigned();
+      truncateAllTables();
+      seedTestData();
+
+      BackupExporter.Result first =
+          BackupExporter.exportAll(services, config, backupDir, Boolean.FALSE);
+      BackupExporter.Result second =
+          BackupExporter.exportAll(services, config, backupDir, Boolean.FALSE);
+
+      assertNotEquals(
+          first.file(), second.file(), "subsequent exports should not overwrite previous files");
+      assertTrue(Files.exists(first.file()));
+      assertTrue(Files.exists(second.file()));
+
+      Path firstChecksum =
+          Objects.requireNonNull(first.file().getParent())
+              .resolve(first.file().getFileName().toString() + ".sha256");
+      Path secondChecksum =
+          Objects.requireNonNull(second.file().getParent())
+              .resolve(second.file().getFileName().toString() + ".sha256");
+
+      assertTrue(Files.exists(firstChecksum));
+      assertTrue(Files.exists(secondChecksum));
     } finally {
       services.shutdown();
       deleteRecursively(backupDir);
