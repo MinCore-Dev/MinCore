@@ -24,6 +24,9 @@ public enum ErrorCode {
   /** Request reused a key with a different payload (poisoned idempotency). */
   IDEMPOTENCY_MISMATCH,
 
+  /** Database rejected a write because of a duplicate/unique constraint violation. */
+  DUPLICATE_KEY,
+
   /** Exhausted retry budget on a deadlock/timeout protected block. */
   DEADLOCK_RETRY_EXHAUSTED,
 
