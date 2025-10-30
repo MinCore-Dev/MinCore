@@ -9,9 +9,9 @@ import dev.holarki.api.Playtime;
 import dev.holarki.api.Wallets;
 import dev.holarki.api.events.CoreEvents;
 import dev.holarki.api.storage.ModuleDatabase;
-import java.time.Duration;
 import java.io.IOException;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import org.slf4j.Logger;
@@ -64,6 +64,8 @@ public final class CoreServices implements Services, java.io.Closeable {
    * @return service container
    */
   public static Services start(Config cfg) {
+    LoggingConfigurator.configure(cfg.log());
+
     HikariConfig hc = new HikariConfig();
     hc.setJdbcUrl(cfg.db().jdbcUrl());
     hc.setUsername(cfg.db().user());
@@ -129,6 +131,8 @@ public final class CoreServices implements Services, java.io.Closeable {
       throw new RuntimeException("Unable to start datasource", last);
     }
 
+    javax.sql.DataSource slowQueryDs = SlowQueryDataSource.wrap(ds, cfg.log().slowQueryMs());
+
     ScheduledExecutorService scheduler =
         Executors.newScheduledThreadPool(
             2,
@@ -138,20 +142,21 @@ public final class CoreServices implements Services, java.io.Closeable {
               return t;
             });
 
-    DbHealth dbHealth = new DbHealth(ds, scheduler, cfg.runtime().reconnectEveryS(), cfg.db());
+    DbHealth dbHealth =
+        new DbHealth(slowQueryDs, scheduler, cfg.runtime().reconnectEveryS(), cfg.db());
 
     EventBus events = new EventBus();
     Metrics metrics = new Metrics();
-    ModuleDatabaseImpl moduleDb = new ModuleDatabaseImpl(ds, dbHealth, metrics);
-    Players players = new PlayersImpl(ds, events, dbHealth, metrics);
+    ModuleDatabaseImpl moduleDb = new ModuleDatabaseImpl(slowQueryDs, dbHealth, metrics);
+    Players players = new PlayersImpl(slowQueryDs, events, dbHealth, metrics);
     long retentionDays =
         Math.max(0, cfg.modules().scheduler().jobs().cleanup().idempotencySweep().retentionDays());
     Duration idempotencyTtl =
         retentionDays > 0
             ? Duration.ofDays(retentionDays)
             : Duration.ofDays(365); // 0 => keep requests ~1y to protect retries
-    Wallets wallets = new WalletsImpl(ds, events, dbHealth, metrics, idempotencyTtl);
-    Attributes attrs = new AttributesImpl(ds, dbHealth, metrics);
+    Wallets wallets = new WalletsImpl(slowQueryDs, events, dbHealth, metrics, idempotencyTtl);
+    Attributes attrs = new AttributesImpl(slowQueryDs, dbHealth, metrics);
     Playtime playtime = new PlaytimeImpl();
 
     return new CoreServices(
