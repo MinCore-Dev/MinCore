@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,6 +85,12 @@ public final class TimezoneAutoDetector implements AutoCloseable {
           dbPath.toAbsolutePath());
       return Optional.empty();
     }
+    if (!Files.isRegularFile(dbPath)) {
+      LOG.warn(
+          "(holarki) timezone auto-detect disabled: GeoIP database at {} is not a regular file",
+          dbPath.toAbsolutePath());
+      return Optional.empty();
+    }
     if (!Files.isReadable(dbPath)) {
       LOG.warn(
           "(holarki) timezone auto-detect disabled: GeoIP database not readable at {}",
@@ -128,25 +135,39 @@ public final class TimezoneAutoDetector implements AutoCloseable {
       // We've already attempted detection for this player and address recently.
       return;
     }
-    services
-        .scheduler()
-        .execute(
-            () -> {
-              try {
-                if (closed.get()) {
-                  return;
+    try {
+      services
+          .scheduler()
+          .execute(
+              () -> {
+                boolean retainAttempt = true;
+                try {
+                  if (closed.get()) {
+                    retainAttempt = false;
+                    return;
+                  }
+                  TimePreference preference =
+                      Timezones.resolvePreference(uuid, services).orElse(null);
+                  if (isManualOverride(preference)) {
+                    retainAttempt = false;
+                    return;
+                  }
+                  Optional<ZoneId> zone = lookup(address);
+                  zone.ifPresent(z -> Timezones.setAuto(uuid, z, services));
+                } catch (Exception e) {
+                  LOG.debug("(holarki) timezone auto-detect failed: {}", e.getMessage());
+                } finally {
+                  if (retainAttempt) {
+                    prune(uuid, address, Instant.now());
+                  } else {
+                    forgetAttempt(uuid, address);
+                  }
                 }
-                if (Timezones.resolve(uuid, services).isPresent()) {
-                  return;
-                }
-                Optional<ZoneId> zone = lookup(address);
-                zone.ifPresent(z -> Timezones.setAuto(uuid, z, services));
-              } catch (Exception e) {
-                LOG.debug("(holarki) timezone auto-detect failed: {}", e.getMessage());
-              } finally {
-                prune(uuid, address, Instant.now());
-              }
-            });
+              });
+    } catch (RejectedExecutionException rejected) {
+      forgetAttempt(uuid, address);
+      LOG.debug("(holarki) timezone auto-detect executor rejected lookup: {}", rejected.getMessage());
+    }
   }
 
   /**
@@ -190,9 +211,27 @@ public final class TimezoneAutoDetector implements AutoCloseable {
     }
   }
 
+  private void forgetAttempt(UUID uuid, InetAddress address) {
+    if (uuid == null || address == null) {
+      return;
+    }
+    String key = address.getHostAddress();
+    processedPairs.computeIfPresent(
+        key,
+        (ignored, players) -> {
+          players.remove(uuid);
+          return players.isEmpty() ? null : players;
+        });
+  }
+
   /** Creates a detector instance with a custom TTL for unit tests. */
   static TimezoneAutoDetector forTesting(Duration detectionTtl) {
-    return new TimezoneAutoDetector(null, detectionTtl);
+    return forTesting(null, detectionTtl);
+  }
+
+  /** Creates a detector instance with a custom reader and TTL for unit tests. */
+  static TimezoneAutoDetector forTesting(DatabaseReader reader, Duration detectionTtl) {
+    return new TimezoneAutoDetector(reader, detectionTtl);
   }
 
   private InetAddress parseAddress(String ip) {
@@ -256,5 +295,13 @@ public final class TimezoneAutoDetector implements AutoCloseable {
       } catch (IOException ignored) {
       }
     }
+  }
+
+  private static boolean isManualOverride(TimePreference preference) {
+    if (preference == null) {
+      return false;
+    }
+    String source = preference.source();
+    return source == null || !source.equalsIgnoreCase("auto");
   }
 }
