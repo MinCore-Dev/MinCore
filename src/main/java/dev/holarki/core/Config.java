@@ -4,6 +4,7 @@ package dev.holarki.core;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import dev.holarki.modules.scheduler.SchedulerEngine;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -804,9 +805,11 @@ public final class Config {
   }
 
   private static void validateCron(String schedule, String field) {
-    String[] parts = schedule.trim().split("\\s+");
-    if (parts.length != 6) {
-      throw new IllegalStateException(field + " must be a 6-field cron expression");
+    try {
+      SchedulerEngine.validateCronExpression(schedule);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException(
+          field + " invalid cron expression: " + e.getMessage(), e);
     }
   }
 

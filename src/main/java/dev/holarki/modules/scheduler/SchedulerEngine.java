@@ -34,6 +34,11 @@ public final class SchedulerEngine implements SchedulerService {
   private final Map<String, JobHandle> jobs = new ConcurrentHashMap<>();
   private volatile Services services;
 
+  /** Validates that the provided cron expression can be parsed by the scheduler. */
+  public static void validateCronExpression(String expression) {
+    Cron.parse(expression);
+  }
+
   /** Installs jobs described in config. */
   public synchronized void start(Services services, Config cfg) {
     this.services = Objects.requireNonNull(services, "services");
