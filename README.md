@@ -241,6 +241,10 @@ Notes
 - Enable `modules.timezone.autoDetect.enabled` (and drop a GeoIP database at `modules.timezone.autoDetect.database`) to detect each joining player’s timezone automatically. Enabling the module sets `core.time.display.autoDetect: true` for you—just confirm `core.time.display.allowPlayerOverride: true` first. Keep the legacy `core.time.display.autoDetect` toggle only if you are migrating an older config that still needs it.
 - Keep `forceUtc: true` so storage is consistent
 - If you disable `modules.scheduler.enabled`, also set every job under `modules.scheduler.jobs` to `enabled: false`
+- `core.log.level` controls the console log verbosity when Logback is present; Holarki will fall back to the existing backend if
+  Logback is missing. Enabling `core.log.json` switches to a bundled structured layout and requires Logback on the classpath.
+- `core.log.slowQueryMs` emits `DB_SLOW_QUERY` warnings when a JDBC operation exceeds the configured threshold so you can catch
+  regressions early.
 
 ## Commands
 
