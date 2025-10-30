@@ -66,6 +66,8 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
     }
     String lock = validateLockName(name);
     boolean lockBusy = false;
+    boolean sawResultRow = false;
+    Integer unexpectedStatus = null;
     Connection connection = null;
     boolean retainConnection = false;
     try {
@@ -74,7 +76,9 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
         ps.setString(1, lock);
         try (ResultSet rs = ps.executeQuery()) {
           if (rs.next()) {
+            sawResultRow = true;
             int status = rs.getInt(1);
+            unexpectedStatus = status;
             if (rs.wasNull()) {
               SQLException nullResult =
                   new SQLException("GET_LOCK returned NULL", "08000", 0);
@@ -136,6 +140,7 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
               }
             } else if (status == 0) {
               lockBusy = true;
+              unexpectedStatus = null;
             }
           }
         }
@@ -179,10 +184,26 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
       LOG.debug("(holarki) op={} lock={} busy=true", "moduleDb.tryAdvisoryLock", lock);
       return false;
     }
-    dbHealth.markSuccess();
+    String detail = sawResultRow ? "status=" + unexpectedStatus : "no rows";
+    SQLException unexpected =
+        new SQLException(
+            "GET_LOCK returned unexpected result (" + detail + ")",
+            "08000",
+            unexpectedStatus != null ? unexpectedStatus : 0);
+    ErrorCode code = SqlErrorCodes.classify(unexpected);
+    dbHealth.markFailure(unexpected);
     if (metrics != null) {
-      metrics.recordModuleOperation(false, ErrorCode.DEGRADED_MODE);
+      metrics.recordModuleOperation(false, code);
     }
+    LOG.warn(
+        "(holarki) code={} op={} lock={} detail={} message={} sqlState={} vendor={}",
+        code,
+        "moduleDb.tryAdvisoryLock",
+        lock,
+        detail,
+        unexpected.getMessage(),
+        unexpected.getSQLState(),
+        unexpected.getErrorCode());
     return false;
   }
 
