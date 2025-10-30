@@ -314,6 +314,7 @@ public final class WalletsImpl implements Wallets {
       byte[] storedPayload = null;
       int storedOk = 0;
       long storedExpiresAt = Long.MIN_VALUE;
+      boolean needsRefresh = false;
 
       try (PreparedStatement check = c.prepareStatement(select)) {
         check.setBytes(1, keyHash);
@@ -324,6 +325,8 @@ public final class WalletsImpl implements Wallets {
             storedPayload = rs.getBytes(1);
             storedOk = rs.getInt(2);
             storedExpiresAt = rs.getLong(3);
+          } else {
+            needsRefresh = true;
           }
         }
       }
@@ -338,9 +341,10 @@ public final class WalletsImpl implements Wallets {
       }
 
       if (!hadRow) {
-        storedPayload = payloadHash;
-        storedOk = 0;
-      } else if (storedExpiresAt <= now) {
+        needsRefresh = true;
+      }
+
+      if (hadRow && storedExpiresAt <= now) {
         try (PreparedStatement reset = c.prepareStatement(resetExpired)) {
           reset.setBytes(1, payloadHash);
           reset.setLong(2, now);
@@ -349,8 +353,21 @@ public final class WalletsImpl implements Wallets {
           reset.setString(5, scope);
           reset.executeUpdate();
         }
-        storedPayload = payloadHash;
-        storedOk = 0;
+        needsRefresh = true;
+      }
+
+      if (needsRefresh) {
+        try (PreparedStatement refresh = c.prepareStatement(select)) {
+          refresh.setBytes(1, keyHash);
+          refresh.setString(2, scope);
+          try (ResultSet rs = refresh.executeQuery()) {
+            if (rs.next()) {
+              storedPayload = rs.getBytes(1);
+              storedOk = rs.getInt(2);
+              storedExpiresAt = rs.getLong(3);
+            }
+          }
+        }
       }
 
       if (!java.util.Arrays.equals(storedPayload, payloadHash)) {
