@@ -171,10 +171,15 @@ class TimezoneAutoDetectorTest {
     }
 
     @Override
-    public void put(UUID owner, String key, String jsonValue, long nowS) {}
+    public dev.holarki.api.Attributes.WriteResult put(
+        UUID owner, String key, String jsonValue, long nowS) {
+      return dev.holarki.api.Attributes.WriteResult.success();
+    }
 
     @Override
-    public void remove(UUID owner, String key) {}
+    public dev.holarki.api.Attributes.WriteResult remove(UUID owner, String key) {
+      return dev.holarki.api.Attributes.WriteResult.success();
+    }
   }
 
   private static final class RejectingScheduler extends AbstractExecutorService
@@ -332,7 +337,8 @@ class TimezoneAutoDetectorTest {
   }
 
   private static final class InMemoryAttributes implements dev.holarki.api.Attributes {
-    private final ConcurrentMap<UUID, ConcurrentMap<String, String>> values = new ConcurrentHashMap<>();
+    private final ConcurrentMap<UUID, ConcurrentMap<String, String>> values =
+        new ConcurrentHashMap<>();
 
     @Override
     public Optional<String> get(UUID owner, String key) {
@@ -347,14 +353,16 @@ class TimezoneAutoDetectorTest {
     }
 
     @Override
-    public void put(UUID owner, String key, String jsonValue, long nowS) {
+    public dev.holarki.api.Attributes.WriteResult put(
+        UUID owner, String key, String jsonValue, long nowS) {
       values.computeIfAbsent(owner, ignored -> new ConcurrentHashMap<>()).put(key, jsonValue);
+      return dev.holarki.api.Attributes.WriteResult.success();
     }
 
     @Override
-    public void remove(UUID owner, String key) {
+    public dev.holarki.api.Attributes.WriteResult remove(UUID owner, String key) {
       if (owner == null || key == null) {
-        return;
+        return dev.holarki.api.Attributes.WriteResult.success();
       }
       values.computeIfPresent(
           owner,
@@ -362,6 +370,7 @@ class TimezoneAutoDetectorTest {
             existing.remove(key);
             return existing.isEmpty() ? null : existing;
           });
+      return dev.holarki.api.Attributes.WriteResult.success();
     }
   }
 

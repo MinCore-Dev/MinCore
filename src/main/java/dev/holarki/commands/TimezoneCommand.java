@@ -3,6 +3,8 @@ package dev.holarki.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import dev.holarki.api.AttributeWriteException;
+import dev.holarki.api.ErrorCode;
 import dev.holarki.core.Services;
 import dev.holarki.util.ClockFormat;
 import dev.holarki.util.TimeDisplay;
@@ -11,6 +13,7 @@ import dev.holarki.util.Timezones;
 import dev.holarki.util.TokenBucketRateLimiter;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.CommandManager;
@@ -109,6 +112,9 @@ public final class TimezoneCommand {
               sample);
       src.sendFeedback(() -> msg, false);
       return 1;
+    } catch (AttributeWriteException e) {
+      sendWriteFailure(src, e);
+      return 0;
     } catch (Exception e) {
       src.sendFeedback(() -> Text.translatable("holarki.err.tz.invalid"), false);
       return 0;
@@ -137,10 +143,26 @@ public final class TimezoneCommand {
           Text.translatable("holarki.cmd.tz.clock.ok", pref.clock().description(), sample, label);
       src.sendFeedback(() -> msg, false);
       return 1;
+    } catch (AttributeWriteException e) {
+      sendWriteFailure(src, e);
+      return 0;
     } catch (IllegalArgumentException e) {
       src.sendFeedback(() -> Text.translatable("holarki.err.tz.clockInvalid"), false);
       return 0;
     }
+  }
+
+  private static void sendWriteFailure(ServerCommandSource src, AttributeWriteException e) {
+    sendWriteFailure(e, message -> src.sendFeedback(() -> message, false));
+  }
+
+  static void sendWriteFailure(AttributeWriteException e, Consumer<Text> sink) {
+    ErrorCode code = e.errorCode();
+    Text message =
+        code == ErrorCode.DEGRADED_MODE
+            ? Text.translatable("holarki.err.db.degraded")
+            : Text.translatable("holarki.err.db.unavailable");
+    sink.accept(message);
   }
 
   private static boolean allowPlayerRateLimit(ServerCommandSource src) {
