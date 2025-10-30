@@ -34,6 +34,9 @@ public interface SchedulerService {
     /** Short human-readable description. */
     public final String description;
 
+    /** Whether the job is currently disabled. */
+    public final boolean disabled;
+
     /** Next scheduled execution time in UTC. */
     public volatile Instant nextRun;
 
@@ -52,16 +55,18 @@ public interface SchedulerService {
     /** Failed run counter. */
     public volatile long failureCount;
 
-    JobStatus(String name, String schedule, String description) {
+    JobStatus(String name, String schedule, String description, boolean disabled) {
       this.name = name;
       this.schedule = schedule;
       this.description = description;
+      this.disabled = disabled;
     }
 
     JobStatus(JobStatus other) {
       this.name = other.name;
       this.schedule = other.schedule;
       this.description = other.description;
+      this.disabled = other.disabled;
       this.nextRun = other.nextRun;
       this.lastRun = other.lastRun;
       this.running = other.running;

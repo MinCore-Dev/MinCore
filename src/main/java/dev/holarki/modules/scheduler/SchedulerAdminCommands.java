@@ -74,6 +74,10 @@ public final class SchedulerAdminCommands {
       String next = job.nextRun != null ? TimeDisplay.formatDateTime(job.nextRun, pref) : "-";
       String last = job.lastRun != null ? TimeDisplay.formatDateTime(job.lastRun, pref) : "-";
       String error = job.lastError == null ? "" : job.lastError;
+      Text state =
+          job.disabled
+              ? Text.translatable("holarki.cmd.jobs.list.state.disabled")
+              : Text.translatable("holarki.cmd.jobs.list.state.enabled");
       src.sendFeedback(
           () ->
               Text.translatable(
@@ -84,6 +88,7 @@ public final class SchedulerAdminCommands {
                   next,
                   last,
                   job.running,
+                  state,
                   job.successCount,
                   job.failureCount,
                   error),

@@ -71,6 +71,38 @@ class SchedulerEngineRunNowTest {
     future.get(1, TimeUnit.SECONDS);
   }
 
+  @Test
+  void runNowReturnsDisabledWhenJobDisabled() throws Exception {
+    StubScheduler scheduler = new StubScheduler();
+    SchedulerEngine engine = new SchedulerEngine();
+    TestServices services = new TestServices(scheduler);
+
+    Field servicesField = SchedulerEngine.class.getDeclaredField("services");
+    servicesField.setAccessible(true);
+    servicesField.set(engine, services);
+
+    Class<?> jobHandleClass =
+        Class.forName("dev.holarki.modules.scheduler.SchedulerEngine$JobHandle");
+    Constructor<?> disabledCtor =
+        jobHandleClass.getDeclaredConstructor(
+            String.class, String.class, Runnable.class, String.class, boolean.class);
+    disabledCtor.setAccessible(true);
+    Object job =
+        disabledCtor.newInstance(
+            "disabled", "0 0 0 1 1 *", new TestJob(), "disabled job", Boolean.TRUE);
+
+    Method register = SchedulerEngine.class.getDeclaredMethod("register", jobHandleClass);
+    register.setAccessible(true);
+    register.invoke(engine, job);
+
+    List<SchedulerService.JobStatus> statuses = engine.jobs();
+    assertEquals(1, statuses.size());
+    SchedulerService.JobStatus status = statuses.get(0);
+    assertTrue(status.disabled);
+    assertEquals("disabled", status.name);
+    assertEquals(SchedulerService.RunResult.DISABLED, engine.runNow("disabled"));
+  }
+
   private SchedulerEngine createEngineWithJob(
       String name, Runnable task, StubScheduler scheduler) throws Exception {
     SchedulerEngine engine = new SchedulerEngine();
