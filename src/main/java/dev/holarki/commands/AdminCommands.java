@@ -30,6 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -300,71 +301,138 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.fail", "config"), false);
       return 0;
     }
+    final ExportOptions opts;
     try {
-      ExportOptions opts = ExportOptions.parse(rawOptions);
-      Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
-      src.sendFeedback(
-          () -> Text.translatable("holarki.cmd.export.started", outDir.toString()), false);
-      BackupExporter.Result result =
-          BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.export.ok",
-                  result.file().toString(),
-                  result.players(),
-                  result.attributes(),
-                  result.eventSeq(),
-                  result.ledger()),
-          false);
-      return 1;
+      opts = ExportOptions.parse(rawOptions);
     } catch (IllegalArgumentException e) {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.usage", e.getMessage()), false);
       return 0;
-    } catch (Exception e) {
+    }
+    final Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
+    src.sendFeedback(
+        () -> Text.translatable("holarki.cmd.export.queued", outDir.toString()), false);
+    final MinecraftServer server = src.getServer();
+    try {
+      services.scheduler()
+          .execute(
+              () -> {
+                try {
+                  BackupExporter.Result result =
+                      BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
+                  runOnServerThread(
+                      server,
+                      () ->
+                          src.sendFeedback(
+                              () ->
+                                  Text.translatable(
+                                      "holarki.cmd.export.ok",
+                                      result.file().toString(),
+                                      result.players(),
+                                      result.attributes(),
+                                      result.eventSeq(),
+                                      result.ledger()),
+                              false),
+                      "export success feedback");
+                } catch (Exception e) {
+                  logAdminFailure("/holarki export", e);
+                  runOnServerThread(
+                      server,
+                      () ->
+                          src.sendFeedback(
+                              () ->
+                                  Text.translatable(
+                                      "holarki.cmd.export.fail", e.getClass().getSimpleName()),
+                              false),
+                      "export failure feedback");
+                }
+              });
+    } catch (RuntimeException e) {
       logAdminFailure("/holarki export", e);
       src.sendFeedback(
           () -> Text.translatable("holarki.cmd.export.fail", e.getClass().getSimpleName()), false);
       return 0;
     }
+    return 1;
   }
 
   private static int cmdRestore(
       final ServerCommandSource src, final Services services, final String rawOptions) {
+    final RestoreOptions opts;
     try {
-      RestoreOptions opts = RestoreOptions.parse(rawOptions);
+      opts = RestoreOptions.parse(rawOptions);
       if (opts.from == null) {
         throw new IllegalArgumentException("--from <dir> required");
       }
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.restore.started",
-                  opts.mode.name().toLowerCase(Locale.ROOT),
-                  opts.from.toString()),
-          false);
-      BackupImporter.Result result =
-          BackupImporter.restore(
-              services, opts.from, opts.mode, opts.strategy, opts.overwrite, opts.skipFkChecks);
-      src.sendFeedback(
-          () ->
-              Text.translatable(
-                  "holarki.cmd.restore.ok",
-                  result.source().toString(),
-                  result.players(),
-                  result.attributes(),
-                  result.eventSeq(),
-                  result.ledger()),
-          false);
-      return 1;
     } catch (IllegalArgumentException e) {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.usage", e.getMessage()), false);
       return 0;
-    } catch (IOException | SQLException e) {
+    }
+    src.sendFeedback(
+        () ->
+            Text.translatable(
+                "holarki.cmd.restore.queued",
+                opts.mode.name().toLowerCase(Locale.ROOT),
+                opts.from.toString()),
+        false);
+    final MinecraftServer server = src.getServer();
+    try {
+      services.scheduler()
+          .execute(
+              () -> {
+                try {
+                  BackupImporter.Result result =
+                      BackupImporter.restore(
+                          services,
+                          opts.from,
+                          opts.mode,
+                          opts.strategy,
+                          opts.overwrite,
+                          opts.skipFkChecks);
+                  runOnServerThread(
+                      server,
+                      () ->
+                          src.sendFeedback(
+                              () ->
+                                  Text.translatable(
+                                      "holarki.cmd.restore.ok",
+                                      result.source().toString(),
+                                      result.players(),
+                                      result.attributes(),
+                                      result.eventSeq(),
+                                      result.ledger()),
+                              false),
+                      "restore success feedback");
+                } catch (IOException | SQLException e) {
+                  logAdminFailure("/holarki restore", e);
+                  runOnServerThread(
+                      server,
+                      () ->
+                          src.sendFeedback(
+                              () ->
+                                  Text.translatable(
+                                      "holarki.cmd.restore.fail", e.getMessage()),
+                              false),
+                      "restore failure feedback");
+                } catch (Exception e) {
+                  logAdminFailure("/holarki restore", e);
+                  runOnServerThread(
+                      server,
+                      () ->
+                          src.sendFeedback(
+                              () ->
+                                  Text.translatable(
+                                      "holarki.cmd.restore.fail", e.getClass().getSimpleName()),
+                              false),
+                      "restore failure feedback");
+                }
+              });
+    } catch (RuntimeException e) {
       logAdminFailure("/holarki restore", e);
-      src.sendFeedback(() -> Text.translatable("holarki.cmd.restore.fail", e.getMessage()), false);
+      src.sendFeedback(
+          () -> Text.translatable("holarki.cmd.restore.fail", e.getClass().getSimpleName()), false);
       return 0;
     }
+    return 1;
   }
 
   private static int cmdDoctor(
@@ -462,6 +530,17 @@ public final class AdminCommands {
       }
       src.sendFeedback(() -> Text.translatable("holarki.cmd.doctor.fk.fail", count), false);
       return false;
+    }
+  }
+
+  private static void runOnServerThread(
+      final MinecraftServer server, final Runnable callback, final String actionDescription) {
+    if (server != null) {
+      server.execute(callback);
+    } else {
+      LOG.warn(
+          "(holarki) admin command feedback dropped ({}): server reference unavailable",
+          actionDescription);
     }
   }
 
