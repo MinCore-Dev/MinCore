@@ -10,6 +10,7 @@ Use this table to map failures to localisation keys and recommended operator act
 | `UNKNOWN_PLAYER` | `holarki.err.player.unknown` | Missing UUID/name in players table | Ensure the target has joined the server; verify UUID casing. |
 | `IDEMPOTENCY_REPLAY` | `holarki.err.idem.replay` | Wallet operation repeated with same payload | Safe no-op; investigate why the upstream retried. |
 | `IDEMPOTENCY_MISMATCH` | `holarki.err.idem.mismatch` | Reused idempotency key with different payload | Treat as poisoned; audit the caller for duplicate keys. |
+| `DUPLICATE_KEY` | `holarki.err.db.duplicateKey` | Database unique/primary key violation | Inspect the request data for conflicting identifiers before retrying. |
 | `DEADLOCK_RETRY_EXHAUSTED` | `holarki.err.db.deadlock` | withRetry exhausted for SQL deadlock/timeout | Re-run the command once load subsides; inspect DB metrics. |
 | `CONNECTION_LOST` | `holarki.err.db.unavailable` | Hikari unable to reach MariaDB | Check database availability, credentials, and TLS configuration. |
 | `DEGRADED_MODE` | `holarki.err.db.degraded` | Core refusing writes while reconnecting | Resolve database outage; writes will resume once connectivity returns. |

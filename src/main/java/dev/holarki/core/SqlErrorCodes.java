@@ -29,10 +29,7 @@ public final class SqlErrorCodes {
         case "55":
           return ErrorCode.MIGRATION_LOCKED;
         case "23":
-          if (looksLikeDuplicate(e)) {
-            return ErrorCode.IDEMPOTENCY_MISMATCH;
-          }
-          break;
+          return ErrorCode.DUPLICATE_KEY;
         case "08":
         case "28":
           return ErrorCode.CONNECTION_LOST;
@@ -45,6 +42,9 @@ public final class SqlErrorCodes {
     if (vendor == 1213 || vendor == 1205) {
       return ErrorCode.DEADLOCK_RETRY_EXHAUSTED;
     }
+    if (isDuplicateVendorCode(vendor)) {
+      return ErrorCode.DUPLICATE_KEY;
+    }
 
     String message = e.getMessage();
     if (message != null) {
@@ -55,16 +55,24 @@ public final class SqlErrorCodes {
       if (lower.contains("metadata lock") || lower.contains("advisory lock")) {
         return ErrorCode.MIGRATION_LOCKED;
       }
+      if (looksLikeDuplicate(lower)) {
+        return ErrorCode.DUPLICATE_KEY;
+      }
     }
     return ErrorCode.CONNECTION_LOST;
   }
 
-  private static boolean looksLikeDuplicate(SQLException e) {
-    String message = e.getMessage();
-    if (message == null) {
+  private static boolean isDuplicateVendorCode(int vendor) {
+    return vendor == 1022 || vendor == 1062 || vendor == 1586 || vendor == 1761;
+  }
+
+  private static boolean looksLikeDuplicate(String lowerMessage) {
+    if (lowerMessage == null) {
       return false;
     }
-    String lower = message.toLowerCase(Locale.ROOT);
-    return lower.contains("duplicate") || lower.contains("unique constraint");
+    return lowerMessage.contains("duplicate")
+        || lowerMessage.contains("unique constraint")
+        || lowerMessage.contains("unique index")
+        || lowerMessage.contains("primary key");
   }
 }
