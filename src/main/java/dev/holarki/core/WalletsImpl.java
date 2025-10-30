@@ -74,7 +74,6 @@ public final class WalletsImpl implements Wallets {
       }
       dbHealth.markSuccess();
     } catch (SQLException e) {
-      dbHealth.markFailure(e);
       ErrorCode code = SqlErrorCodes.classify(e);
       LOG.warn(
           "(holarki) code={} op={} message={} sqlState={} vendor={}",
@@ -84,6 +83,11 @@ public final class WalletsImpl implements Wallets {
           e.getSQLState(),
           e.getErrorCode(),
           e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
     }
     return 0L;
   }

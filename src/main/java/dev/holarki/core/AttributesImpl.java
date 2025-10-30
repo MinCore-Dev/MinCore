@@ -60,7 +60,11 @@ public final class AttributesImpl implements Attributes {
       }
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordAttributeRead(false, code);
       }
@@ -102,7 +106,11 @@ public final class AttributesImpl implements Attributes {
       return WriteResult.success();
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordAttributeWrite(false, code);
       }
@@ -139,7 +147,11 @@ public final class AttributesImpl implements Attributes {
       return WriteResult.success();
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
-      dbHealth.markFailure(e);
+      if (code == ErrorCode.CONNECTION_LOST) {
+        dbHealth.markFailure(e);
+      } else {
+        dbHealth.markSuccess();
+      }
       if (metrics != null) {
         metrics.recordAttributeWrite(false, code);
       }
