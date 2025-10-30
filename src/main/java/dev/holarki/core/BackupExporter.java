@@ -26,9 +26,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.zip.GZIPOutputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Writes JSONL snapshot exports for {@code /holarki backup now}. */
 public final class BackupExporter {
+  private static final Logger LOG = LoggerFactory.getLogger("holarki");
   private static final DateTimeFormatter TS =
       DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
 
@@ -63,7 +66,8 @@ public final class BackupExporter {
       throws IOException, SQLException {
     Config.Backup backupCfg = cfg.jobs().backup();
     if (!backupCfg.enabled()) {
-      throw new IllegalStateException("backup disabled in config");
+      LOG.info("(holarki) export skipped: backup job disabled in config");
+      return null;
     }
 
     Path outDir = overrideDir != null ? overrideDir : Path.of(backupCfg.outDir());
