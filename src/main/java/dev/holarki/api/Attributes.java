@@ -26,14 +26,27 @@ public interface Attributes {
    * @param key attribute name
    * @param jsonValue JSON value (caller provides valid JSON)
    * @param nowS current time (epoch seconds) used for audit columns
+   * @return result describing whether the write was applied
    */
-  void put(UUID owner, String key, String jsonValue, long nowS);
+  WriteResult put(UUID owner, String key, String jsonValue, long nowS);
 
   /**
    * Deletes {@code key} for {@code owner} if it exists.
    *
    * @param owner owner UUID
    * @param key attribute name
+   * @return result describing whether the delete was applied
    */
-  void remove(UUID owner, String key);
+  WriteResult remove(UUID owner, String key);
+
+  /** Result of an attribute mutation. */
+  record WriteResult(boolean applied, ErrorCode error) {
+    public static WriteResult success() {
+      return new WriteResult(true, null);
+    }
+
+    public static WriteResult failure(ErrorCode error) {
+      return new WriteResult(false, error);
+    }
+  }
 }

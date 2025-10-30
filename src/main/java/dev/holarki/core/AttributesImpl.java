@@ -4,6 +4,7 @@ package dev.holarki.core;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import dev.holarki.api.Attributes;
+import dev.holarki.api.Attributes.WriteResult;
 import dev.holarki.api.ErrorCode;
 import dev.holarki.util.Uuids;
 import java.sql.Connection;
@@ -76,12 +77,12 @@ public final class AttributesImpl implements Attributes {
   }
 
   @Override
-  public void put(UUID owner, String key, String jsonValue, long nowS) {
+  public WriteResult put(UUID owner, String key, String jsonValue, long nowS) {
     if (!dbHealth.allowWrite("attributes.put")) {
       if (metrics != null) {
         metrics.recordAttributeWrite(false, ErrorCode.DEGRADED_MODE);
       }
-      return;
+      return WriteResult.failure(ErrorCode.DEGRADED_MODE);
     }
     String sql =
         "INSERT INTO player_attributes(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) "
@@ -98,6 +99,7 @@ public final class AttributesImpl implements Attributes {
       if (metrics != null) {
         metrics.recordAttributeWrite(true, null);
       }
+      return WriteResult.success();
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
@@ -112,16 +114,17 @@ public final class AttributesImpl implements Attributes {
           e.getSQLState(),
           e.getErrorCode(),
           e);
+      return WriteResult.failure(code);
     }
   }
 
   @Override
-  public void remove(UUID owner, String key) {
+  public WriteResult remove(UUID owner, String key) {
     if (!dbHealth.allowWrite("attributes.remove")) {
       if (metrics != null) {
         metrics.recordAttributeWrite(false, ErrorCode.DEGRADED_MODE);
       }
-      return;
+      return WriteResult.failure(ErrorCode.DEGRADED_MODE);
     }
     try (Connection c = ds.getConnection();
         PreparedStatement ps =
@@ -133,6 +136,7 @@ public final class AttributesImpl implements Attributes {
       if (metrics != null) {
         metrics.recordAttributeWrite(true, null);
       }
+      return WriteResult.success();
     } catch (SQLException e) {
       ErrorCode code = SqlErrorCodes.classify(e);
       dbHealth.markFailure(e);
@@ -147,6 +151,7 @@ public final class AttributesImpl implements Attributes {
           e.getSQLState(),
           e.getErrorCode(),
           e);
+      return WriteResult.failure(code);
     }
   }
 

@@ -4,7 +4,10 @@ package dev.holarki.util;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.holarki.HolarkiMod;
+import dev.holarki.api.AttributeWriteException;
 import dev.holarki.api.Attributes;
+import dev.holarki.api.Attributes.WriteResult;
+import dev.holarki.api.ErrorCode;
 import dev.holarki.core.Config;
 import dev.holarki.core.Services;
 import java.time.ZoneId;
@@ -112,7 +115,10 @@ public final class Timezones {
     obj.addProperty("clock", clock.name());
     obj.addProperty("updatedAt", now);
     obj.addProperty("source", source);
-    services.attributes().put(uuid, ATTR_KEY, obj.toString(), now);
+    WriteResult result = services.attributes().put(uuid, ATTR_KEY, obj.toString(), now);
+    if (!result.applied()) {
+      throw attributeWriteFailed(result.error(), "timezone preference");
+    }
     return new TimePreference(zone, clock, source, now);
   }
 
@@ -123,7 +129,10 @@ public final class Timezones {
    * @param services service container used to persist attributes
    */
   public static void clear(UUID uuid, Services services) {
-    services.attributes().remove(uuid, ATTR_KEY);
+    WriteResult result = services.attributes().remove(uuid, ATTR_KEY);
+    if (!result.applied()) {
+      throw attributeWriteFailed(result.error(), "clear timezone preference");
+    }
   }
 
   /**
@@ -177,6 +186,11 @@ public final class Timezones {
     }
     Attributes attributes = services.attributes();
     return attributes.get(uuid, ATTR_KEY).flatMap(Timezones::decode);
+  }
+
+  private static AttributeWriteException attributeWriteFailed(ErrorCode error, String action) {
+    ErrorCode resolved = error != null ? error : ErrorCode.CONNECTION_LOST;
+    return new AttributeWriteException(resolved, "Failed to " + action);
   }
 
   private static Optional<TimePreference> decode(String json) {
