@@ -6,6 +6,7 @@ import dev.holarki.commands.AdminCommands;
 import dev.holarki.commands.PlaytimeCommand;
 import dev.holarki.core.Config;
 import dev.holarki.core.CoreServices;
+import dev.holarki.core.LocaleManager;
 import dev.holarki.core.Migrations;
 import dev.holarki.core.SchemaVerifier;
 import dev.holarki.core.Services;
@@ -61,6 +62,7 @@ public final class HolarkiMod implements ModInitializer {
     // 2) Config + services
     Path cfgPath = Path.of("config", "holarki.json5");
     Config cfg = Config.loadOrWriteDefault(cfgPath);
+    LocaleManager.initialize(cfg);
     CONFIG = cfg;
     Services services = CoreServices.start(cfg);
     MODULES = new ModuleManager(cfg, services);
