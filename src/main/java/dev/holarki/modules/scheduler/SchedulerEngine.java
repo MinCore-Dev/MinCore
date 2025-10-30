@@ -221,6 +221,10 @@ public final class SchedulerEngine implements SchedulerService {
     }
     try {
       BackupExporter.Result result = BackupExporter.exportAll(svc, cfg);
+      if (result == null) {
+        LOG.info("(holarki) backup skipped: backup job disabled in config");
+        return;
+      }
       LOG.info(
           "(holarki) backup complete: {} players={} attrs={} ledger={}",
           result.file().getFileName(),

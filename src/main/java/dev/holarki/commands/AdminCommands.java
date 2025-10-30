@@ -301,6 +301,12 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.fail", "config"), false);
       return 0;
     }
+    Config.Backup backupCfg = cfg.jobs().backup();
+    if (!backupCfg.enabled()) {
+      src.sendFeedback(
+          () -> Text.translatable("holarki.cmd.backup.fail", "disabled"), false);
+      return 0;
+    }
     final ExportOptions opts;
     try {
       opts = ExportOptions.parse(rawOptions);
@@ -308,7 +314,7 @@ public final class AdminCommands {
       src.sendFeedback(() -> Text.translatable("holarki.cmd.export.usage", e.getMessage()), false);
       return 0;
     }
-    final Path outDir = opts.outDir != null ? opts.outDir : Path.of(cfg.jobs().backup().outDir());
+    final Path outDir = opts.outDir != null ? opts.outDir : Path.of(backupCfg.outDir());
     src.sendFeedback(
         () -> Text.translatable("holarki.cmd.export.queued", outDir.toString()), false);
     final MinecraftServer server = src.getServer();
@@ -319,6 +325,17 @@ public final class AdminCommands {
                 try {
                   BackupExporter.Result result =
                       BackupExporter.exportAll(services, cfg, outDir, opts.gzipOverride);
+                  if (result == null) {
+                    runOnServerThread(
+                        server,
+                        () ->
+                            src.sendFeedback(
+                                () ->
+                                    Text.translatable("holarki.cmd.backup.fail", "disabled"),
+                                false),
+                        "export disabled feedback");
+                    return;
+                  }
                   runOnServerThread(
                       server,
                       () ->
