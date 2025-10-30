@@ -1,7 +1,9 @@
 /* Holarki © 2025 — MIT */
 package dev.holarki.core;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Constructor;
@@ -17,6 +19,18 @@ class LocaleManagerTest {
   @AfterEach
   void tearDown() {
     LocaleManager.resetForTests();
+  }
+
+  @Test
+  void defaultConfigLoadsRealBundle() throws Exception {
+    Config config = configWithLocales(List.of("en_US"), locale("en-US"), locale("en-US"));
+
+    assertDoesNotThrow(() -> LocaleManager.initialize(config));
+
+    assertFalse(LocaleManager.translations(locale("en-US")).isEmpty());
+    assertEquals(
+        "Database OK (ping %s ms)",
+        LocaleManager.translate("holarki.cmd.db.ping.ok", locale("en-US")));
   }
 
   @Test
