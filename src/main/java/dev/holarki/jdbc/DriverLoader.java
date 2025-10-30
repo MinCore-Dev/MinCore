@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class DriverLoader {
   private static final org.slf4j.Logger LOG = LoggerFactory.getLogger("holarki");
+  private static volatile org.slf4j.Logger logOverride;
   private static final String PROP_OVERRIDE = "holarki.jdbc.driver";
   private static final List<String> ROOTS = Arrays.asList("mods/lib/mariadb", "mods", ".");
 
@@ -39,14 +40,28 @@ public final class DriverLoader {
     throw new AssertionError("No instances");
   }
 
+  static void setLoggerForTesting(org.slf4j.Logger override) {
+    logOverride = override;
+  }
+
+  static void clearLoggerOverride() {
+    logOverride = null;
+  }
+
+  private static org.slf4j.Logger logger() {
+    org.slf4j.Logger override = logOverride;
+    return override != null ? override : LOG;
+  }
+
   /** Attempts to locate and register a MariaDB JDBC driver (any 3.x) from disk. */
   public static void tryLoadMariaDbDriver() {
     File jar = findDriverJar();
     if (jar == null) {
-      LOG.error(
-          "(holarki) MariaDB JDBC driver not found. Place mariadb-java-client-<version>.jar in mods/lib/mariadb/ "
-              + "or set -D{}=C:\\\\path\\\\mariadb-java-client-<version>.jar",
-          PROP_OVERRIDE);
+      logger()
+          .error(
+              "(holarki) MariaDB JDBC driver not found. Place mariadb-java-client-<version>.jar in mods/lib/mariadb/ "
+                  + "or set -D{}=C:\\\\path\\\\mariadb-java-client-<version>.jar",
+              PROP_OVERRIDE);
       return;
     }
 
@@ -56,9 +71,10 @@ public final class DriverLoader {
       Class<?> clazz = Class.forName("org.mariadb.jdbc.Driver", true, ucl);
       Driver driver = (Driver) clazz.getDeclaredConstructor().newInstance();
       DriverManager.registerDriver(new DriverShim(driver)); // register via shim
-      LOG.info("(holarki) JDBC driver loaded from {} (file: {})", jar.getParent(), jar.getName());
+      logger()
+          .info("(holarki) JDBC driver loaded from {} (file: {})", jar.getParent(), jar.getName());
     } catch (Throwable t) {
-      LOG.error("(holarki) failed to load JDBC driver from {}", jar.getPath(), t);
+      logger().error("(holarki) failed to load JDBC driver from {}", jar.getPath(), t);
     }
   }
 
@@ -69,7 +85,7 @@ public final class DriverLoader {
     if (override != null && !override.isBlank()) {
       File f = new File(override);
       if (f.isFile()) return f;
-      LOG.warn("(holarki) {} set but file not found: {}", PROP_OVERRIDE, override);
+      logger().warn("(holarki) {} set but file not found: {}", PROP_OVERRIDE, override);
     }
 
     // 2) Scan roots for mariadb-java-client-*.jar
@@ -86,16 +102,33 @@ public final class DriverLoader {
     }
     if (candidates.isEmpty()) return null;
 
+    List<VersionedCandidate> supported = new ArrayList<>();
+    for (File candidate : candidates) {
+      VersionInfo version = extractVersionInfo(candidate);
+      if (version.major() < 3) {
+        logger()
+            .warn(
+                "(holarki) ignoring MariaDB driver {} (major version {} detected); update to 3.x or newer.",
+                candidate.getName(),
+                version.major());
+        continue;
+      }
+      supported.add(new VersionedCandidate(candidate, version));
+    }
+
+    if (supported.isEmpty()) return null;
+
     // 3) Pick the highest version by filename (mariadb-java-client-<semver>.jar)
-    candidates.sort(Comparator.comparing(DriverLoader::extractVersionKey).reversed());
-    return candidates.get(0);
+    supported.sort(
+        Comparator.comparing((VersionedCandidate vc) -> vc.version().sortKey()).reversed());
+    return supported.get(0).file();
   }
 
   /**
    * Extract a numeric sortable key from a jar filename (e.g., "mariadb-java-client-3.5.6.jar").
    * Non-numeric parts after the version are ignored (e.g., "-beta").
    */
-  private static String extractVersionKey(File f) {
+  private static VersionInfo extractVersionInfo(File f) {
     String name = f.getName();
     String base = name.substring("mariadb-java-client-".length(), name.length() - ".jar".length());
     int dash = base.indexOf('-'); // strip classifier like -sources if present
@@ -105,7 +138,8 @@ public final class DriverLoader {
     int major = parts.length > 0 ? parseIntSafe(parts[0]) : 0;
     int minor = parts.length > 1 ? parseIntSafe(parts[1]) : 0;
     int patch = parts.length > 2 ? parseIntSafe(parts[2]) : 0;
-    return String.format("%03d.%03d.%03d", major, minor, patch);
+    String sortKey = String.format("%03d.%03d.%03d", major, minor, patch);
+    return new VersionInfo(major, sortKey);
   }
 
   private static int parseIntSafe(String s) {
@@ -160,4 +194,8 @@ public final class DriverLoader {
       return d.getParentLogger();
     }
   }
+
+  private record VersionInfo(int major, String sortKey) {}
+
+  private record VersionedCandidate(File file, VersionInfo version) {}
 }
