@@ -334,8 +334,7 @@ public final class SchedulerEngine implements SchedulerService {
       } else if (dows.wildcard()) {
         domDowMatches = dayMatches;
       } else {
-        boolean allowDowFallback = time.getDayOfMonth() <= 7;
-        domDowMatches = dayMatches || (allowDowFallback && dowMatches);
+        domDowMatches = dayMatches || dowMatches;
       }
       return seconds.matches(time.getSecond())
           && minutes.matches(time.getMinute())

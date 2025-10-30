@@ -36,6 +36,28 @@ class SchedulerCronTest {
   }
 
   @Test
+  void cronWithDayAndDowSchedulesAllOccurrences() throws Exception {
+    Class<?> cronClass = Class.forName("dev.holarki.modules.scheduler.SchedulerEngine$Cron");
+
+    Method parse = cronClass.getDeclaredMethod("parse", String.class);
+    parse.setAccessible(true);
+    Object cron = parse.invoke(null, "0 0 12 15 * 1");
+
+    Method next = cronClass.getDeclaredMethod("next", Instant.class);
+    next.setAccessible(true);
+
+    Instant reference = LocalDateTime.of(2025, 5, 15, 11, 59, 59).toInstant(ZoneOffset.UTC);
+    Instant first = (Instant) next.invoke(cron, reference);
+    assertEquals(LocalDateTime.of(2025, 5, 15, 12, 0).toInstant(ZoneOffset.UTC), first);
+
+    Instant second = (Instant) next.invoke(cron, first.plusSeconds(1));
+    assertEquals(LocalDateTime.of(2025, 5, 19, 12, 0).toInstant(ZoneOffset.UTC), second);
+
+    Instant third = (Instant) next.invoke(cron, second.plusSeconds(1));
+    assertEquals(LocalDateTime.of(2025, 5, 26, 12, 0).toInstant(ZoneOffset.UTC), third);
+  }
+
+  @Test
   void cronRejectsZeroOrNegativeSteps() throws Exception {
     Class<?> cronClass = Class.forName("dev.holarki.modules.scheduler.SchedulerEngine$Cron");
     Method parse = cronClass.getDeclaredMethod("parse", String.class);
