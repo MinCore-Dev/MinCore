@@ -18,7 +18,7 @@ class ConfigValidationTest {
     Path configPath = tempDir.resolve("holarki.json5");
     Files.writeString(
         configPath,
-        configJson(-1, "0 45 4 * * *"),
+        configJson(-1, "0 45 4 * * *", "0 30 4 * * *"),
         StandardCharsets.UTF_8);
 
     IllegalStateException thrown =
@@ -30,7 +30,7 @@ class ConfigValidationTest {
   @Test
   void invalidBackupScheduleUsesModulesPath(@TempDir Path tempDir) throws IOException {
     Path configPath = tempDir.resolve("holarki.json5");
-    Files.writeString(configPath, configJson(0, ""), StandardCharsets.UTF_8);
+    Files.writeString(configPath, configJson(0, "", "0 30 4 * * *"), StandardCharsets.UTF_8);
 
     IllegalStateException thrown =
         assertThrows(IllegalStateException.class, () -> Config.loadOrWriteDefault(configPath));
@@ -43,7 +43,7 @@ class ConfigValidationTest {
   void preservesCommentMarkersInsideStrings(@TempDir Path tempDir) throws IOException {
     Path configPath = tempDir.resolve("holarki.json5");
     String config =
-        configJson(0, "0 45 4 * * *")
+        configJson(0, "0 45 4 * * *", "0 30 4 * * *")
             .replace("\"user\": \"holarki\"", "\"user\": \"holarki//primary\"")
             .replace("\"password\": \"change-me\"", "\"password\": \"pa/*ss*/word\"")
             .replace(
@@ -59,7 +59,54 @@ class ConfigValidationTest {
     assertEquals("https://example.com/logs//file", parsed.ledger().jsonlMirror().path());
   }
 
-  private static String configJson(int retentionDays, String backupSchedule) {
+  @Test
+  void invalidBackupCronExpressionThrowsHelpfulError(@TempDir Path tempDir) throws IOException {
+    Path configPath = tempDir.resolve("holarki.json5");
+    Files.writeString(
+        configPath,
+        configJson(0, "0 0 0 * *", "0 30 4 * * *"),
+        StandardCharsets.UTF_8);
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> Config.loadOrWriteDefault(configPath));
+
+    assertEquals(
+        "modules.scheduler.jobs.backup.schedule invalid cron expression: cron must have 6 fields",
+        thrown.getMessage());
+  }
+
+  @Test
+  void invalidCleanupCronExpressionThrowsHelpfulError(@TempDir Path tempDir) throws IOException {
+    Path configPath = tempDir.resolve("holarki.json5");
+    Files.writeString(
+        configPath,
+        configJson(0, "0 45 4 * * *", "0 */0 * * * *"),
+        StandardCharsets.UTF_8);
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> Config.loadOrWriteDefault(configPath));
+
+    assertEquals(
+        "modules.scheduler.jobs.cleanup.idempotencySweep.schedule invalid cron expression: "
+            + "cron step must be positive: */0",
+        thrown.getMessage());
+  }
+
+  @Test
+  void validCronExpressionsLoadSuccessfully(@TempDir Path tempDir) throws IOException {
+    Path configPath = tempDir.resolve("holarki.json5");
+    Files.writeString(
+        configPath,
+        configJson(0, "15 30 2 * * *", "0 */5 * * * *"),
+        StandardCharsets.UTF_8);
+
+    Config parsed = Config.loadOrWriteDefault(configPath);
+
+    assertEquals("15 30 2 * * *", parsed.jobs().backup().schedule());
+    assertEquals("0 */5 * * * *", parsed.jobs().cleanup().idempotencySweep().schedule());
+  }
+
+  private static String configJson(int retentionDays, String backupSchedule, String cleanupSchedule) {
     return (
             """
             {
@@ -89,7 +136,7 @@ class ConfigValidationTest {
                     "cleanup": {
                       "idempotencySweep": {
                         "enabled": true,
-                        "schedule": "0 30 4 * * *",
+                        "schedule": "%s",
                         "retentionDays": 30,
                         "batchLimit": 5000
                       }
@@ -146,6 +193,6 @@ class ConfigValidationTest {
               }
             }
             """
-                .formatted(retentionDays, backupSchedule));
+                .formatted(retentionDays, backupSchedule, cleanupSchedule));
   }
 }
