@@ -18,7 +18,14 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -166,6 +173,50 @@ final class WalletIdempotencyTest {
     assertEquals(ErrorCode.IDEMPOTENCY_REPLAY, replay.code());
     assertEquals(3_500L, wallets.getBalance(alice));
     assertEquals(1_500L, wallets.getBalance(bob));
+  }
+
+  @Test
+  void concurrentRequestsWithSameKeyOnlyApplyOnce() throws Exception {
+    UUID player = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    String key = "concurrency-key";
+    int attempts = 6;
+
+    ExecutorService executor = Executors.newFixedThreadPool(attempts);
+    CountDownLatch ready = new CountDownLatch(attempts);
+    CountDownLatch start = new CountDownLatch(1);
+    List<Future<OperationResult>> futures = new ArrayList<>(attempts);
+    try {
+      for (int i = 0; i < attempts; i++) {
+        futures.add(
+            executor.submit(
+                () -> {
+                  ready.countDown();
+                  start.await();
+                  return wallets.depositResult(player, 1_000L, "race", key);
+                }));
+      }
+
+      if (!ready.await(10, TimeUnit.SECONDS)) {
+        throw new AssertionError("workers did not become ready in time");
+      }
+      start.countDown();
+
+      List<OperationResult> results = new ArrayList<>(attempts);
+      for (Future<OperationResult> future : futures) {
+        results.add(future.get(10, TimeUnit.SECONDS));
+      }
+
+      long applied = results.stream().filter(r -> r.ok() && r.code() == null).count();
+      long replays =
+          results.stream().filter(r -> ErrorCode.IDEMPOTENCY_REPLAY.equals(r.code())).count();
+
+      assertEquals(1, applied, "exactly one request should mutate state");
+      assertEquals(attempts - 1, replays, "remaining requests should report a replay");
+      assertEquals(1_000L, wallets.getBalance(player));
+    } finally {
+      executor.shutdown();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+    }
   }
 
   private void registerPlayer(UUID uuid, String name) {
