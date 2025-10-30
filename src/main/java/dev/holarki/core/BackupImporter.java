@@ -14,6 +14,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -89,6 +92,7 @@ public final class BackupImporter {
       boolean skipForeignKeys)
       throws IOException, SQLException {
     Path file = resolveInput(source);
+    verifyChecksum(file);
     Header header = peekHeader(file);
     return switch (Objects.requireNonNull(mode, "mode")) {
       case FRESH -> restoreFresh(services, file, strategy, skipForeignKeys, header);
@@ -275,6 +279,22 @@ public final class BackupImporter {
     return in;
   }
 
+  private static void verifyChecksum(Path file) throws IOException {
+    Path checksum = file.resolveSibling(file.getFileName().toString() + ".sha256");
+    if (!Files.exists(checksum)) {
+      return;
+    }
+    String expected = Files.readString(checksum, StandardCharsets.UTF_8).trim();
+    if (expected.isEmpty()) {
+      throw new IOException("snapshot checksum file is empty: " + checksum);
+    }
+    String actual = hashFile(file);
+    if (!expected.equalsIgnoreCase(actual)) {
+      throw new IOException(
+          "snapshot checksum mismatch for " + file.getFileName() + " (expected=" + expected + ", actual=" + actual + ")");
+    }
+  }
+
   private static Path resolveInput(Path source) throws IOException {
     if (Files.isDirectory(source)) {
       List<Path> candidates = new ArrayList<>();
@@ -381,6 +401,21 @@ public final class BackupImporter {
   private static void setForeignKeyChecks(Connection c, boolean enabled) throws SQLException {
     try (Statement st = c.createStatement()) {
       st.execute("SET FOREIGN_KEY_CHECKS=" + (enabled ? "1" : "0"));
+    }
+  }
+
+  private static String hashFile(Path file) throws IOException {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      try (DigestInputStream in = new DigestInputStream(Files.newInputStream(file), digest)) {
+        byte[] buffer = new byte[8192];
+        while (in.read(buffer) != -1) {
+          // consume stream to update digest
+        }
+      }
+      return HexFormat.of().formatHex(digest.digest());
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 unavailable", e);
     }
   }
 

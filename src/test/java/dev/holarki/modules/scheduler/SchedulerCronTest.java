@@ -2,11 +2,13 @@
 package dev.holarki.modules.scheduler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.Test;
 
 class SchedulerCronTest {
@@ -31,5 +33,38 @@ class SchedulerCronTest {
 
     Instant third = (Instant) next.invoke(cron, second.plusSeconds(1));
     assertEquals(LocalDateTime.of(2025, 2, 1, 4, 45).toInstant(ZoneOffset.UTC), third);
+  }
+
+  @Test
+  void cronRejectsZeroOrNegativeSteps() throws Exception {
+    Class<?> cronClass = Class.forName("dev.holarki.modules.scheduler.SchedulerEngine$Cron");
+    Method parse = cronClass.getDeclaredMethod("parse", String.class);
+    parse.setAccessible(true);
+
+    assertThrows(IllegalArgumentException.class, toExecutable(parse, "0 */0 * * * *"));
+    assertThrows(IllegalArgumentException.class, toExecutable(parse, "0 */-5 * * * *"));
+  }
+
+  @Test
+  void cronRejectsInvertedRanges() throws Exception {
+    Class<?> cronClass = Class.forName("dev.holarki.modules.scheduler.SchedulerEngine$Cron");
+    Method parse = cronClass.getDeclaredMethod("parse", String.class);
+    parse.setAccessible(true);
+
+    assertThrows(IllegalArgumentException.class, toExecutable(parse, "0 0 12 10-5 * *"));
+  }
+
+  private static Executable toExecutable(Method parse, String expression) {
+    return () -> {
+      try {
+        parse.invoke(null, expression);
+      } catch (java.lang.reflect.InvocationTargetException e) {
+        Throwable cause = e.getCause();
+        if (cause instanceof RuntimeException runtime) {
+          throw runtime;
+        }
+        throw new RuntimeException(cause);
+      }
+    };
   }
 }

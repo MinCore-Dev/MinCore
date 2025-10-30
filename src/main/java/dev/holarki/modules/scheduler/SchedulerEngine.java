@@ -359,6 +359,9 @@ public final class SchedulerEngine implements SchedulerService {
       String[] stepSplit = part.split("/");
       String range = stepSplit[0];
       int step = stepSplit.length > 1 ? Integer.parseInt(stepSplit[1]) : 1;
+      if (step <= 0) {
+        throw new IllegalArgumentException("cron step must be positive: " + part);
+      }
       int start;
       int end;
       if ("*".equals(range)) {
@@ -374,7 +377,10 @@ public final class SchedulerEngine implements SchedulerService {
       }
       if (start < min) start = min;
       if (end > max) end = max;
-      for (int v = start; v <= end; v += Math.max(1, step)) {
+      if (start > end) {
+        throw new IllegalArgumentException("invalid cron range: " + part);
+      }
+      for (int v = start; v <= end; v += step) {
         int value = (max == 7 && v == 7) ? 0 : v;
         if (value >= min && value <= max) {
           out.add(value);
