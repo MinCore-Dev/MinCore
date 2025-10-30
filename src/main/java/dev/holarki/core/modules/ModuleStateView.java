@@ -1,6 +1,7 @@
 /* Holarki © 2025 Holarki Devs — MIT */
 package dev.holarki.core.modules;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -17,4 +18,9 @@ public interface ModuleStateView {
 
   /** Returns an optional module-published service for the requested type. */
   <T> Optional<T> service(Class<T> type);
+
+  /** Returns registered admin command extensions. */
+  default List<ModuleContext.AdminCommandExtension> adminCommandExtensions() {
+    return List.of();
+  }
 }
