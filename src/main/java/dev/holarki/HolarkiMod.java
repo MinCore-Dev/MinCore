@@ -95,7 +95,9 @@ public final class HolarkiMod implements ModInitializer {
     if (cfg.modules().timezone().enabled()) {
       requested.add(TimezoneModule.ID);
     }
-    if (cfg.modules().timezone().autoDetect().enabled() && cfg.time().display().autoDetect()) {
+    boolean autoDetectEnabled =
+        cfg.time().display().autoDetect() && cfg.modules().timezone().autoDetect().enabled();
+    if (autoDetectEnabled) {
       requested.add(TimezoneAutoModule.ID);
     }
     if (cfg.modules().scheduler().enabled()) {
