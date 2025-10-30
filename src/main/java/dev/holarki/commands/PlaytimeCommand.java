@@ -4,20 +4,26 @@ package dev.holarki.commands;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import dev.holarki.api.Players;
-import dev.holarki.api.Players.PlayerRef;
 import dev.holarki.api.Playtime;
 import dev.holarki.core.Services;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.command.argument.GameProfileArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Implements /playtime me|top|reset. */
 public final class PlaytimeCommand {
+  private static final Logger LOG = LoggerFactory.getLogger("holarki");
+
   private PlaytimeCommand() {}
 
   /**
@@ -89,16 +95,39 @@ public final class PlaytimeCommand {
       srcSend(src, Text.translatable("holarki.cmd.pt.top.empty"));
       return 1;
     }
-    srcSend(src, Text.translatable("holarki.cmd.pt.top.header", limit));
-    Players players = services.players();
-    for (int i = 0; i < entries.size(); i++) {
-      Playtime.Entry entry = entries.get(i);
-      PlayerRef ref = players.byUuid(entry.player()).orElse(null);
-      String name = ref != null ? ref.name() : entry.playerString();
-      srcSend(
-          src,
-          Text.translatable(
-              "holarki.cmd.pt.top.line", i + 1, name, Playtime.human(entry.seconds())));
+    List<Playtime.Entry> snapshot = List.copyOf(entries);
+    LinkedHashSet<UUID> uuidOrder = new LinkedHashSet<>();
+    for (Playtime.Entry entry : snapshot) {
+      UUID player = entry.player();
+      if (player != null) {
+        uuidOrder.add(player);
+      }
+    }
+    var server = src.getServer();
+    var scheduler = services.scheduler();
+    if (server == null || scheduler == null) {
+      sendTopResult(src, limit, snapshot, Map.of());
+      return 1;
+    }
+    Runnable fallback = () -> server.execute(() -> sendTopResult(src, limit, snapshot, Map.of()));
+    try {
+      scheduler.execute(
+          () -> {
+            Map<UUID, Players.PlayerRef> resolved = Map.of();
+            try {
+              if (!uuidOrder.isEmpty()) {
+                resolved = Map.copyOf(services.players().byUuidBulk(uuidOrder));
+              }
+            } catch (RuntimeException e) {
+              LOG.warn("(holarki) playtime top name resolution failed", e);
+              resolved = Map.of();
+            }
+            Map<UUID, Players.PlayerRef> finalResolved = resolved;
+            server.execute(() -> sendTopResult(src, limit, snapshot, finalResolved));
+          });
+    } catch (RejectedExecutionException e) {
+      LOG.debug("(holarki) scheduler rejected playtime top task", e);
+      fallback.run();
     }
     return 1;
   }
@@ -112,5 +141,27 @@ public final class PlaytimeCommand {
 
   private static void srcSend(ServerCommandSource src, Text text) {
     src.sendFeedback(() -> text, false);
+  }
+
+  private static void sendTopResult(
+      ServerCommandSource src,
+      int limit,
+      List<Playtime.Entry> entries,
+      Map<UUID, Players.PlayerRef> players) {
+    srcSend(src, Text.translatable("holarki.cmd.pt.top.header", limit));
+    for (int i = 0; i < entries.size(); i++) {
+      Playtime.Entry entry = entries.get(i);
+      String name = entry.playerString();
+      if (players != null && entry.player() != null) {
+        Players.PlayerRef ref = players.get(entry.player());
+        if (ref != null && ref.name() != null && !ref.name().isBlank()) {
+          name = ref.name();
+        }
+      }
+      srcSend(
+          src,
+          Text.translatable(
+              "holarki.cmd.pt.top.line", i + 1, name, Playtime.human(entry.seconds())));
+    }
   }
 }

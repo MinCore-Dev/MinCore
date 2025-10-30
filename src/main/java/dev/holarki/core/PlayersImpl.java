@@ -13,8 +13,12 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -80,6 +84,68 @@ public final class PlayersImpl implements Players {
           e);
     }
     return result;
+  }
+
+  @Override
+  public Map<UUID, PlayerRef> byUuidBulk(Collection<UUID> uuids) {
+    if (uuids == null || uuids.isEmpty()) {
+      return Map.of();
+    }
+    LinkedHashSet<UUID> unique = new LinkedHashSet<>();
+    for (UUID uuid : uuids) {
+      if (uuid != null) {
+        unique.add(uuid);
+      }
+    }
+    if (unique.isEmpty()) {
+      return Map.of();
+    }
+    StringBuilder sql =
+        new StringBuilder(
+            "SELECT uuid,name,created_at_s,updated_at_s,seen_at_s,balance_units FROM players WHERE uuid IN (");
+    int paramCount = unique.size();
+    for (int i = 0; i < paramCount; i++) {
+      if (i > 0) {
+        sql.append(',');
+      }
+      sql.append('?');
+    }
+    sql.append(')');
+    Map<UUID, PlayerRef> out = new LinkedHashMap<>();
+    try (Connection c = ds.getConnection();
+        PreparedStatement ps = c.prepareStatement(sql.toString())) {
+      int idx = 1;
+      for (UUID uuid : unique) {
+        ps.setBytes(idx++, Uuids.toBytes(uuid));
+      }
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          PlayerRef ref = mapPlayer(rs);
+          if (ref != null && ref.uuid() != null) {
+            out.put(ref.uuid(), ref);
+          }
+        }
+      }
+      dbHealth.markSuccess();
+      if (metrics != null) {
+        metrics.recordPlayerLookup(true, null);
+      }
+    } catch (SQLException e) {
+      ErrorCode code = SqlErrorCodes.classify(e);
+      dbHealth.markFailure(e);
+      if (metrics != null) {
+        metrics.recordPlayerLookup(false, code);
+      }
+      LOG.warn(
+          "(holarki) code={} op={} message={} sqlState={} vendor={}",
+          code,
+          "players.byUuidBulk",
+          e.getMessage(),
+          e.getSQLState(),
+          e.getErrorCode(),
+          e);
+    }
+    return Map.copyOf(out);
   }
 
   @Override
