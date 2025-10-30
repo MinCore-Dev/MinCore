@@ -170,7 +170,13 @@ public final class WalletsImpl implements Wallets {
     if (before == null) {
       return Mutation.failure(OperationResult.failure(ErrorCode.UNKNOWN_PLAYER, "player missing"));
     }
-    long newUnits = before.units + delta;
+    long newUnits;
+    try {
+      newUnits = Math.addExact(before.units, delta);
+    } catch (ArithmeticException e) {
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INVALID_AMOUNT, "balance would overflow"));
+    }
     if (newUnits < 0) {
       return Mutation.failure(
           OperationResult.failure(ErrorCode.INSUFFICIENT_FUNDS, "balance would go negative"));
@@ -208,8 +214,20 @@ public final class WalletsImpl implements Wallets {
     }
 
     long now = Instant.now().getEpochSecond();
-    long newFrom = fromBal.units - amount;
-    long newTo = toBal.units + amount;
+    long newFrom;
+    try {
+      newFrom = Math.subtractExact(fromBal.units, amount);
+    } catch (ArithmeticException e) {
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INVALID_AMOUNT, "balance would overflow"));
+    }
+    long newTo;
+    try {
+      newTo = Math.addExact(toBal.units, amount);
+    } catch (ArithmeticException e) {
+      return Mutation.failure(
+          OperationResult.failure(ErrorCode.INVALID_AMOUNT, "balance would overflow"));
+    }
 
     updateBalance(c, from, newFrom, now);
     updateBalance(c, to, newTo, now);
