@@ -17,6 +17,29 @@ public interface Players {
   Optional<PlayerRef> byUuid(UUID uuid);
 
   /**
+   * Looks up multiple players by UUID in a single batch operation.
+   *
+   * <p>Implementations may choose to override the default behavior to avoid repeated database
+   * round trips.
+   *
+   * @param uuids player UUIDs to resolve
+   * @return immutable map from UUID to player reference for rows that exist
+   */
+  default java.util.Map<UUID, PlayerRef> byUuidBulk(java.util.Collection<UUID> uuids) {
+    if (uuids == null || uuids.isEmpty()) {
+      return java.util.Map.of();
+    }
+    java.util.Map<UUID, PlayerRef> out = new java.util.LinkedHashMap<>();
+    for (UUID uuid : uuids) {
+      if (uuid == null) {
+        continue;
+      }
+      byUuid(uuid).ifPresent(ref -> out.put(uuid, ref));
+    }
+    return java.util.Map.copyOf(out);
+  }
+
+  /**
    * Looks up a player by case-insensitive name.
    *
    * @param name exact username (case preserved)
