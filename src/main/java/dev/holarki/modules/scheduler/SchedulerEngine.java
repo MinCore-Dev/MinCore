@@ -41,14 +41,16 @@ public final class SchedulerEngine implements SchedulerService {
 
   /** Installs jobs described in config. */
   public synchronized void start(Services services, Config cfg) {
-    this.services = Objects.requireNonNull(services, "services");
+    Objects.requireNonNull(services, "services");
     Objects.requireNonNull(cfg, "cfg");
 
     jobs.clear();
 
-    if (!cfg.modules().scheduler().enabled()) {
+    boolean schedulerEnabled = cfg.modules().scheduler().enabled();
+    this.services = schedulerEnabled ? services : null;
+
+    if (!schedulerEnabled) {
       LOG.info("(holarki) scheduler: disabled by config");
-      return;
     }
 
     if (cfg.jobs().cleanup().idempotencySweep().enabled()) {
@@ -58,7 +60,8 @@ public final class SchedulerEngine implements SchedulerService {
               "cleanup.idempotencySweep",
               sweep.schedule(),
               () -> runIdempotencySweep(sweep),
-              "Removes expired core_requests rows"));
+              "Removes expired core_requests rows",
+              !schedulerEnabled));
     }
 
     if (cfg.jobs().backup().enabled()) {
@@ -68,9 +71,10 @@ public final class SchedulerEngine implements SchedulerService {
               "backup",
               backupJob.schedule(),
               () -> runBackup(cfg),
-              "Exports JSONL backup"));
+              "Exports JSONL backup",
+              !schedulerEnabled));
 
-      if (backupJob.onMissed() == Config.OnMissed.RUN_AT_NEXT_STARTUP) {
+      if (schedulerEnabled && backupJob.onMissed() == Config.OnMissed.RUN_AT_NEXT_STARTUP) {
         runNow("backup");
       }
     }
@@ -95,13 +99,16 @@ public final class SchedulerEngine implements SchedulerService {
 
   @Override
   public RunResult runNow(String name) {
-    Services svc = services;
-    if (svc == null) {
-      return RunResult.DISABLED;
-    }
     JobHandle job = jobs.get(name);
     if (job == null) {
       return RunResult.UNKNOWN;
+    }
+    if (job.disabled) {
+      return RunResult.DISABLED;
+    }
+    Services svc = services;
+    if (svc == null) {
+      return RunResult.DISABLED;
     }
     if (!job.tryQueueManual()) {
       return RunResult.IN_PROGRESS;
@@ -118,12 +125,14 @@ public final class SchedulerEngine implements SchedulerService {
 
   private void register(JobHandle job) {
     jobs.put(job.name, job);
-    schedule(job, Instant.now());
+    if (!job.disabled) {
+      schedule(job, Instant.now());
+    }
   }
 
   private void schedule(JobHandle job, Instant reference) {
     Services svc = services;
-    if (svc == null) {
+    if (svc == null || job.disabled) {
       return;
     }
     Cron cron = job.cron;
@@ -263,17 +272,24 @@ public final class SchedulerEngine implements SchedulerService {
     final Cron cron;
     final Runnable task;
     final String description;
+    final boolean disabled;
     final JobStatus status;
     volatile ScheduledFuture<?> future;
     volatile boolean manualQueued;
     final Object lock = new Object();
 
     JobHandle(String name, String cronExpr, Runnable task, String description) {
+      this(name, cronExpr, task, description, false);
+    }
+
+    JobHandle(
+        String name, String cronExpr, Runnable task, String description, boolean disabled) {
       this.name = name;
       this.cron = Cron.parse(cronExpr);
       this.task = task;
       this.description = description;
-      this.status = new JobStatus(name, cronExpr, description);
+      this.disabled = disabled;
+      this.status = new JobStatus(name, cronExpr, description, disabled);
     }
 
     JobStatus snapshot() {
@@ -281,6 +297,9 @@ public final class SchedulerEngine implements SchedulerService {
     }
 
     boolean tryQueueManual() {
+      if (disabled) {
+        return false;
+      }
       synchronized (lock) {
         if (status.running || manualQueued) {
           return false;
