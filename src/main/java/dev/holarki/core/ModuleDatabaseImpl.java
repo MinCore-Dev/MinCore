@@ -106,7 +106,7 @@ public final class ModuleDatabaseImpl implements ModuleDatabase, AutoCloseable {
                   release.executeQuery();
                   dbHealth.markSuccess();
                   if (metrics != null) {
-                    metrics.recordModuleOperation(false, null);
+                    metrics.recordModuleOperation(true, null);
                   }
                 } catch (SQLException releaseError) {
                   ErrorCode code = SqlErrorCodes.classify(releaseError);
