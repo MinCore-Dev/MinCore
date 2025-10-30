@@ -935,6 +935,8 @@ public final class BackupImporter {
 
   private static final class MergeHandler implements SnapshotHandler {
     private final PreparedStatement upsertPlayer;
+    private final PreparedStatement insertPlayer;
+    private final PreparedStatement selectPlayer;
     private final PreparedStatement upsertAttr;
     private final PreparedStatement insertLedger;
     private final PreparedStatement existsLedger;
@@ -950,6 +952,12 @@ public final class BackupImporter {
                   + "VALUES(?,?,?,?,?,?) "
                   + "ON DUPLICATE KEY UPDATE name=VALUES(name), balance_units=VALUES(balance_units), "
                   + "updated_at_s=VALUES(updated_at_s), seen_at_s=VALUES(seen_at_s)");
+      this.insertPlayer =
+          c.prepareStatement(
+              "INSERT INTO players(uuid,name,balance_units,created_at_s,updated_at_s,seen_at_s) "
+                  + "VALUES(?,?,?,?,?,?)");
+      this.selectPlayer =
+          c.prepareStatement("SELECT 1 FROM players WHERE uuid=? LIMIT 1");
       this.upsertAttr =
           c.prepareStatement(
               "INSERT INTO player_attributes(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) "
@@ -984,18 +992,27 @@ public final class BackupImporter {
       if (uuid == null) {
         throw new SQLException("missing player uuid in snapshot");
       }
-      upsertPlayer.setBytes(1, uuid);
-      upsertPlayer.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "name"), ""));
-      upsertPlayer.setLong(3, longOrZero(obj, "balance"));
-      upsertPlayer.setLong(4, longOrZero(obj, "createdAt"));
-      upsertPlayer.setLong(5, longOrZero(obj, "updatedAt"));
+      if (!overwrite) {
+        selectPlayer.setBytes(1, uuid);
+        try (ResultSet existing = selectPlayer.executeQuery()) {
+          if (existing.next()) {
+            return;
+          }
+        }
+      }
+      PreparedStatement playerStatement = overwrite ? upsertPlayer : insertPlayer;
+      playerStatement.setBytes(1, uuid);
+      playerStatement.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "name"), ""));
+      playerStatement.setLong(3, longOrZero(obj, "balance"));
+      playerStatement.setLong(4, longOrZero(obj, "createdAt"));
+      playerStatement.setLong(5, longOrZero(obj, "updatedAt"));
       long seen = longOrZero(obj, "seenAt");
       if (seen <= 0) {
-        upsertPlayer.setNull(6, Types.BIGINT);
+        playerStatement.setNull(6, Types.BIGINT);
       } else {
-        upsertPlayer.setLong(6, seen);
+        playerStatement.setLong(6, seen);
       }
-      upsertPlayer.executeUpdate();
+      playerStatement.executeUpdate();
     }
 
     @Override
@@ -1179,6 +1196,8 @@ public final class BackupImporter {
       close(existsLedger);
       close(insertLedger);
       close(upsertAttr);
+      close(insertPlayer);
+      close(selectPlayer);
       close(upsertPlayer);
       close(upsertSeq);
     }
