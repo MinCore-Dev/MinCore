@@ -49,6 +49,7 @@ public final class LedgerService implements Ledger, AutoCloseable {
   private final Metrics metrics;
   private AutoCloseable coreListener; // event unsubscription
   private volatile ScheduledFuture<?> retentionFuture;
+  private final Object fileLock = new Object();
 
   private LedgerService(
       ModuleDatabase database,
@@ -214,9 +215,14 @@ public final class LedgerService implements Ledger, AutoCloseable {
     if (future != null) {
       future.cancel(false);
     }
-    if (coreListener != null) {
+    AutoCloseable listener;
+    synchronized (fileLock) {
+      listener = this.coreListener;
+      this.coreListener = null;
+    }
+    if (listener != null) {
       try {
-        coreListener.close();
+        listener.close();
       } catch (Throwable t) {
         LOG.debug("(holarki) ledger: close listener", t);
       }
@@ -373,60 +379,62 @@ public final class LedgerService implements Ledger, AutoCloseable {
     }
 
     if (fileEnabled && filePath != null) {
-      try {
-        ensureParent(filePath);
-        JsonObject j = new JsonObject();
-        j.addProperty("ts", tsS);
-        j.addProperty("module", moduleId);
-        j.addProperty("op", op);
-        if (from != null) {
-          j.addProperty("from", from.toString());
+      JsonObject j = new JsonObject();
+      j.addProperty("ts", tsS);
+      j.addProperty("module", moduleId);
+      j.addProperty("op", op);
+      if (from != null) {
+        j.addProperty("from", from.toString());
+      }
+      if (to != null) {
+        j.addProperty("to", to.toString());
+      }
+      j.addProperty("amount", amount);
+      j.addProperty("reason", reason);
+      j.addProperty("ok", ok);
+      if (code != null) {
+        j.addProperty("code", code);
+      }
+      if (seq > 0) {
+        j.addProperty("seq", seq);
+      }
+      if (idemScope != null) {
+        j.addProperty("idemScope", idemScope);
+      }
+      if (oldUnits != null) {
+        j.addProperty("oldUnits", oldUnits);
+      }
+      if (newUnits != null) {
+        j.addProperty("newUnits", newUnits);
+      }
+      if (extraJson != null && !extraJson.isBlank()) {
+        try {
+          j.add("extra", GSON.fromJson(extraJson, JsonObject.class));
+        } catch (Throwable ignore) {
+          j.addProperty("extraRaw", extraJson);
         }
-        if (to != null) {
-          j.addProperty("to", to.toString());
-        }
-        j.addProperty("amount", amount);
-        j.addProperty("reason", reason);
-        j.addProperty("ok", ok);
-        if (code != null) {
-          j.addProperty("code", code);
-        }
-        if (seq > 0) {
-          j.addProperty("seq", seq);
-        }
-        if (idemScope != null) {
-          j.addProperty("idemScope", idemScope);
-        }
-        if (oldUnits != null) {
-          j.addProperty("oldUnits", oldUnits);
-        }
-        if (newUnits != null) {
-          j.addProperty("newUnits", newUnits);
-        }
-        if (extraJson != null && !extraJson.isBlank()) {
-          try {
-            j.add("extra", GSON.fromJson(extraJson, JsonObject.class));
-          } catch (Throwable ignore) {
-            j.addProperty("extraRaw", extraJson);
+      }
+      synchronized (fileLock) {
+        try {
+          ensureParent(filePath);
+          try (BufferedWriter w =
+              Files.newBufferedWriter(
+                  filePath,
+                  StandardCharsets.UTF_8,
+                  StandardOpenOption.CREATE,
+                  StandardOpenOption.APPEND)) {
+            w.write(GSON.toJson(j));
+            w.write("\n");
           }
+        } catch (IOException ioe) {
+          LOG.warn(
+              "(holarki) code={} op={} message={} path={}",
+              "FILE_IO",
+              "ledger.fileWrite",
+              ioe.getMessage(),
+              filePath,
+              ioe);
         }
-        try (BufferedWriter w =
-            Files.newBufferedWriter(
-                filePath,
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND)) {
-          w.write(GSON.toJson(j));
-          w.write("\n");
-        }
-      } catch (IOException ioe) {
-        LOG.warn(
-            "(holarki) code={} op={} message={} path={}",
-            "FILE_IO",
-            "ledger.fileWrite",
-            ioe.getMessage(),
-            filePath,
-            ioe);
       }
     }
   }
