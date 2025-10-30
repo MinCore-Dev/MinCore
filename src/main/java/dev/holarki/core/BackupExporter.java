@@ -1,11 +1,12 @@
 /* Holarki © 2025 Holarki Devs — MIT */
 package dev.holarki.core;
 
-import com.google.gson.JsonPrimitive;
+import com.google.gson.stream.JsonWriter;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.io.StringWriter;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -103,25 +104,14 @@ public final class BackupExporter {
   }
 
   private static void writeHeader(BufferedWriter writer, Config cfg) throws IOException {
-    String json =
-        "{"
-            + requiredString("version")
-            + ":"
-            + requiredString("jsonl/v1")
-            + ','
-            + requiredString("generatedAt")
-            + ":"
-            + requiredString(Instant.now().toString())
-            + ','
-            + requiredString("defaultZone")
-            + ":"
-            + requiredString(cfg.time().display().defaultZone().getId())
-            + ','
-            + requiredString("schemaVersion")
-            + ":"
-            + Migrations.currentVersion()
-            + "}\n";
-    writer.write(json);
+    writeJsonLine(
+        writer,
+        json -> {
+          json.name("version").value("jsonl/v1");
+          json.name("generatedAt").value(Instant.now().toString());
+          json.name("defaultZone").value(cfg.time().display().defaultZone().getId());
+          json.name("schemaVersion").value(Migrations.currentVersion());
+        });
   }
 
   private static long dumpPlayers(BufferedWriter writer, Connection c)
@@ -137,39 +127,23 @@ public final class BackupExporter {
         long updatedAt = rs.getLong("updated_at_s");
         long seenRaw = rs.getLong("seen_at_s");
         boolean seenNull = rs.wasNull();
-        String seenValue = seenNull ? "null" : Long.toString(seenRaw);
 
-        String line =
-            "{"
-                + requiredString("table")
-                + ":"
-                + requiredString("players")
-                + ','
-                + requiredString("uuid")
-                + ":"
-                + requiredString(formatUuid(rs.getString("uuid")))
-                + ','
-                + requiredString("name")
-                + ":"
-                + requiredString(rs.getString("name"))
-                + ','
-                + requiredString("balance")
-                + ":"
-                + balance
-                + ','
-                + requiredString("createdAt")
-                + ":"
-                + createdAt
-                + ','
-                + requiredString("updatedAt")
-                + ":"
-                + updatedAt
-                + ','
-                + requiredString("seenAt")
-                + ":"
-                + seenValue
-                + "}\n";
-        writer.write(line);
+        writeJsonLine(
+            writer,
+            json -> {
+              json.name("table").value("players");
+              json.name("uuid").value(formatUuid(rs.getString("uuid")));
+              json.name("name").value(rs.getString("name"));
+              json.name("balance").value(balance);
+              json.name("createdAt").value(createdAt);
+              json.name("updatedAt").value(updatedAt);
+              json.name("seenAt");
+              if (seenNull) {
+                json.nullValue();
+              } else {
+                json.value(seenRaw);
+              }
+            });
         count++;
       }
       return count;
@@ -184,33 +158,17 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
-        String line =
-            "{"
-                + requiredString("table")
-                + ":"
-                + requiredString("player_attributes")
-                + ','
-                + requiredString("owner")
-                + ":"
-                + requiredString(formatUuid(rs.getString("owner_uuid")))
-                + ','
-                + requiredString("key")
-                + ":"
-                + requiredString(rs.getString("attr_key"))
-                + ','
-                + requiredString("value")
-                + ":"
-                + rs.getString("value_json")
-                + ','
-                + requiredString("createdAt")
-                + ":"
-                + rs.getLong("created_at_s")
-                + ','
-                + requiredString("updatedAt")
-                + ":"
-                + rs.getLong("updated_at_s")
-                + "}\n";
-        writer.write(line);
+        writeJsonLine(
+            writer,
+            json -> {
+              json.name("table").value("player_attributes");
+              json.name("owner").value(formatUuid(rs.getString("owner_uuid")));
+              json.name("key").value(rs.getString("attr_key"));
+              json.name("value");
+              writeJsonValue(json, rs.getString("value_json"));
+              json.name("createdAt").value(rs.getLong("created_at_s"));
+              json.name("updatedAt").value(rs.getLong("updated_at_s"));
+            });
         count++;
       }
       return count;
@@ -224,21 +182,13 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
-        StringBuilder line = new StringBuilder();
-        line.append('{')
-            .append(requiredString("table"))
-            .append(':')
-            .append(requiredString("player_event_seq"))
-            .append(',')
-            .append(requiredString("uuid"))
-            .append(':')
-            .append(requiredString(formatUuid(rs.getString("uuid"))))
-            .append(',')
-            .append(requiredString("seq"))
-            .append(':')
-            .append(rs.getLong("seq"))
-            .append("}\n");
-        writer.write(line.toString());
+        writeJsonLine(
+            writer,
+            json -> {
+              json.name("table").value("player_event_seq");
+              json.name("uuid").value(formatUuid(rs.getString("uuid")));
+              json.name("seq").value(rs.getLong("seq"));
+            });
         count++;
       }
       return count;
@@ -259,77 +209,42 @@ public final class BackupExporter {
         Object newUnitsObj = rs.getObject("new_units");
         Long oldUnits = oldUnitsObj == null ? null : ((Number) oldUnitsObj).longValue();
         Long newUnits = newUnitsObj == null ? null : ((Number) newUnitsObj).longValue();
-        StringBuilder line = new StringBuilder();
-        line.append('{')
-            .append(requiredString("table"))
-            .append(':')
-            .append(requiredString("core_ledger"))
-            .append(',')
-            .append(requiredString("ts"))
-            .append(':')
-            .append(rs.getLong("ts_s"))
-            .append(',')
-            .append(requiredString("module"))
-            .append(':')
-            .append(requiredString(rs.getString("module_id")))
-            .append(',')
-            .append(requiredString("op"))
-            .append(':')
-            .append(requiredString(rs.getString("op")))
-            .append(',')
-            .append(requiredString("from"))
-            .append(':')
-            .append(requiredString(formatUuid(rs.getString("from_uuid"))))
-            .append(',')
-            .append(requiredString("to"))
-            .append(':')
-            .append(requiredString(formatUuid(rs.getString("to_uuid"))))
-            .append(',')
-            .append(requiredString("amount"))
-            .append(':')
-            .append(rs.getLong("amount"))
-            .append(',')
-            .append(requiredString("reason"))
-            .append(':')
-            .append(requiredString(rs.getString("reason")))
-            .append(',')
-            .append(requiredString("ok"))
-            .append(':')
-            .append(rs.getBoolean("ok"))
-            .append(',')
-            .append(requiredString("code"))
-            .append(':')
-            .append(optionalString(rs.getString("code")))
-            .append(',')
-            .append(requiredString("seq"))
-            .append(':')
-            .append(rs.getLong("seq"))
-            .append(',')
-            .append(requiredString("idemScope"))
-            .append(':')
-            .append(optionalString(rs.getString("idem_scope")))
-            .append(',')
-            .append(requiredString("idemKey"))
-            .append(':')
-            .append(optionalString(rs.getString("idem_key_hash")))
-            .append(',')
-            .append(requiredString("oldUnits"))
-            .append(':')
-            .append(oldUnits == null ? "null" : oldUnits.toString())
-            .append(',')
-            .append(requiredString("newUnits"))
-            .append(':')
-            .append(newUnits == null ? "null" : newUnits.toString())
-            .append(',')
-            .append(requiredString("serverNode"))
-            .append(':')
-            .append(optionalString(rs.getString("server_node")))
-            .append(',')
-            .append(requiredString("extra"))
-            .append(':')
-            .append(rs.getString("extra_json") == null ? "null" : rs.getString("extra_json"))
-            .append("}\n");
-        writer.write(line.toString());
+        writeJsonLine(
+            writer,
+            json -> {
+              json.name("table").value("core_ledger");
+              json.name("ts").value(rs.getLong("ts_s"));
+              json.name("module").value(rs.getString("module_id"));
+              json.name("op").value(rs.getString("op"));
+              json.name("from").value(formatUuid(rs.getString("from_uuid")));
+              json.name("to").value(formatUuid(rs.getString("to_uuid")));
+              json.name("amount").value(rs.getLong("amount"));
+              json.name("reason").value(rs.getString("reason"));
+              json.name("ok").value(rs.getBoolean("ok"));
+
+              json.name("code");
+              writeOptionalString(json, rs.getString("code"));
+
+              json.name("seq").value(rs.getLong("seq"));
+
+              json.name("idemScope");
+              writeOptionalString(json, rs.getString("idem_scope"));
+
+              json.name("idemKey");
+              writeOptionalString(json, rs.getString("idem_key_hash"));
+
+              json.name("oldUnits");
+              writeOptionalLong(json, oldUnits);
+
+              json.name("newUnits");
+              writeOptionalLong(json, newUnits);
+
+              json.name("serverNode");
+              writeOptionalString(json, rs.getString("server_node"));
+
+              json.name("extra");
+              writeJsonValue(json, rs.getString("extra_json"));
+            });
         count++;
       }
       return count;
@@ -398,12 +313,45 @@ public final class BackupExporter {
     return new UUID(msb, lsb).toString();
   }
 
-  private static String requiredString(String in) {
-    return new JsonPrimitive(in == null ? "" : in).toString();
+  private static void writeJsonLine(BufferedWriter writer, RowWriter rowWriter) throws IOException {
+    StringWriter buffer = new StringWriter();
+    try (JsonWriter jsonWriter = new JsonWriter(buffer)) {
+      jsonWriter.setSerializeNulls(true);
+      jsonWriter.beginObject();
+      rowWriter.write(jsonWriter);
+      jsonWriter.endObject();
+    }
+    writer.write(buffer.toString());
+    writer.write('\n');
   }
 
-  private static String optionalString(String in) {
-    return in == null ? "null" : requiredString(in);
+  private static void writeJsonValue(JsonWriter writer, String rawJson) throws IOException {
+    if (rawJson == null) {
+      writer.nullValue();
+    } else {
+      writer.jsonValue(rawJson);
+    }
+  }
+
+  private static void writeOptionalString(JsonWriter writer, String value) throws IOException {
+    if (value == null) {
+      writer.nullValue();
+    } else {
+      writer.value(value);
+    }
+  }
+
+  private static void writeOptionalLong(JsonWriter writer, Long value) throws IOException {
+    if (value == null) {
+      writer.nullValue();
+    } else {
+      writer.value(value.longValue());
+    }
+  }
+
+  @FunctionalInterface
+  private interface RowWriter {
+    void write(JsonWriter writer) throws IOException;
   }
 
   /**
