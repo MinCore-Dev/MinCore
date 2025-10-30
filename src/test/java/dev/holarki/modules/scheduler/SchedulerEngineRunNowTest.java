@@ -4,6 +4,7 @@ package dev.holarki.modules.scheduler;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import dev.holarki.core.Metrics;
 import dev.holarki.core.Services;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;

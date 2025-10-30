@@ -321,8 +321,17 @@ public final class SchedulerEngine implements SchedulerService {
       int dow = time.getDayOfWeek().getValue() % 7; // Sunday=0
       boolean dayMatches = days.matches(time.getDayOfMonth());
       boolean dowMatches = dows.matches(dow);
-      boolean domDowMatches =
-          days.wildcard() || dows.wildcard() ? dayMatches && dowMatches : dayMatches || dowMatches;
+      boolean domDowMatches;
+      if (days.wildcard() && dows.wildcard()) {
+        domDowMatches = true;
+      } else if (days.wildcard()) {
+        domDowMatches = dowMatches;
+      } else if (dows.wildcard()) {
+        domDowMatches = dayMatches;
+      } else {
+        boolean allowDowFallback = time.getDayOfMonth() <= 7;
+        domDowMatches = dayMatches || (allowDowFallback && dowMatches);
+      }
       return seconds.matches(time.getSecond())
           && minutes.matches(time.getMinute())
           && hours.matches(time.getHour())

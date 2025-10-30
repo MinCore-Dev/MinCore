@@ -357,11 +357,11 @@ final class BackupCycleTest {
       UUID alpha = UUID.fromString("00000000-0000-0000-0000-000000000001");
       UUID bravo = UUID.fromString("00000000-0000-0000-0000-000000000002");
 
-      try (PreparedStatement ps =
-          c.prepareStatement(
-              "INSERT INTO players("
-                  + "uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s) "
-                  + "VALUES(?, ?, ?, ?, ?, ?)"); ) {
+      String insertPlayersSql =
+          "INSERT INTO players("
+              + "uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s) "
+              + "VALUES(?, ?, ?, ?, ?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertPlayersSql)) {
         ps.setBytes(1, Uuids.toBytes(alpha));
         ps.setString(2, "Alpha");
         ps.setLong(3, 2_500L);
@@ -379,8 +379,8 @@ final class BackupCycleTest {
         ps.executeUpdate();
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement("INSERT INTO player_event_seq(uuid, seq) VALUES(?, ?)"); ) {
+      String insertEventSeqSql = "INSERT INTO player_event_seq(uuid, seq) VALUES(?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertEventSeqSql)) {
         ps.setBytes(1, Uuids.toBytes(alpha));
         ps.setLong(2, 42L);
         ps.executeUpdate();
@@ -390,11 +390,11 @@ final class BackupCycleTest {
         ps.executeUpdate();
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement(
-              "INSERT INTO player_attributes("
-                  + "owner_uuid, attr_key, value_json, created_at_s, updated_at_s) "
-                  + "VALUES(?, ?, ?, ?, ?)"); ) {
+      String insertAttributesSql =
+          "INSERT INTO player_attributes("
+              + "owner_uuid, attr_key, value_json, created_at_s, updated_at_s) "
+              + "VALUES(?, ?, ?, ?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertAttributesSql)) {
         ps.setBytes(1, Uuids.toBytes(alpha));
         ps.setString(2, "title");
         ps.setString(3, "{\"rank\":\"captain\"}");
@@ -410,12 +410,12 @@ final class BackupCycleTest {
         ps.executeUpdate();
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement(
-              "INSERT INTO core_ledger("
-                  + "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
-                  + "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) "
-                  + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"); ) {
+      String insertLedgerSql =
+          "INSERT INTO core_ledger("
+              + "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, "
+              + "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) "
+              + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertLedgerSql)) {
         ps.setLong(1, 3_000L);
         ps.setString(2, "test-module");
         ps.setString(3, "deposit");
@@ -501,19 +501,19 @@ final class BackupCycleTest {
         ps.executeUpdate();
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement("INSERT INTO player_event_seq(uuid, seq) VALUES(?, ?)"); ) {
+      String insertEventSeqSql = "INSERT INTO player_event_seq(uuid, seq) VALUES(?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertEventSeqSql)) {
         ps.setBytes(1, Uuids.toBytes(playerId));
         ps.setLong(2, 7L);
         ps.executeUpdate();
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement(
-              "INSERT INTO core_ledger(" +
-                  "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, " +
-                  "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) " +
-                  "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")); ) {
+      String insertLedgerSql =
+          "INSERT INTO core_ledger(" +
+              "ts_s, module_id, op, from_uuid, to_uuid, amount, reason, ok, code, seq, " +
+              "idem_scope, idem_key_hash, old_units, new_units, server_node, extra_json) " +
+              "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertLedgerSql)) {
         ps.setLong(1, 9_000L);
         ps.setString(2, "control-module");
         ps.setString(3, "deposit");
@@ -550,11 +550,11 @@ final class BackupCycleTest {
         st.executeUpdate("DELETE FROM core_requests");
       }
 
-      try (PreparedStatement ps =
-          c.prepareStatement(
-              "INSERT INTO players("
-                  + "uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s) "
-                  + "VALUES(?, ?, ?, ?, ?, ?)"); ) {
+      String insertPlayerSql =
+          "INSERT INTO players("
+              + "uuid, name, balance_units, created_at_s, updated_at_s, seen_at_s) "
+              + "VALUES(?, ?, ?, ?, ?, ?)";
+      try (PreparedStatement ps = c.prepareStatement(insertPlayerSql)) {
         ps.setBytes(1, Uuids.toBytes(UUID.fromString("99999999-9999-9999-9999-999999999999")));
         ps.setString(2, "Corrupted");
         ps.setLong(3, 123L);
