@@ -90,7 +90,22 @@ class BackupImporterTest {
         ps.executeUpdate();
       }
 
+      try (Connection c =
+              DriverManager.getConnection(jdbcUrl, MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD);
+          PreparedStatement ps =
+              c.prepareStatement(
+                  "INSERT INTO player_attributes(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) "
+                      + "VALUES(?,?,?,?,?)")) {
+        ps.setBytes(1, liveBytes);
+        ps.setString(2, "prefs.color");
+        ps.setString(3, "{\"color\":\"live\"}");
+        ps.setLong(4, liveCreated);
+        ps.setLong(5, liveCreated);
+        ps.executeUpdate();
+      }
+
       UUID newId = UUID.randomUUID();
+      byte[] newBytes = Uuids.toBytes(newId);
       long snapshotCreated = liveCreated - 10;
 
       String header =
@@ -113,8 +128,24 @@ class BackupImporterTest {
               snapshotCreated,
               snapshotCreated);
 
+      String liveAttrLine =
+          String.format(
+              "{\"table\":\"player_attributes\",\"owner\":\"%s\",\"key\":\"prefs.color\",\"value\":{\"color\":\"snapshot\"},\"createdAt\":%d,\"updatedAt\":%d}\n",
+              liveId,
+              snapshotCreated,
+              snapshotCreated);
+      String newAttrLine =
+          String.format(
+              "{\"table\":\"player_attributes\",\"owner\":\"%s\",\"key\":\"prefs.color\",\"value\":{\"color\":\"new\"},\"createdAt\":%d,\"updatedAt\":%d}\n",
+              newId,
+              snapshotCreated,
+              snapshotCreated);
+
       Path snapshot = tempDir.resolve("merge.jsonl");
-      Files.writeString(snapshot, header + livePlayerLine + newPlayerLine, StandardCharsets.UTF_8);
+      Files.writeString(
+          snapshot,
+          header + livePlayerLine + newPlayerLine + liveAttrLine + newAttrLine,
+          StandardCharsets.UTF_8);
 
       BackupImporter.restore(services, snapshot, BackupImporter.Mode.MERGE, null, false, false);
 
@@ -132,11 +163,37 @@ class BackupImporterTest {
 
         try (PreparedStatement ps =
             c.prepareStatement("SELECT name,balance_units FROM players WHERE uuid=?")) {
-          ps.setBytes(1, Uuids.toBytes(newId));
+          ps.setBytes(1, newBytes);
           try (ResultSet rs = ps.executeQuery()) {
             assertTrue(rs.next());
             assertEquals("NewPlayer", rs.getString("name"));
             assertEquals(250L, rs.getLong("balance_units"));
+          }
+        }
+
+        try (PreparedStatement ps =
+            c.prepareStatement(
+                "SELECT value_json,created_at_s,updated_at_s FROM player_attributes WHERE owner_uuid=? AND attr_key=?")) {
+          ps.setBytes(1, liveBytes);
+          ps.setString(2, "prefs.color");
+          try (ResultSet rs = ps.executeQuery()) {
+            assertTrue(rs.next());
+            assertEquals("{\"color\":\"live\"}", rs.getString("value_json"));
+            assertEquals(liveCreated, rs.getLong("created_at_s"));
+            assertEquals(liveCreated, rs.getLong("updated_at_s"));
+          }
+        }
+
+        try (PreparedStatement ps =
+            c.prepareStatement(
+                "SELECT value_json,created_at_s,updated_at_s FROM player_attributes WHERE owner_uuid=? AND attr_key=?")) {
+          ps.setBytes(1, newBytes);
+          ps.setString(2, "prefs.color");
+          try (ResultSet rs = ps.executeQuery()) {
+            assertTrue(rs.next());
+            assertEquals("{\"color\":\"new\"}", rs.getString("value_json"));
+            assertEquals(snapshotCreated, rs.getLong("created_at_s"));
+            assertEquals(snapshotCreated, rs.getLong("updated_at_s"));
           }
         }
       }
