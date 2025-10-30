@@ -49,6 +49,7 @@ final class AdminOptionParserTest {
     assertNull(options.strategy);
     assertTrue(options.overwrite);
     assertFalse(options.skipFkChecks);
+    assertFalse(options.allowMissingChecksum);
   }
 
   @Test
@@ -59,6 +60,15 @@ final class AdminOptionParserTest {
     assertEquals(BackupImporter.FreshStrategy.STAGING, options.strategy);
     assertEquals(Path.of("dir with space"), options.from);
     assertTrue(options.skipFkChecks);
+    assertFalse(options.allowMissingChecksum);
+  }
+
+  @Test
+  void restoreOptionsAllowMissingChecksumFlag() {
+    RestoreOptions options =
+        RestoreOptions.parse("--mode fresh --allow-missing-checksum --atomic");
+    assertTrue(options.allowMissingChecksum);
+    assertEquals(BackupImporter.Mode.FRESH, options.mode);
   }
 
   @Test

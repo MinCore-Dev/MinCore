@@ -23,7 +23,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,7 @@ class BackupImporterTest {
                 snapshot,
                 BackupImporter.Mode.FRESH,
                 BackupImporter.FreshStrategy.ATOMIC,
+                false,
                 false,
                 false));
   }
@@ -146,8 +149,9 @@ class BackupImporterTest {
           snapshot,
           header + livePlayerLine + newPlayerLine + liveAttrLine + newAttrLine,
           StandardCharsets.UTF_8);
+      writeChecksum(snapshot);
 
-      BackupImporter.restore(services, snapshot, BackupImporter.Mode.MERGE, null, false, false);
+      BackupImporter.restore(services, snapshot, BackupImporter.Mode.MERGE, null, false, false, false);
 
       try (Connection c =
               DriverManager.getConnection(jdbcUrl, MariaDbTestSupport.USER, MariaDbTestSupport.PASSWORD)) {
@@ -200,6 +204,88 @@ class BackupImporterTest {
     } finally {
       MariaDbTestSupport.dropDatabase(dbName);
     }
+  }
+
+  @Test
+  void missingChecksumFailsFast(@TempDir Path tempDir) throws Exception {
+    Path snapshot = tempDir.resolve("missing.jsonl");
+    Files.writeString(
+        snapshot,
+        "{" +
+            "\"version\":\"jsonl/v1\"," +
+            "\"generatedAt\":\"" + Instant.EPOCH + "\"," +
+            "\"defaultZone\":\"UTC\"," +
+            "\"schemaVersion\":" + Migrations.currentVersion() +
+            "}\n",
+        StandardCharsets.UTF_8);
+
+    Services services = new GuardedServices();
+
+    IOException ex =
+        assertThrows(
+            IOException.class,
+            () ->
+                BackupImporter.restore(
+                    services,
+                    snapshot,
+                    BackupImporter.Mode.FRESH,
+                    BackupImporter.FreshStrategy.ATOMIC,
+                    false,
+                    false,
+                    false));
+    assertTrue(
+        ex.getMessage() != null && ex.getMessage().contains("checksum"),
+        "expected checksum failure message");
+  }
+
+  @Test
+  void allowMissingChecksumOverrideContinues(@TempDir Path tempDir) throws Exception {
+    String dbName = "missing_checksum_override_" + Long.toUnsignedString(System.nanoTime());
+    MariaDbTestSupport.ensureDatabase(dbName);
+    String jdbcUrl = MariaDbTestSupport.jdbcUrl(dbName);
+    try {
+      ModuleDatabase moduleDb = new SimpleModuleDatabase(jdbcUrl);
+      Services services = new DatabaseServices(moduleDb);
+
+      Migrations.apply(services);
+
+      Path snapshot = tempDir.resolve("override.jsonl");
+      Files.writeString(
+          snapshot,
+          "{" +
+              "\"version\":\"jsonl/v1\"," +
+              "\"generatedAt\":\"" + Instant.EPOCH + "\"," +
+              "\"defaultZone\":\"UTC\"," +
+              "\"schemaVersion\":" + Migrations.currentVersion() +
+              "}\n",
+          StandardCharsets.UTF_8);
+
+      BackupImporter.Result result =
+          BackupImporter.restore(
+              services,
+              snapshot,
+              BackupImporter.Mode.MERGE,
+              null,
+              false,
+              false,
+              true);
+
+      assertEquals(0L, result.players());
+      assertEquals(0L, result.attributes());
+      assertEquals(0L, result.eventSeq());
+      assertEquals(0L, result.ledger());
+    } finally {
+      MariaDbTestSupport.dropDatabase(dbName);
+    }
+  }
+
+  private static void writeChecksum(Path snapshot) throws Exception {
+    MessageDigest sha = MessageDigest.getInstance("SHA-256");
+    String digest = HexFormat.of().formatHex(sha.digest(Files.readAllBytes(snapshot)));
+    Files.writeString(
+        snapshot.resolveSibling(snapshot.getFileName().toString() + ".sha256"),
+        digest,
+        StandardCharsets.UTF_8);
   }
 
   private static final class GuardedServices implements Services {

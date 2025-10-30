@@ -116,6 +116,7 @@ final class BackupCycleTest {
               BackupImporter.Mode.FRESH,
               BackupImporter.FreshStrategy.ATOMIC,
               false,
+              false,
               false);
 
       assertNotNull(restoreResult);
@@ -298,10 +299,16 @@ final class BackupCycleTest {
             ledgerSnapshotLine(ts, module, op, fromTwo, toTwo, reason, 0L, 200L));
         writer.newLine();
       }
+      MessageDigest sha = MessageDigest.getInstance("SHA-256");
+      String digest = HexFormat.of().formatHex(sha.digest(Files.readAllBytes(snapshot)));
+      Files.writeString(
+          snapshot.resolveSibling(snapshot.getFileName().toString() + ".sha256"),
+          digest,
+          StandardCharsets.UTF_8);
 
       BackupImporter.Result result =
           BackupImporter.restore(
-              services, snapshot, BackupImporter.Mode.MERGE, null, false, false);
+              services, snapshot, BackupImporter.Mode.MERGE, null, false, false, false);
 
       assertNotNull(result);
       List<LedgerRow> ledgerRows = readLedger();
@@ -355,6 +362,12 @@ final class BackupCycleTest {
         writer.write(ledger);
         writer.newLine();
       }
+      MessageDigest sha = MessageDigest.getInstance("SHA-256");
+      String digest = HexFormat.of().formatHex(sha.digest(Files.readAllBytes(snapshot)));
+      Files.writeString(
+          snapshot.resolveSibling(snapshot.getFileName().toString() + ".sha256"),
+          digest,
+          StandardCharsets.UTF_8);
 
       BackupImporter.Result result =
           BackupImporter.restore(
@@ -362,6 +375,7 @@ final class BackupCycleTest {
               snapshot,
               BackupImporter.Mode.FRESH,
               BackupImporter.FreshStrategy.ATOMIC,
+              false,
               false,
               false);
 

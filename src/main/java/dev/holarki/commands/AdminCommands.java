@@ -374,6 +374,10 @@ public final class AdminCommands {
                 opts.mode.name().toLowerCase(Locale.ROOT),
                 opts.from.toString()),
         false);
+    if (opts.allowMissingChecksum) {
+      src.sendFeedback(
+          () -> Text.translatable("holarki.cmd.restore.checksum_override"), false);
+    }
     final MinecraftServer server = src.getServer();
     try {
       services.scheduler()
@@ -387,7 +391,8 @@ public final class AdminCommands {
                           opts.mode,
                           opts.strategy,
                           opts.overwrite,
-                          opts.skipFkChecks);
+                          opts.skipFkChecks,
+                          opts.allowMissingChecksum);
                   runOnServerThread(
                       server,
                       () ->

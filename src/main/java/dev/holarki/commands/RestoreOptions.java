@@ -12,18 +12,21 @@ final class RestoreOptions {
   final Path from;
   final boolean overwrite;
   final boolean skipFkChecks;
+  final boolean allowMissingChecksum;
 
   private RestoreOptions(
       BackupImporter.Mode mode,
       BackupImporter.FreshStrategy strategy,
       Path from,
       boolean overwrite,
-      boolean skipFkChecks) {
+      boolean skipFkChecks,
+      boolean allowMissingChecksum) {
     this.mode = mode;
     this.strategy = strategy;
     this.from = from;
     this.overwrite = overwrite;
     this.skipFkChecks = skipFkChecks;
+    this.allowMissingChecksum = allowMissingChecksum;
   }
 
   static RestoreOptions parse(String raw) {
@@ -32,6 +35,7 @@ final class RestoreOptions {
     Path from = null;
     boolean overwrite = false;
     boolean skipFkChecks = false;
+    boolean allowMissingChecksum = false;
 
     AdminOptionParser parser = AdminOptionParser.from(raw);
     List<AdminOptionParser.ParsedOption<RestoreFlag>> parsed =
@@ -52,6 +56,7 @@ final class RestoreOptions {
         case FROM -> from = Path.of(option.value());
         case OVERWRITE -> overwrite = true;
         case SKIP_FK_CHECKS -> skipFkChecks = true;
+        case ALLOW_MISSING_CHECKSUM -> allowMissingChecksum = true;
       }
     }
 
@@ -62,7 +67,7 @@ final class RestoreOptions {
       strategy = null;
     }
 
-    return new RestoreOptions(mode, strategy, from, overwrite, skipFkChecks);
+    return new RestoreOptions(mode, strategy, from, overwrite, skipFkChecks, allowMissingChecksum);
   }
 
   private enum RestoreFlag implements AdminOptionParser.NamedOption {
@@ -71,7 +76,8 @@ final class RestoreOptions {
     STAGING(false, null, List.of("--staging")),
     FROM(true, "--from requires a path", List.of("--from")),
     OVERWRITE(false, null, List.of("--overwrite")),
-    SKIP_FK_CHECKS(false, null, List.of("--skip-fk-checks", "--skip-fk"));
+    SKIP_FK_CHECKS(false, null, List.of("--skip-fk-checks", "--skip-fk")),
+    ALLOW_MISSING_CHECKSUM(false, null, List.of("--allow-missing-checksum"));
 
     private final boolean requiresValue;
     private final String missingValueMessage;
