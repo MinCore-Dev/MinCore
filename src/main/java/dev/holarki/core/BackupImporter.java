@@ -21,6 +21,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.time.Instant;
@@ -938,6 +939,7 @@ public final class BackupImporter {
     private final PreparedStatement insertPlayer;
     private final PreparedStatement selectPlayer;
     private final PreparedStatement upsertAttr;
+    private final PreparedStatement insertAttr;
     private final PreparedStatement insertLedger;
     private final PreparedStatement existsLedger;
     private final PreparedStatement deleteLedger;
@@ -964,6 +966,10 @@ public final class BackupImporter {
                   + "VALUES(?,?,?,?,?) "
                   + "ON DUPLICATE KEY UPDATE value_json=VALUES(value_json), "
                   + "updated_at_s=VALUES(updated_at_s), created_at_s=LEAST(created_at_s, VALUES(created_at_s))");
+      this.insertAttr =
+          c.prepareStatement(
+              "INSERT INTO player_attributes(owner_uuid,attr_key,value_json,created_at_s,updated_at_s) "
+                  + "VALUES(?,?,?,?,?)");
       this.insertLedger =
           c.prepareStatement(
               "INSERT INTO core_ledger("
@@ -1021,12 +1027,28 @@ public final class BackupImporter {
       if (owner == null) {
         throw new SQLException("missing attribute owner uuid in snapshot");
       }
-      upsertAttr.setBytes(1, owner);
-      upsertAttr.setString(2, Objects.requireNonNullElse(stringOrNull(obj, "key"), ""));
+      String key = Objects.requireNonNullElse(stringOrNull(obj, "key"), "");
       String value = obj.get("value").toString();
+      long createdAt = longOrZero(obj, "createdAt");
+      long updatedAt = longOrZero(obj, "updatedAt");
+      if (!overwrite) {
+        insertAttr.setBytes(1, owner);
+        insertAttr.setString(2, key);
+        insertAttr.setString(3, value);
+        insertAttr.setLong(4, createdAt);
+        insertAttr.setLong(5, updatedAt);
+        try {
+          insertAttr.executeUpdate();
+        } catch (SQLIntegrityConstraintViolationException duplicate) {
+          // Attribute already exists; preserve the live value when not overwriting.
+        }
+        return;
+      }
+      upsertAttr.setBytes(1, owner);
+      upsertAttr.setString(2, key);
       upsertAttr.setString(3, value);
-      upsertAttr.setLong(4, longOrZero(obj, "createdAt"));
-      upsertAttr.setLong(5, longOrZero(obj, "updatedAt"));
+      upsertAttr.setLong(4, createdAt);
+      upsertAttr.setLong(5, updatedAt);
       upsertAttr.executeUpdate();
     }
 
@@ -1195,6 +1217,7 @@ public final class BackupImporter {
       close(deleteLedger);
       close(existsLedger);
       close(insertLedger);
+      close(insertAttr);
       close(upsertAttr);
       close(insertPlayer);
       close(selectPlayer);
