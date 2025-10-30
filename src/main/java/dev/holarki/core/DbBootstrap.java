@@ -32,7 +32,7 @@ final class DbBootstrap {
    */
   static void ensureDatabaseExists(String jdbcUrl, String user, String pass) throws SQLException {
     Parsed p = Parsed.from(jdbcUrl);
-    String rootUrl = "jdbc:mariadb://" + p.hostPort + "/"; // connect without a database
+    String rootUrl = p.bootstrapJdbcUrl(); // connect without a database
     LOG.warn("(holarki) database '{}' missing; attempting to create via {}", p.db, rootUrl);
     try (Connection c = DriverManager.getConnection(rootUrl, user, pass);
         var st = c.createStatement()) {
@@ -48,10 +48,14 @@ final class DbBootstrap {
   private static final class Parsed {
     final String hostPort;
     final String db;
+    final String query;
+    final boolean hasQuery;
 
-    private Parsed(String hostPort, String db) {
+    private Parsed(String hostPort, String db, String query, boolean hasQuery) {
       this.hostPort = hostPort;
       this.db = db;
+      this.query = query;
+      this.hasQuery = hasQuery;
     }
 
     static Parsed from(String url) {
@@ -63,9 +67,26 @@ final class DbBootstrap {
       String hostPort = s.substring(0, slash);
       String rest = s.substring(slash + 1);
       int q = rest.indexOf('?');
-      String db = (q >= 0) ? rest.substring(0, q) : rest;
+      boolean hasQuery = q >= 0;
+      String db = hasQuery ? rest.substring(0, q) : rest;
+      String query = hasQuery ? rest.substring(q + 1) : null;
       if (db.isEmpty()) throw new IllegalArgumentException("No database name in JDBC url: " + url);
-      return new Parsed(hostPort, db);
+      return new Parsed(hostPort, db, query, hasQuery);
     }
+
+    String bootstrapJdbcUrl() {
+      StringBuilder root = new StringBuilder("jdbc:mariadb://").append(hostPort).append("/");
+      if (hasQuery) {
+        root.append('?');
+        if (query != null && !query.isEmpty()) {
+          root.append(query);
+        }
+      }
+      return root.toString();
+    }
+  }
+
+  static String buildBootstrapUrl(String jdbcUrl) {
+    return Parsed.from(jdbcUrl).bootstrapJdbcUrl();
   }
 }
