@@ -28,6 +28,7 @@ class ModuleDatabaseImplTest {
   @Mock private Metrics metrics;
   @Mock private Connection connection;
   @Mock private PreparedStatement statement;
+  @Mock private PreparedStatement releaseStatement;
   @Mock private ResultSet resultSet;
 
   @InjectMocks private ModuleDatabaseImpl moduleDatabase;
@@ -49,6 +50,34 @@ class ModuleDatabaseImplTest {
     verify(dbHealth).markFailure(any(SQLException.class));
     verify(metrics).recordModuleOperation(false, ErrorCode.CONNECTION_LOST);
     verify(dbHealth, never()).markSuccess();
+    verify(connection).close();
+  }
+
+  @Test
+  void tryAdvisoryLockDuplicateAcquireCountsAsSuccess() throws Exception {
+    when(dbHealth.allowWrite(anyString())).thenReturn(true);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.prepareStatement("SELECT GET_LOCK(?, 0)")).thenReturn(statement);
+    when(connection.prepareStatement("SELECT RELEASE_LOCK(?)")).thenReturn(releaseStatement);
+    when(statement.executeQuery()).thenReturn(resultSet);
+    when(resultSet.next()).thenReturn(true);
+    when(resultSet.getInt(1)).thenReturn(1);
+    when(resultSet.wasNull()).thenReturn(false);
+    when(releaseStatement.executeQuery()).thenReturn(resultSet);
+
+    var field = ModuleDatabaseImpl.class.getDeclaredField("lockConnections");
+    field.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var lockConnections = (java.util.Map<String, Connection>) field.get(moduleDatabase);
+    lockConnections.put("test_lock", connection);
+
+    boolean acquired = moduleDatabase.tryAdvisoryLock("test_lock");
+
+    assertFalse(acquired);
+    verify(dbHealth).markSuccess();
+    verify(metrics).recordModuleOperation(true, null);
+    verify(metrics, never()).recordModuleOperation(false, null);
+    verify(dbHealth, never()).markFailure(any(SQLException.class));
     verify(connection).close();
   }
 }
