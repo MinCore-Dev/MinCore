@@ -48,6 +48,7 @@ public final class HolarkiMod implements ModInitializer {
   private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
   private static Config CONFIG;
   private static ModuleManager MODULES;
+  private static ModuleManagerFactory moduleManagerFactory = ModuleManager::new;
 
   /** Public no-arg constructor for Fabric. */
   public HolarkiMod() {}
@@ -65,7 +66,20 @@ public final class HolarkiMod implements ModInitializer {
     LocaleManager.initialize(cfg);
     CONFIG = cfg;
     Services services = CoreServices.start(cfg);
-    MODULES = new ModuleManager(cfg, services);
+    initializeWithServices(cfg, services);
+  }
+
+  static void initializeWithServices(Config cfg, Services services) {
+    try {
+      performInitialization(cfg, services);
+    } catch (Throwable t) {
+      handleInitializationFailure(services, t);
+      throw t;
+    }
+  }
+
+  private static void performInitialization(Config cfg, Services services) {
+    MODULES = moduleManagerFactory.create(cfg, services);
 
     // 3) DDL (idempotent; safe to run every boot)
     Migrations.apply(services);
@@ -151,6 +165,33 @@ public final class HolarkiMod implements ModInitializer {
     LOG.info("(holarki) initialized");
   }
 
+  private static void handleInitializationFailure(Services services, Throwable cause) {
+    ModuleManager modules = MODULES;
+    if (modules != null) {
+      try {
+        modules.close();
+      } catch (Exception closeError) {
+        cause.addSuppressed(closeError);
+      } finally {
+        MODULES = null;
+      }
+    }
+
+    try {
+      services.shutdown();
+    } catch (Exception shutdownError) {
+      cause.addSuppressed(shutdownError);
+    }
+  }
+
+  static void resetModuleManagerFactory() {
+    moduleManagerFactory = ModuleManager::new;
+  }
+
+  static void setModuleManagerFactory(ModuleManagerFactory factory) {
+    moduleManagerFactory = factory == null ? ModuleManager::new : factory;
+  }
+
   /**
    * Returns the currently loaded runtime configuration.
    *
@@ -158,5 +199,10 @@ public final class HolarkiMod implements ModInitializer {
    */
   public static Config config() {
     return CONFIG;
+  }
+
+  @FunctionalInterface
+  interface ModuleManagerFactory {
+    ModuleManager create(Config config, Services services);
   }
 }
