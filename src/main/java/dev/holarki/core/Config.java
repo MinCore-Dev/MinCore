@@ -243,12 +243,6 @@ public final class Config {
       ModulesParseResult modulesResult =
           parseModules(optObject(root, "modules"), core, time.display().autoDetect());
       Modules modules = modulesResult.modules();
-      time =
-          new Time(
-              new Display(
-                  time.display().defaultZone(),
-                  time.display().allowPlayerOverride(),
-                  modules.timezone().autoDetect().enabled()));
       I18n i18n = parseI18n(optObject(core, "i18n"));
       Log log = parseLog(optObject(core, "log"));
 
@@ -729,7 +723,9 @@ public final class Config {
             "modules.scheduler.enabled=false requires all jobs to be disabled");
       }
     }
-    if (modules.timezone().autoDetect().enabled()) {
+    boolean coreAutoDetect = time.display().autoDetect();
+    boolean moduleAutoDetect = modules.timezone().autoDetect().enabled();
+    if (moduleAutoDetect) {
       if (!modules.timezone().enabled()) {
         throw new IllegalStateException(
             "modules.timezone.autoDetect.enabled requires modules.timezone.enabled=true");
@@ -739,7 +735,11 @@ public final class Config {
       ensureValidPath(
           modules.timezone().autoDetect().databasePath(), "modules.timezone.autoDetect.database");
     }
-    if (!modules.timezone().enabled() && time.display().autoDetect()) {
+    if (coreAutoDetect != moduleAutoDetect) {
+      throw new IllegalStateException(
+          "core.time.display.autoDetect must match modules.timezone.autoDetect.enabled");
+    }
+    if (!modules.timezone().enabled() && coreAutoDetect) {
       throw new IllegalStateException(
           "modules.timezone.enabled=false requires core.time.display.autoDetect=false");
     }

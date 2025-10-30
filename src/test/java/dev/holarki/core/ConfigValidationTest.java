@@ -106,7 +106,32 @@ class ConfigValidationTest {
     assertEquals("0 */5 * * * *", parsed.jobs().cleanup().idempotencySweep().schedule());
   }
 
+  @Test
+  void mismatchedAutoDetectFlagsRejected(@TempDir Path tempDir) throws IOException {
+    Path configPath = tempDir.resolve("holarki.json5");
+    String config =
+        configJson(0, "0 45 4 * * *", "0 30 4 * * *", true, false)
+            .replace("\"allowPlayerOverride\": false", "\"allowPlayerOverride\": true");
+    Files.writeString(configPath, config, StandardCharsets.UTF_8);
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> Config.loadOrWriteDefault(configPath));
+
+    assertEquals(
+        "core.time.display.autoDetect must match modules.timezone.autoDetect.enabled",
+        thrown.getMessage());
+  }
+
   private static String configJson(int retentionDays, String backupSchedule, String cleanupSchedule) {
+    return configJson(retentionDays, backupSchedule, cleanupSchedule, false, false);
+  }
+
+  private static String configJson(
+      int retentionDays,
+      String backupSchedule,
+      String cleanupSchedule,
+      boolean coreAutoDetect,
+      boolean moduleAutoDetect) {
     return (
             """
             {
@@ -146,7 +171,7 @@ class ConfigValidationTest {
                 "timezone": {
                   "enabled": true,
                   "autoDetect": {
-                    "enabled": false,
+                    "enabled": %s,
                     "database": "./config/holarki.geoip.mmdb"
                   }
                 },
@@ -177,7 +202,7 @@ class ConfigValidationTest {
                   "display": {
                     "defaultZone": "UTC",
                     "allowPlayerOverride": false,
-                    "autoDetect": false
+                    "autoDetect": %s
                   }
                 },
                 "i18n": {
@@ -193,6 +218,11 @@ class ConfigValidationTest {
               }
             }
             """
-                .formatted(retentionDays, backupSchedule, cleanupSchedule));
+                .formatted(
+                    retentionDays,
+                    backupSchedule,
+                    cleanupSchedule,
+                    moduleAutoDetect,
+                    coreAutoDetect));
   }
 }
