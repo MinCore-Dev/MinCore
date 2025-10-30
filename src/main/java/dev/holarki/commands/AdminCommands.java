@@ -46,6 +46,11 @@ public final class AdminCommands {
 
   private AdminCommands() {}
 
+  /** Clears registered command extensions so subsequent registrations start from a clean slate. */
+  public static void resetExtensions() {
+    EXTENSIONS.clear();
+  }
+
   private static void extend(ModuleContext.AdminCommandExtension extension) {
     Objects.requireNonNull(extension, "extension");
     EXTENSIONS.add(extension);
@@ -64,6 +69,12 @@ public final class AdminCommands {
   public static void register(final Services services, final ModuleStateView modules) {
     Objects.requireNonNull(services, "services");
     Objects.requireNonNull(modules, "modules");
+    List<ModuleContext.AdminCommandExtension> extensions =
+        new ArrayList<>(modules.adminCommandExtensions());
+    resetExtensions();
+    for (ModuleContext.AdminCommandExtension extension : extensions) {
+      extend(extension);
+    }
     CommandRegistrationCallback.EVENT.register(
         (CommandDispatcher<ServerCommandSource> dispatcher,
             CommandRegistryAccess registryAccess,

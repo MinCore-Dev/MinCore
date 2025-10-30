@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,12 +38,15 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
   private final Map<Class<?>, Object> publishedServices = new HashMap<>();
   private final Map<String, Set<Class<?>>> moduleServices = new HashMap<>();
   private final ModuleContext context;
+  private final List<ModuleContext.AdminCommandExtension> adminCommandExtensions =
+      new CopyOnWriteArrayList<>();
   private boolean started;
 
   public ModuleManager(Config config, Services services) {
     this.config = Objects.requireNonNull(config, "config");
     this.services = Objects.requireNonNull(services, "services");
     Predicate<String> predicate = this::isActive;
+    Consumer<ModuleContext.AdminCommandExtension> adminRegistrar = AdminCommands.registrar();
     this.context =
         new ModuleContext(
             config,
@@ -49,7 +54,7 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
             this::publishLedger,
             predicate,
             this::publishService,
-            AdminCommands.registrar());
+            extension -> registerAdminCommandExtension(adminRegistrar, extension));
   }
 
   /** Starts the requested module identifiers. */
@@ -90,6 +95,8 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
       }
       active.clear();
       startOrder.clear();
+      adminCommandExtensions.clear();
+      AdminCommands.resetExtensions();
       throw new RuntimeException("Failed to start modules", e);
     }
   }
@@ -120,6 +127,13 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
     startOrder.clear();
     started = false;
     HolarkiApi.publishLedger(null);
+    adminCommandExtensions.clear();
+    AdminCommands.resetExtensions();
+  }
+
+  @Override
+  public synchronized List<ModuleContext.AdminCommandExtension> adminCommandExtensions() {
+    return List.copyOf(adminCommandExtensions);
   }
 
   @Override
@@ -163,5 +177,13 @@ public final class ModuleManager implements AutoCloseable, ModuleStateView {
         publishedServices.remove(type);
       }
     }
+  }
+
+  private void registerAdminCommandExtension(
+      Consumer<ModuleContext.AdminCommandExtension> registrar,
+      ModuleContext.AdminCommandExtension extension) {
+    Objects.requireNonNull(extension, "extension");
+    adminCommandExtensions.add(extension);
+    registrar.accept(extension);
   }
 }
