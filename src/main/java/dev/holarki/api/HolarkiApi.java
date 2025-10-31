@@ -21,8 +21,8 @@ import dev.holarki.api.storage.ModuleDatabase;
  * responsible for wiring.
  */
 public final class HolarkiApi {
-  private static dev.holarki.core.Services services;
-  private static Ledger ledger;
+  private static volatile dev.holarki.core.Services services;
+  private static volatile Ledger ledger;
 
   private HolarkiApi() {}
 

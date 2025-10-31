@@ -8,14 +8,15 @@ import java.util.List;
 import java.util.Locale;
 
 /** Builds minimal {@link Config} instances for integration tests. */
-final class TestConfigFactory {
+public final class TestConfigFactory {
   private TestConfigFactory() {}
 
-  static Config create(String dbName, Path backupDir) throws Exception {
+  public static Config create(String dbName, Path backupDir) throws Exception {
     return create(dbName, backupDir, 30);
   }
 
-  static Config create(String dbName, Path backupDir, int sweepRetentionDays) throws Exception {
+  public static Config create(String dbName, Path backupDir, int sweepRetentionDays)
+      throws Exception {
     Config.Db dbConfig =
         new Config.Db(
             "127.0.0.1",
