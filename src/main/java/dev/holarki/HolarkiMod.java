@@ -46,8 +46,8 @@ public final class HolarkiMod implements ModInitializer {
   public static final String MOD_ID = "holarki";
 
   private static final Logger LOG = LoggerFactory.getLogger(MOD_ID);
-  private static Config CONFIG;
-  private static ModuleManager MODULES;
+  private static volatile Config CONFIG;
+  private static volatile ModuleManager MODULES;
   private static ModuleManagerFactory moduleManagerFactory = ModuleManager::new;
 
   /** Public no-arg constructor for Fabric. */
