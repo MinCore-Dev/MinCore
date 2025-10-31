@@ -136,6 +136,8 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        String uuid = formatUuid(rs.getString("uuid"));
+        String name = rs.getString("name");
         long balance = rs.getLong("balance_units");
         long createdAt = rs.getLong("created_at_s");
         long updatedAt = rs.getLong("updated_at_s");
@@ -146,8 +148,8 @@ public final class BackupExporter {
             writer,
             json -> {
               json.name("table").value("players");
-              json.name("uuid").value(formatUuid(rs.getString("uuid")));
-              json.name("name").value(rs.getString("name"));
+              json.name("uuid").value(uuid);
+              json.name("name").value(name);
               json.name("balance").value(balance);
               json.name("createdAt").value(createdAt);
               json.name("updatedAt").value(updatedAt);
@@ -172,16 +174,21 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        String owner = formatUuid(rs.getString("owner_uuid"));
+        String key = rs.getString("attr_key");
+        String rawJson = rs.getString("value_json");
+        long createdAt = rs.getLong("created_at_s");
+        long updatedAt = rs.getLong("updated_at_s");
         writeJsonLine(
             writer,
             json -> {
               json.name("table").value("player_attributes");
-              json.name("owner").value(formatUuid(rs.getString("owner_uuid")));
-              json.name("key").value(rs.getString("attr_key"));
+              json.name("owner").value(owner);
+              json.name("key").value(key);
               json.name("value");
-              writeJsonValue(json, rs.getString("value_json"));
-              json.name("createdAt").value(rs.getLong("created_at_s"));
-              json.name("updatedAt").value(rs.getLong("updated_at_s"));
+              writeJsonValue(json, rawJson);
+              json.name("createdAt").value(createdAt);
+              json.name("updatedAt").value(updatedAt);
             });
         count++;
       }
@@ -196,12 +203,14 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        String uuid = formatUuid(rs.getString("uuid"));
+        long seqValue = rs.getLong("seq");
         writeJsonLine(
             writer,
             json -> {
               json.name("table").value("player_event_seq");
-              json.name("uuid").value(formatUuid(rs.getString("uuid")));
-              json.name("seq").value(rs.getLong("seq"));
+              json.name("uuid").value(uuid);
+              json.name("seq").value(seqValue);
             });
         count++;
       }
@@ -219,33 +228,47 @@ public final class BackupExporter {
         ResultSet rs = ps.executeQuery()) {
       long count = 0;
       while (rs.next()) {
+        long ts = rs.getLong("ts_s");
+        String module = rs.getString("module_id");
+        String op = rs.getString("op");
+        String from = formatUuid(rs.getString("from_uuid"));
+        String to = formatUuid(rs.getString("to_uuid"));
+        long amount = rs.getLong("amount");
+        String reason = rs.getString("reason");
+        boolean ok = rs.getBoolean("ok");
+        String code = rs.getString("code");
+        long seqValue = rs.getLong("seq");
+        String idemScope = rs.getString("idem_scope");
+        String idemKey = rs.getString("idem_key_hash");
         Object oldUnitsObj = rs.getObject("old_units");
         Object newUnitsObj = rs.getObject("new_units");
         Long oldUnits = oldUnitsObj == null ? null : ((Number) oldUnitsObj).longValue();
         Long newUnits = newUnitsObj == null ? null : ((Number) newUnitsObj).longValue();
+        String serverNode = rs.getString("server_node");
+        String extra = rs.getString("extra_json");
         writeJsonLine(
             writer,
             json -> {
               json.name("table").value("core_ledger");
-              json.name("ts").value(rs.getLong("ts_s"));
-              json.name("module").value(rs.getString("module_id"));
-              json.name("op").value(rs.getString("op"));
-              json.name("from").value(formatUuid(rs.getString("from_uuid")));
-              json.name("to").value(formatUuid(rs.getString("to_uuid")));
-              json.name("amount").value(rs.getLong("amount"));
-              json.name("reason").value(rs.getString("reason"));
-              json.name("ok").value(rs.getBoolean("ok"));
+              json.name("ts").value(ts);
+              json.name("module").value(module);
+              json.name("op").value(op);
+              json.name("from").value(from);
+              json.name("to").value(to);
+              json.name("amount").value(amount);
+              json.name("reason").value(reason);
+              json.name("ok").value(ok);
 
               json.name("code");
-              writeOptionalString(json, rs.getString("code"));
+              writeOptionalString(json, code);
 
-              json.name("seq").value(rs.getLong("seq"));
+              json.name("seq").value(seqValue);
 
               json.name("idemScope");
-              writeOptionalString(json, rs.getString("idem_scope"));
+              writeOptionalString(json, idemScope);
 
               json.name("idemKey");
-              writeOptionalString(json, rs.getString("idem_key_hash"));
+              writeOptionalString(json, idemKey);
 
               json.name("oldUnits");
               writeOptionalLong(json, oldUnits);
@@ -254,10 +277,10 @@ public final class BackupExporter {
               writeOptionalLong(json, newUnits);
 
               json.name("serverNode");
-              writeOptionalString(json, rs.getString("server_node"));
+              writeOptionalString(json, serverNode);
 
               json.name("extra");
-              writeJsonValue(json, rs.getString("extra_json"));
+              writeJsonValue(json, extra);
             });
         count++;
       }
