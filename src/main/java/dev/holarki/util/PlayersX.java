@@ -21,7 +21,10 @@ public final class PlayersX {
     if (name == null || name.isBlank()) {
       return Optional.empty();
     }
-    List<Players.PlayerRef> matches = HolarkiApi.players().byNameAll(name);
+    List<Players.PlayerRef> matches =
+        HolarkiApi.players().byNameAll(name).stream()
+            .filter(ref -> ref.name().equals(name))
+            .toList();
     if (matches.size() != 1) {
       return Optional.empty();
     }
